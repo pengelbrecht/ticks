@@ -370,6 +370,16 @@ declare namespace Cloudflare {
     SWEEP_MAX_TIER?: string;
     SWEEP_MAX_PROJECTS?: string;
     /**
+     * The UTC hour the daily loop digest is built at (tick zaw), 0-23.
+     *
+     * Unset on a real deployment: the default is 07:00 UTC. It must be an hour
+     * `[triggers] crons` actually covers, since the digest rides the sweeps'
+     * own trigger rather than declaring a second one. An unusable value is
+     * logged and ignored (src/loop-digest.ts) — a typo here must not be able
+     * to silence the thing whose job is reporting silence.
+     */
+    DIGEST_HOUR?: string;
+    /**
      * The listing a cron sweep reads the tracker's frontier from: every
      * `.tick/issues/<id>.json` at the default branch head (tick hye).
      *

@@ -247,6 +247,14 @@ SWEEP_MAX_PROJECTS = "4"
 # Hourly on the hour is the default because it is the coarsest schedule that
 # can serve an `0 4 * * 1-5` policy; every wake-up with no due sweep costs one
 # `.tick/runners.toml` read per enrolled project and nothing else.
+#
+# One of those wake-ups a day also builds the loop digest (tick zaw), which is
+# the only thing that ASKS whether the unattended loops are still working: a
+# sweep refusing every morning and a review run that never comments both stop
+# quietly otherwise. It rides this trigger rather than declaring a second one,
+# at `DIGEST_HOUR` (default 07:00 UTC), and sends nothing on the days it has
+# nothing to say. A deployment that changes DIGEST_HOUR must keep it an hour
+# these crons actually cover.
 [triggers]
 crons = ["0 * * * *"]
 

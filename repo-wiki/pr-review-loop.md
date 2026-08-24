@@ -202,3 +202,11 @@ UC5 step 1 always said *"classify by author + head namespace"*. The
 trusted-bot allowlist half (dependabot, renovate) is still unbuilt: a bot's
 `author_association` is typically `NONE`, so today a Dependabot PR needs the
 label like any other outside contributor.
+
+## When a review never lands, who finds out
+
+A claimed pull request whose `comment_id` is still NULL 24 hours later reaches
+the operator channel in the **daily digest** (tick `zaw`), naming
+`tk cloud supervisor <run-id>` for a run that stalled — or saying plainly that
+no run was ever bound, which makes that pull request unreviewable because every
+redelivery is answered as a duplicate. See `unattended-failure-visibility.md`.

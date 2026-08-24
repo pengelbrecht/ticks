@@ -89,3 +89,11 @@ no longer there, quietly, on a schedule. Hence:
   `cloud/factory/test/sweep-contract.test.ts`.
 - `test/fixtures/sweep-policy-cases.json` — accept/refuse cases for the policy
   parser, run by BOTH readers. The direction that matters is `refused`.
+
+## When a sweep stops working, who finds out
+
+A sweep that refuses is a `sweep_selection` row and nothing else — pull-only
+discovery — up to the point tick `zaw` added: three refusals in a row put the
+sweep in the **daily digest** on the operator channel, with the record path to
+read. `empty` is not a refusal, so a working sweep on a quiet tracker stays
+silent. See `unattended-failure-visibility.md`.
