@@ -9,9 +9,8 @@ Cross-repo learnings belong in the ticks skill's promotion table, not here.
 Drive commands in tests only via `ExecuteArgs`/`ExecuteArgsContext`, never `rootCmd.Execute()`, and
 reset every persistent flag var in `ResetFlags()`.
 
-**Problem:** UI changes pass `pnpm test` but don't appear in `tk board` — the Go binary embeds
-pre-built assets. **Rule:** After UI source changes run `scripts/build-ui.sh` and commit `static/`
-and `ui/dist/`.
+**Problem:** UI changes pass `pnpm test` but don't appear in `tk board` — the binary embeds
+pre-built assets. **Rule:** Run `scripts/build-ui.sh` and commit `static/` + `ui/dist/`.
 
 ## Orchestration
 
