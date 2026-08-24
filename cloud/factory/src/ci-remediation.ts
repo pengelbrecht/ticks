@@ -42,6 +42,71 @@
  * that one names where a LOCAL orchestrator puts its work; this one is the
  * list of branches a cloud run may be pointed at without a person asking.
  *
+ * ### What the brand does not prove, and why it stays that way (tick am2)
+ *
+ * All of the above is about PARSING, and it holds: the Phase 4 final review
+ * went looking for the cast, the JSON boundary and a second constructor and
+ * found none. What none of it does is verify that a branch is ACTUALLY the
+ * factory's. Ownership is a naming convention — {@link BRANCH_OWNERSHIP_BASIS}
+ * says so in as many words — and there is no positive record anywhere that the
+ * factory created the branch it is about to push to.
+ *
+ * In this repository that convention is shared, and not narrowly:
+ *
+ *  - `tk herd spawn` names a worker's branch `<worktree_branch_prefix><tick-id>`
+ *    and that prefix DEFAULTS TO `tick/`. Branches in the factory's first
+ *    namespace are created on an operator's laptop, by the dozen, every wave.
+ *  - The distinction is not repairable by shape. `tick/<epic>/<tick>` looks
+ *    like the cloud worker's own two-segment name, but
+ *    `skills/ticks/references/herdr-runner.md` documents setting
+ *    `worktree_branch_prefix = "tick/<epic-id>/"` for exactly that layout — so
+ *    a segment count separates nothing either.
+ *  - `epic/<id>` is pushed by whichever orchestrator ran the epic. A cloud
+ *    closeout pushes one; so does a person's local orchestrator, which is what
+ *    happens in this repository today.
+ *
+ * And the exposure is not evenly spread over those three. This repo's
+ * `.github/workflows/ci.yml` fires on `pull_request` and on pushes to `main`,
+ * and nothing opens a pull request from a per-tick worker branch — so the
+ * factory's OWN branches produce no `check_run` at all, while `.tick/config.md`
+ * requires every epic to reach the default branch through a PR whose CI must be
+ * green. The one branch in the claimed set that this repository actually grades
+ * is therefore the one a person pushed.
+ *
+ * The fix the review named is a positive record: the factory writes down the
+ * branches it creates, and ownership becomes a lookup. It is the right answer
+ * and it is not this tick's, for three reasons worth writing down rather than
+ * rediscovering:
+ *
+ *  1. **The write side does not exist where the risk is.** A wave dispatch
+ *     could record `tick/<epic>/<tick>` easily enough — it names the branch
+ *     itself, in `workerBranch`. `epic/<id>` is pushed by an orchestrator
+ *     running INSIDE a sandbox container, through `tk`, with no D1 handle. A
+ *     record complete on the namespace with no live exposure and empty on the
+ *     namespace that carries it is not a safety property, it is a decoration.
+ *  2. **Required today, it would refuse every delivery this repo can make.**
+ *     See the CI triggers above. "The loop is off" is a safe direction, but it
+ *     is not the direction anybody chose.
+ *  3. **Its failure mode cannot yet be made loud.** A lost record orphans a
+ *     real factory branch: remediation refuses work it should do. That refusal
+ *     would land in `dispatch_log` and nowhere else, which is a trace you read
+ *     once you already suspect something. A positive record is worth having
+ *     when a missing one can page somebody; until then it trades a loud wrong
+ *     answer for a quiet one.
+ *
+ * So the convention stands, deliberately, and the residual risk is stated
+ * rather than implied: **a branch a person named the way the factory names
+ * its own is a branch this factory will push to.** Two things bound it, and
+ * neither is the ownership test. The branch must also carry a failing check on
+ * an ENROLLED project that survives the flake gate and the strike budget; and
+ * the run that results is issued exactly {@link REMEDIATION_CREDENTIAL_GRADE},
+ * so its damage is bounded by what a `write` credential can do — push to a
+ * branch, never to `main`, never past a review.
+ *
+ * {@link FACTORY_BRANCH_NAMESPACE_OVERLAP} carries that statement per
+ * namespace, and a test requires an entry for every namespace claimed: the
+ * list cannot be widened without saying who else is already there.
+ *
  * ## 2. The flake gate: reproduce before you pay
  *
  * A test that fails intermittently must not be "fixed" over and over at cost.
@@ -144,8 +209,84 @@ import type { Env } from "./index";
  * Frozen at compile time on purpose — see the module note. Widening this list
  * is a code change with a review, which is the correct weight for "the set of
  * branches an autonomous loop may push to".
+ *
+ * A branch INSIDE the list is a branch the factory will push to, and that is a
+ * naming convention rather than a fact it checked — see
+ * {@link BRANCH_OWNERSHIP_BASIS} and {@link FACTORY_BRANCH_NAMESPACE_OVERLAP}
+ * for who else creates branches here and what the residual risk is.
  */
 export const FACTORY_BRANCH_NAMESPACES = ["tick/", "tick-run/", "epic/"] as const;
+
+/** One of the namespaces {@link FACTORY_BRANCH_NAMESPACES} claims. */
+export type FactoryBranchNamespace = (typeof FACTORY_BRANCH_NAMESPACES)[number];
+
+/**
+ * How ownership is decided, named so that nothing has to infer it.
+ *
+ * `naming_convention` means exactly what it says: a prefix match on the branch
+ * name, with no record anywhere that the factory created the branch. The
+ * alternative — a positive record written when the factory creates a branch,
+ * and a lookup here — is the Phase 4 review's recommendation and the module
+ * note explains why it is not yet the answer. Changing that decision changes
+ * this constant, which is the point of having it.
+ */
+export const BRANCH_OWNERSHIP_BASIS = "naming_convention" as const;
+
+/** Who else creates branches in a namespace the factory claims, and what that costs. */
+export type BranchNamespaceOverlap = {
+  namespace: FactoryBranchNamespace;
+  /** The other actors that create branches here. Never empty. */
+  also_created_by: string[];
+  /** How they come to be, concretely enough to check. */
+  detail: string;
+  /** What this factory may therefore do to a branch it did not create. */
+  residual_risk: string;
+};
+
+/**
+ * The overlap, per namespace, written down at the same weight as the claim.
+ *
+ * A test requires one entry for every namespace in
+ * {@link FACTORY_BRANCH_NAMESPACES}, so a future widening of the claimed set
+ * cannot land without naming who is already there. That is the whole mechanism:
+ * the convention is allowed to stand, it is not allowed to be implicit.
+ */
+export const FACTORY_BRANCH_NAMESPACE_OVERLAP: readonly BranchNamespaceOverlap[] = [
+  {
+    namespace: "tick/",
+    also_created_by: ["tk herd spawn (a person's laptop)"],
+    detail:
+      "the Go herd names a worker branch `<worktree_branch_prefix><tick-id>` and the prefix " +
+      "defaults to `tick/`; herdr-runner.md documents `tick/<epic-id>/` too, which is the same " +
+      "shape as the cloud worker's own `tick/<epic>/<tick>`, so no segment rule separates them",
+    residual_risk:
+      "a locally spawned worker branch is indistinguishable from one this factory pushed, and a " +
+      "failing check on it would be treated as the factory's to fix",
+  },
+  {
+    namespace: "tick-run/",
+    also_created_by: ["nothing in this repository, today"],
+    detail:
+      "D9's other half, named by the design doc and created by no current code path; it is " +
+      "claimed ahead of its use, which is the cheapest kind of overlap to carry and the easiest " +
+      "to forget is there",
+    residual_risk:
+      "an unused claim is a claim: whoever first creates a `tick-run/` branch, factory or person, " +
+      "inherits factory ownership without asking for it",
+  },
+  {
+    namespace: "epic/",
+    also_created_by: ["a local orchestrator (a person's laptop)", "a cloud closeout run"],
+    detail:
+      "the epic's integration branch is pushed by whichever orchestrator ran the epic, and " +
+      "`.tick/config.md` requires it to reach the default branch through a pull request whose CI " +
+      "is green — which, with `pull_request` and `push: main` triggers, makes it the only branch " +
+      "in the claimed set this repository actually produces check runs for",
+    residual_risk:
+      "the branch most likely to reach this loop is the one a person pushed; a red epic PR buys a " +
+      "`write`-grade run against a human's integration branch",
+  },
+];
 
 /** Who a branch belongs to. There is no third answer and no "probably". */
 export type BranchOwner = "factory" | "human";

@@ -3,7 +3,9 @@
 Recorded 2026-08-24 during tick meo (epic szp, Phase 4). UC4 and D10 in
 `docs/design/cloud-factory.md`. Amended 2026-08-24 by tick `uls`, the Phase 4
 final review's one HIGH finding — see **What reopens an escalated branch**,
-which is the part of this page most worth reading.
+which is the part of this page most worth reading — and by tick `am2`, which
+settled what the ownership brand does *not* prove: see **Ownership is a naming
+convention, and the namespace is shared**.
 
 ## Why this loop is different from every other path
 
@@ -45,6 +47,74 @@ characters (the value is **not trimmed** first — `"tick/meo\n"` is not our
 branch with a newline attached, it is a value that did not come from a branch),
 `..` traversal, case variants (`Tick/`), full refs (`refs/heads/tick/x`), bare
 prefixes, and the Cyrillic homoglyph `tісk/`.
+
+## Ownership is a naming convention, and the namespace is shared
+
+Everything in the section above is about **parsing**, and it holds. What it does
+not do is verify that a branch is *actually* the factory's. There is no positive
+record anywhere that the factory created the branch it is about to push to —
+ownership is a prefix match, and `BRANCH_OWNERSHIP_BASIS` in
+`ci-remediation.ts` now says `"naming_convention"` in as many words.
+
+Tick `am2` settled this as a decision rather than leaving it implicit. The
+review called the overlap a risk; the repository makes it sharper than that.
+
+**Who else creates branches in the namespaces the factory claims:**
+
+| Namespace | Also created by | Why it collides |
+|---|---|---|
+| `tick/` | `tk herd spawn`, on an operator's laptop | `orchestration.worktree_branch_prefix` **defaults to `tick/`**. Every local wave creates branches in the factory's first namespace. |
+| `tick/<epic>/<tick>` | the same | `skills/ticks/references/herdr-runner.md` documents setting the prefix to `tick/<epic-id>/`, which is **shape-identical** to the cloud worker's own branch. No segment count separates the two actors. |
+| `tick-run/` | nothing, today | Claimed ahead of its use. Whoever creates the first one inherits factory ownership without asking. |
+| `epic/` | a local orchestrator, or a cloud closeout run | The epic integration branch is pushed by whichever orchestrator ran the epic. In this repository that is a person's laptop. |
+
+**And the exposure is not evenly spread over those.** `.github/workflows/ci.yml`
+fires on `pull_request` and on pushes to `main`. Nothing opens a pull request
+from a per-tick worker branch, so **the factory's own branches produce no check
+runs at all** — while `.tick/config.md` requires every epic to reach the default
+branch through a PR whose CI is green. The one branch in the claimed set that
+this repository actually grades is the `epic/<id>` branch **a person pushed**.
+
+**The residual risk, stated plainly:** a branch a person named the way the
+factory names its own is a branch this factory will push to. Two things bound
+it, and neither is the ownership test — the branch must also carry a failing
+check on an *enrolled* project that survives the flake gate and the strike
+budget, and the resulting run is issued exactly `write` grade, so its damage is
+bounded by what a `write` credential can do: push to a branch, never to `main`,
+never past a review.
+
+### Why not a positive record
+
+It is the right answer and it was not this tick's, for three reasons:
+
+1. **The write side does not exist where the risk is.** A wave dispatch could
+   record `tick/<epic>/<tick>` easily — `workerBranch()` names it. `epic/<id>`
+   is pushed by an orchestrator running *inside a sandbox container*, through
+   `tk`, with no D1 handle. A record complete on the namespace with no live
+   exposure and empty on the namespace that carries it is a decoration.
+2. **Required today, it would refuse every delivery this repo can make.** See
+   the CI triggers above. "The loop is off" is a safe direction, but not one
+   anybody chose.
+3. **Its failure mode cannot yet be made loud.** A lost record orphans a real
+   factory branch: remediation refuses work it should do, and that refusal lands
+   in `dispatch_log` and nowhere else — a trace you read once you already
+   suspect something. A positive record is worth having when a *missing* one can
+   page somebody; until then it trades a loud wrong answer for a quiet one.
+
+The `runs` table is the record a reader reaches for first. It is not one: it
+carries `(project, epic)` and says the factory **ran** an epic, never that it
+pushed that epic's branch — and "probably ours" is the answer this module
+refuses everywhere else.
+
+### What stops it being implicit again
+
+`FACTORY_BRANCH_NAMESPACE_OVERLAP` records the other creators and the residual
+risk **per namespace**, and a test requires an entry for every namespace in
+`FACTORY_BRANCH_NAMESPACES`. Widening the claimed set without naming who is
+already there turns the suite red. Further tests pin the collision itself —
+`tick/szp/am2`, `tick/am2`, `tick/szp/uls` and `epic/szp` all answer `factory`,
+under comments naming who really creates each. A pinned uncomfortable truth is
+the difference between a decision and an assumption.
 
 ## The flake gate: four answers, in cost order
 

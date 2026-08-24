@@ -9,7 +9,9 @@ import {
 } from "../src/ci-webhook";
 import { CI_ESCALATIONS_PATH } from "../src/ci-escalations";
 import {
+  BRANCH_OWNERSHIP_BASIS,
   FACTORY_BRANCH_NAMESPACES,
+  FACTORY_BRANCH_NAMESPACE_OVERLAP,
   FLAKE_GATE_CONFIRMATIONS,
   STRIKE_BUDGET,
   STRIKE_WINDOW_MS,
@@ -26,6 +28,7 @@ import {
   type CheckHistoryReader,
   type FactoryOwnedBranch,
 } from "../src/ci-remediation";
+import { WORKER_BRANCH_PREFIX } from "../src/worker-boot";
 import type { RunWorkflowInstance, RunWorkflowParams } from "../src/runs";
 
 /**
@@ -332,6 +335,72 @@ describe("branch ownership is structural", () => {
     for (const neither of ["cancelled", "skipped", "stale", "neutral", "", null, 7]) {
       expect(checkConclusion(neither), String(neither)).toBe("other");
     }
+  });
+});
+
+// -------------------------------------------- ownership is a convention ---
+
+/**
+ * The other half of ownership, and the half meo never claimed (tick am2).
+ *
+ * `FactoryOwnedBranch` is sound about PARSING — the Phase 4 review went looking
+ * for the cast, the JSON boundary and a second constructor and found none. What
+ * it does not do is KNOW that a branch is the factory's. Ownership is a prefix
+ * match, and in this repository the prefix is one two other actors already use:
+ *
+ *  - `tk herd spawn` names a worker's branch `<worktree_branch_prefix><tick-id>`
+ *    and that prefix defaults to `tick/` — it is the branch this very tick runs
+ *    on. `skills/ticks/references/herdr-runner.md` further documents setting it
+ *    to `tick/<epic-id>/`, which produces a name SHAPE-IDENTICAL to the cloud
+ *    worker's `tick/<epic>/<tick>`. No segment count can separate them.
+ *  - `epic/<id>` is pushed by whichever orchestrator ran the epic, and
+ *    `.tick/config.md` requires it to be opened as a pull request so CI grades
+ *    it. In this repository that push comes from a person's laptop, and that
+ *    pull request is the ONLY thing in the claimed namespaces this repo's
+ *    `.github/workflows/ci.yml` produces a `check_run` for at all.
+ *
+ * These tests pin the collision rather than close it. `ci-remediation.ts`'s
+ * module note carries why a positive record was not today's answer; what these
+ * cases guarantee is that the convention cannot be silently widened, and cannot
+ * be mistaken for a fact the factory checked. A pinned uncomfortable truth is
+ * the difference between a decision and an assumption.
+ */
+describe("ownership is a naming convention, and the namespace is shared", () => {
+  it("names another creator for every namespace it claims", () => {
+    expect(BRANCH_OWNERSHIP_BASIS).toBe("naming_convention");
+    const claimed = [...FACTORY_BRANCH_NAMESPACES].sort();
+    const named = FACTORY_BRANCH_NAMESPACE_OVERLAP.map((entry) => entry.namespace).sort();
+    // Widening the claimed list without saying who else creates branches there
+    // turns this red, which is the point: the overlap is recorded at the same
+    // weight as the claim, and by the same code change.
+    expect(named).toEqual(claimed);
+    for (const entry of FACTORY_BRANCH_NAMESPACE_OVERLAP) {
+      expect(entry.also_created_by.length, entry.namespace).toBeGreaterThan(0);
+      expect(entry.residual_risk.length, entry.namespace).toBeGreaterThan(0);
+    }
+  });
+
+  it("cannot tell a branch it pushed from one a person's laptop spawned", () => {
+    // The cloud worker's own prefix is inside the claimed set by construction.
+    expect([...FACTORY_BRANCH_NAMESPACES]).toContain(WORKER_BRANCH_PREFIX);
+    for (const branch of [
+      "tick/szp/am2", // what `workerBranch` pushes from a sandbox
+      "tick/am2", // what `tk herd spawn` creates on an operator's laptop
+      "tick/szp/uls", // and what it creates with `worktree_branch_prefix = "tick/szp/"`
+      "epic/szp", // pushed by whichever orchestrator ran the epic
+    ]) {
+      expect(branchOwner(branch), branch).toBe("factory");
+    }
+  });
+
+  it("asks nothing durable: the verdict is a pattern match, not a lookup", () => {
+    // No D1, no GitHub, no `runs` row — this whole block runs without touching
+    // a binding. `runs` carries (project, epic) and is the record a reader
+    // reaches for first: it says the factory RAN an epic, never that it pushed
+    // that epic's branch, and "probably ours" is the answer this module refuses
+    // everywhere else.
+    expect(factoryOwnedBranch("epic/szp")).toBe("epic/szp");
+    expect(branchOwner("epic/an-epic-this-factory-has-never-heard-of")).toBe("factory");
   });
 });
 
