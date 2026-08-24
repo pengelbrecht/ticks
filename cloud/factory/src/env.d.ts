@@ -108,6 +108,17 @@ declare namespace Cloudflare {
      */
     ISSUE_LABELS?: import("./github-issues").IssueLabelReader;
     /**
+     * The one GitHub write this factory makes on a run's behalf: the review
+     * comment a read-only PR review run hands in (tick v7g).
+     *
+     * Unset on a deployment, which posts through GitHub's issue-comments API
+     * with the operator's token. A seam for the same reason `ISSUE_LABELS` is
+     * one — at-most-once posting, the scoping to the run's own pull request,
+     * and the anti-forgery invariant on what is sent are not exercisable
+     * against real GitHub.
+     */
+    REVIEW_COMMENTER?: import("./pr-review").ReviewCommenter;
+    /**
      * The writer the SignalInbox commits a signal's tick record with: one
      * CREATE of `.tick/issues/<id>.json` through GitHub's contents API (tick
      * 8sm).

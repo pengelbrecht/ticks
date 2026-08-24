@@ -137,10 +137,16 @@ const (
 	PhaseReconcile = "reconcile" // a fresh orchestrator after one died
 	PhaseWave      = "wave"      // between container waves: integrate, then dispatch the next
 	PhaseCloseout  = "closeout"  // a clean stop: no new work, review and close
+	// PhaseReview is a pull request review (UC5, tick v7g): read one pull
+	// request's diff, write findings, hand them to the factory, exit. It is
+	// the one phase that is not about an epic — nothing is claimed, nothing is
+	// committed and nothing is pushed, because a review run is issued the
+	// read-only credential grade and could not push if its prompt told it to.
+	PhaseReview = "review"
 )
 
 // Phases lists the accepted values of EnvPhase.
-var Phases = []string{PhaseRun, PhaseReconcile, PhaseWave, PhaseCloseout}
+var Phases = []string{PhaseRun, PhaseReconcile, PhaseWave, PhaseCloseout, PhaseReview}
 
 // EnvPass is which container wave this boot may ask for (tick wiy).
 //
@@ -166,6 +172,40 @@ const (
 	EnvWaveTicks = "TICKS_WAVE_TICKS"
 	EnvWaveBase  = "TICKS_WAVE_BASE"
 )
+
+// EnvReviewPR and EnvReviewHeadSHA are the pull request a [PhaseReview] boot
+// reviews, and the commit it reviews (tick v7g).
+//
+// They exist for [EnvWaveTicks]'s reason, sharpened: the container is TOLD
+// which pull request it is looking at, because the binding between a run and a
+// pull request lives in the control plane's own record and nowhere the
+// container could reach. A container that named its own pull request would be
+// a container that could comment on somebody else's — and the factory's review
+// door takes the number from that record too, so a container that lied here
+// would only be lying to itself.
+//
+// EnvReviewOutput is where the harness writes its findings: the entrypoint
+// reads that file and POSTs it, rather than the agent making the call, so what
+// leaves the container is one bounded body to one endpoint.
+const (
+	EnvReviewPR      = "TICKS_REVIEW_PR"
+	EnvReviewHeadSHA = "TICKS_REVIEW_HEAD_SHA"
+	EnvReviewOutput  = "TICKS_REVIEW_OUTPUT"
+)
+
+// ReviewFindingsPath is where a [PhaseReview] container's harness writes its
+// findings, derived from the run id so two containers cannot collide.
+func ReviewFindingsPath(runID string) string {
+	return "/tmp/ticks-review-" + runID + ".md"
+}
+
+// ReviewRef is the ref a review container fetches: GitHub serves a pull
+// request's head from the BASE repository, so a fork's branch is readable
+// through the same remote — and therefore through the factory's read-only git
+// door, with no second credential and no second door.
+func ReviewRef(pr string) string {
+	return "refs/pull/" + pr + "/head"
+}
 
 // Actor is what the entrypoint exports as TK_ACTOR, joining the runner-shaped
 // actor namespace so the verdict guard's human-attestation rule applies to
@@ -203,6 +243,15 @@ const (
 	// cloudflare-ai-gateway" while the probe had just passed. Collapsing the
 	// two into ExitModel would send an operator to look at the gateway.
 	ExitHarness = 8
+	// ExitReview reports a review whose findings never reached the factory
+	// (tick v7g). Its own class because it is the one failure where the run
+	// did all of the work and kept none of it: the diff was read and the model
+	// was paid for, and the comment — the only durable thing a read-only run
+	// produces — does not exist. It is deliberately NOT terminal: a post can
+	// fail for a reason a second attempt survives, and the review door answers
+	// a boot whose earlier attempt DID land with a refusal the container reads
+	// as success.
+	ExitReview = 12
 )
 
 // Script names the files the image installs.

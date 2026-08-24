@@ -41,8 +41,16 @@ import type { Env } from "./index";
  * NOT `closeout` — a closeout is a run being wound up early and its prompt
  * forbids new work, and conflating "this wave finished" with "somebody stopped
  * this run" is the mistake tick 074 already had to undo once.
+ *
+ * `review` is the pull request review pass (UC5, tick v7g), and it is the one
+ * phase that is not about an epic at all: read a pull request's diff, write
+ * findings, hand them to the factory, exit. It is a phase rather than a second
+ * image for the reason the worker role is a command rather than a flag — one
+ * image, and what a container is FOR is what it was started with. A review
+ * boot is always a read-only run, so the container it lands in cannot push
+ * whatever its prompt says.
  */
-export type OrchestratorPhase = "run" | "reconcile" | "wave" | "closeout";
+export type OrchestratorPhase = "run" | "reconcile" | "wave" | "closeout" | "review";
 
 /**
  * The image reference a run boots when the deployment asks for nothing else.
@@ -522,7 +530,23 @@ export type OrchestratorEnvInput = {
    */
   wave_ticks?: string[];
   wave_base_sha?: string;
+  /**
+   * The pull request a `review` boot is reviewing, and the commit it reviews
+   * (UC5, tick v7g).
+   *
+   * Set by the control plane from the run's own `pr_reviews` row, which is the
+   * only place that binding exists. The container is TOLD which pull request
+   * it is looking at, exactly as it is told which wave it inherited: a
+   * container that could name its own pull request would be a container that
+   * could comment on somebody else's.
+   */
+  review_pr?: number;
+  review_head_sha?: string;
 };
+
+/** The pull request a `review` boot reads, in the container's environment. */
+export const REVIEW_PR_ENV = "TICKS_REVIEW_PR";
+export const REVIEW_HEAD_SHA_ENV = "TICKS_REVIEW_HEAD_SHA";
 
 /**
  * The environment `ticks-orchestrator` is started with.
@@ -591,6 +615,15 @@ export function orchestratorEnv(input: OrchestratorEnvInput): Record<string, str
   }
   if (input.wave_base_sha !== undefined && input.wave_base_sha !== "") {
     env.TICKS_WAVE_BASE = input.wave_base_sha;
+  }
+  // What a review boot is reviewing (tick v7g). Both or neither: the
+  // entrypoint refuses a review phase that is missing either, because a review
+  // container with no pull request has nothing it could correctly do.
+  if (input.review_pr !== undefined && Number.isInteger(input.review_pr) && input.review_pr > 0) {
+    env[REVIEW_PR_ENV] = String(input.review_pr);
+  }
+  if (input.review_head_sha !== undefined && input.review_head_sha !== "") {
+    env[REVIEW_HEAD_SHA_ENV] = input.review_head_sha;
   }
   return env;
 }

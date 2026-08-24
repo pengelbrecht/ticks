@@ -67,6 +67,7 @@
 
 import { getEnrolledProject } from "./db";
 import { announceDraft } from "./drafts";
+import { PULL_REQUEST_EVENT, ingestPullRequestEvent } from "./pr-review";
 import { GITHUB_API_BASE_URL } from "./progress";
 import { submitSignal, type Signal, type SignalOutcome } from "./signal-inbox";
 import { escapeHTML } from "./telegram";
@@ -761,6 +762,23 @@ export async function githubWebhookRoute(request: Request, env: Env): Promise<Re
 
   const event = request.headers.get("X-GitHub-Event")?.trim() ?? "";
   if (event === "ping") return json({ ok: true, event: "ping" }, 200);
+
+  // A pull request arrives at THIS door rather than at a second one (tick
+  // v7g). It is signed by the same secret, sent by the same app installation
+  // and settled under the same status-code contract; a separate route would
+  // have been a second HMAC check and a second set of redelivery semantics to
+  // keep in step. What differs is everything after the signature, which is
+  // why the module is separate and this is a hand-off rather than a branch.
+  if (event === PULL_REQUEST_EVENT) {
+    let prPayload: unknown;
+    try {
+      prPayload = JSON.parse(raw);
+    } catch {
+      return json({ error: "invalid_payload", detail: "the body is not JSON" }, 400);
+    }
+    return await pullRequestDelivery(env, prPayload);
+  }
+
   if (event !== "issues") {
     return json(
       { ok: true, ingested: false, reason: "unsupported_event", detail: `this door reads \`issues\`, not \`${event}\`` },
@@ -823,4 +841,34 @@ export async function githubWebhookRoute(request: Request, env: Env): Promise<Re
     return json({ ok: false, ingested: false, reason: outcome.reason, detail: outcome.detail }, 503);
   }
   return json({ ok: true, ingested: false, reason: outcome.reason, detail: outcome.detail }, 200);
+}
+
+/**
+ * A `pull_request` delivery, under this route's own status-code contract.
+ *
+ * Same three rules as the `issues` half: 2xx for every settled outcome
+ * including a refusal (so one pull request cannot become an unbounded
+ * redelivery loop), and 503 only when nothing was recorded and a redelivery is
+ * exactly what should happen next.
+ */
+async function pullRequestDelivery(env: Env, payload: unknown): Promise<Response> {
+  const result = await ingestPullRequestEvent(env, payload);
+  if (result.state === "deferred") {
+    return json({ ok: false, reviewing: false, reason: result.reason, detail: result.detail }, 503);
+  }
+  if (result.state !== "dispatched") {
+    return json({ ok: true, reviewing: false, reason: result.reason, detail: result.detail }, 200);
+  }
+  return json(
+    {
+      ok: true,
+      reviewing: true,
+      queued: result.queued,
+      run_id: result.run_id,
+      project: result.facts.project,
+      pull_request: result.facts.number,
+      detail: result.detail,
+    },
+    202
+  );
 }
