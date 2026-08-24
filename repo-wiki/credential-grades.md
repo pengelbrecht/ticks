@@ -39,6 +39,49 @@ for **any host**, so the run token authenticates the clone through git's normal
 Basic auth. That is also why `extractGitToken` reads Basic before Bearer — the
 credential arrives the way git sends it, not the way a harness does.
 
+### The 401 must carry a challenge (tick jwd)
+
+Parsing Basic is only half of speaking it. **Git sends `Authorization: Basic`
+only in answer to a challenge.** It does HTTP auth through libcurl with
+`CURLAUTH_ANY`, and `CURLAUTH_ANY` chooses its scheme from the
+`WWW-Authenticate` header of the 401. A 401 that carries no challenge names no
+scheme, so curl sends nothing on the retry — the credential helper answers, git
+holds the run's `tkr_` token, and the token never leaves the container. git then
+sees the same 401 twice and reports:
+
+```
+fatal: Authentication failed for 'https://<factory>/api/git/<owner>/<repo>.git/'
+```
+
+which is git rejecting a credential it never sent. That is how the first
+unattended loop died (`run_19cb914ba6484ac59847f0e85f680712`, 28 seconds), with a
+green factory suite behind it: every test set the `Authorization` header by
+hand, so all of them proved the door could PARSE a credential and none proved a
+git client would send one.
+
+So `GIT_AUTH_CHALLENGE` (`Basic realm="ticks-factory", charset="UTF-8"`) is on
+every 401 the door emits. 403s deliberately carry none — a retry with the same
+credential cannot help, and a challenge would only make git ask twice.
+
+Two more things the door and the container now do:
+
+- **`content-encoding` is forwarded upstream.** git gzips the upload-pack RPC
+  body when it is small enough; dropping that header hands GitHub gzip bytes
+  labelled as pkt-lines, which is a clone that fails *after* authenticating.
+- **The container diagnoses an HTTP refusal itself** (`explain_git_refusal` in
+  `cloud/sandbox/common.sh`). git prints the refusal's status and never its
+  body, so the container probes `info/refs?service=git-upload-pack` twice —
+  anonymously, to see whether the door challenges at all, and with `curl -u`,
+  which sends Basic pre-emptively where git will not. Accepted-when-sent plus
+  no-challenge is the door's bug; challenged-and-refused is the run's
+  credential. They have opposite fixes and must never print the same sentence.
+
+Both halves are tested where they run: `cloud/factory/test/credentials.test.ts`
+for the challenge and the forwarded encoding, and
+`internal/sandbox/git_door_test.go` for the client — a real `git` against a real
+smart-HTTP server behind the door's auth semantics, asserting what the SERVER
+saw rather than what the client was configured with.
+
 The door is an **allowlist**: `GET info/refs?service=git-upload-pack` and
 `POST git-upload-pack`. `git-receive-pack` — what `git push` speaks — is
 refused with `403 git_write_refused` **before** any upstream call, and the

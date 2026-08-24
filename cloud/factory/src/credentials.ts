@@ -179,6 +179,28 @@ export function gitServiceRequested(
 export type GitDenial = GatewayDenial;
 
 /**
+ * The challenge a 401 from this door MUST carry, and the whole of tick jwd.
+ *
+ * `extractGitToken` above reads `Authorization: Basic` "because that is what
+ * git sends" — which is true only once git has been ASKED for it. Git speaks
+ * HTTP auth through libcurl with `CURLAUTH_ANY`, and `CURLAUTH_ANY` picks its
+ * scheme out of the `WWW-Authenticate` header of the 401. A 401 with no
+ * challenge names no scheme, so curl sends no `Authorization` header on the
+ * retry — even though the credential helper answered and git is holding the
+ * run's token. Git then sees the same 401 a second time, rejects the
+ * credential it never sent, and reports:
+ *
+ *     fatal: Authentication failed for 'https://<factory>/api/git/<owner>/<repo>.git/'
+ *
+ * which is exactly how the first unattended loop died (run
+ * run_19cb914ba6484ac59847f0e85f680712). The door parsed a scheme it never
+ * asked for, so the token never arrived. Every 401 this door emits carries the
+ * challenge; 403s deliberately do not, because a retry with the same
+ * credential cannot help and a challenge would only make git ask twice.
+ */
+export const GIT_AUTH_CHALLENGE = 'Basic realm="ticks-factory", charset="UTF-8"';
+
+/**
  * The `owner/repo` a git path names, with git's `.git` suffix removed.
  *
  * Null for anything that is not exactly two leading segments: this door serves
@@ -200,6 +222,11 @@ export function gitProjectOf(segments: string[]): string | null {
  * password, and git puts that in an `Authorization: Basic` header. Bearer and
  * `x-api-key` are accepted too so a plain `curl` from a test or an operator
  * can reach the same door with the same credential.
+ *
+ * Parsing Basic is only half of speaking it: git sends that header **only in
+ * answer to a challenge**. See {@link GIT_AUTH_CHALLENGE} — reading this
+ * function as "git sends Basic, so we are done" is precisely the mistake tick
+ * jwd cost a run.
  */
 export function extractGitToken(request: Request): string | null {
   const header = request.headers.get("authorization");
@@ -235,7 +262,16 @@ export type GitProxyOptions = {
 };
 
 const jsonError = (denial: GitDenial): Response =>
-  Response.json({ error: denial.error, detail: denial.detail }, { status: denial.status });
+  Response.json(
+    { error: denial.error, detail: denial.detail },
+    {
+      status: denial.status,
+      // A 401 without {@link GIT_AUTH_CHALLENGE} is a 401 git cannot answer.
+      ...(denial.status === 401
+        ? { headers: { "WWW-Authenticate": GIT_AUTH_CHALLENGE } }
+        : {}),
+    }
+  );
 
 /**
  * A refusal that also lets go of the request body.
@@ -356,7 +392,18 @@ export async function proxyGitRequest(
   const headers = new Headers();
   headers.set("authorization", `Basic ${btoa(`x-access-token:${operatorToken}`)}`);
   headers.set("user-agent", request.headers.get("user-agent") ?? "git/ticks-factory");
-  for (const name of ["accept", "content-type", "accept-encoding", "git-protocol"]) {
+  // `content-encoding` is on this list because git gzips the upload-pack RPC
+  // body when it is small enough and says so in that header. Forwarding the
+  // body without it hands GitHub gzip bytes labelled as pkt-lines, which is a
+  // clone that fails AFTER authenticating — the next failure along from the
+  // one this tick is about, and no cheaper to diagnose.
+  for (const name of [
+    "accept",
+    "content-type",
+    "content-encoding",
+    "accept-encoding",
+    "git-protocol",
+  ]) {
     const value = request.headers.get(name);
     if (value !== null) headers.set(name, value);
   }

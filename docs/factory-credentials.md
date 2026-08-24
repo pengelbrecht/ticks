@@ -265,6 +265,15 @@ that door forwards git's read half only: `git-upload-pack` (fetch and clone) is
 proxied, `git-receive-pack` — which is what `git push` speaks — is refused with
 `403 git_write_refused` and never reaches GitHub.
 
+Every 401 that door emits carries `WWW-Authenticate: Basic realm="ticks-factory"`.
+That is not decoration: git chooses its auth scheme from the challenge, so a 401
+without one tells git to send nothing and the run's token never leaves the
+container — which the operator sees only as `fatal: Authentication failed`. If
+you are staring at that message, the container's own probe says which end is at
+fault (`explain_git_refusal` in `cloud/sandbox/common.sh`); "accepted when sent
+up front, never asked for" is the door, "challenged and refused" is the run's
+credential.
+
 ### What stops a read-only run calling GitHub directly
 
 Nothing stops it *reaching* github.com; a container has a network. What stops it

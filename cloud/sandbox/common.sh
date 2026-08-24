@@ -685,6 +685,95 @@ configure_caches() {
 }
 
 
+# Why a fetch was refused, in the REMOTE's own words.
+#
+# git tells a human almost nothing about an HTTP refusal: a 401 it could not
+# satisfy becomes `fatal: Authentication failed for '<url>'` and the body of the
+# refusal — where the factory says WHICH check failed — is never printed. Tick
+# jwd was a whole unattended run spent on that one sentence.
+#
+# So when the remote is HTTP, ask it directly. TWICE, because one probe cannot
+# tell the two failures apart and they have opposite fixes:
+#
+#   * anonymously, to see whether the door CHALLENGES. git speaks HTTP auth
+#     through libcurl with CURLAUTH_ANY, which picks its scheme out of the
+#     `WWW-Authenticate` header of the 401 — so a 401 without one tells git to
+#     send nothing, and the credential this container is holding never leaves
+#     it. That is the DOOR's bug and no credential will fix it.
+#   * with the run's own credential, which `curl -u` sends PRE-EMPTIVELY,
+#     unlike git. If that is accepted, the credential was never the problem.
+#
+# Best effort throughout: a diagnosis that can itself fail the run is worse than
+# no diagnosis. Nothing here prints the credential.
+git_probe_status=""
+git_probe_challenge=""
+git_probe_body=""
+
+# One probe. Fills the three git_probe_* variables above; returns 0 always.
+git_probe() {
+	local probe="$1"
+	shift
+	local headers body
+	headers="$(mktemp 2>/dev/null || echo /tmp/ticks-git-probe-h.$$)"
+	body="$(mktemp 2>/dev/null || echo /tmp/ticks-git-probe-b.$$)"
+	git_probe_status="$(curl -sS -o "$body" -D "$headers" -w '%{http_code}' --max-time 20 \
+		"$@" "$probe" 2>/dev/null)" || git_probe_status="000"
+	if grep -qi '^www-authenticate:' "$headers" 2>/dev/null; then
+		git_probe_challenge=yes
+	else
+		git_probe_challenge=no
+	fi
+	# pkt-lines are binary: strip NULs before any command substitution touches
+	# them, or bash drops them with a warning of its own.
+	git_probe_body="$(tr -d '\000\r' <"$body" | tr '\n' ' ' | cut -c1-400)"
+	rm -f "$headers" "$body"
+	return 0
+}
+
+explain_git_refusal() {
+	local url="$1"
+	case "$url" in
+	http://* | https://*) ;;
+	*) return 0 ;;
+	esac
+	command -v curl >/dev/null 2>&1 || return 0
+
+	local probe="${url%/}/info/refs?service=git-upload-pack"
+	say "asking $url what it refused"
+
+	git_probe "$probe"
+	local anon_status="$git_probe_status" challenge="$git_probe_challenge" anon_body="$git_probe_body"
+
+	if [[ -z ${GITHUB_TOKEN:-} ]]; then
+		warn "this container holds no credential at all (GITHUB_TOKEN is empty), so the fetch was anonymous"
+		warn "the remote answered $anon_status: ${anon_body:-<no body>}"
+		return 0
+	fi
+
+	git_probe "$probe" --user "x-access-token:${GITHUB_TOKEN}"
+	local auth_status="$git_probe_status" auth_body="$git_probe_body"
+
+	if [[ $auth_status == 2* ]]; then
+		if [[ $challenge == no && $anon_status == 401 ]]; then
+			warn "the remote ACCEPTS this run's own credential ($auth_status when it is sent up front) but never ASKS for it: its 401 carries no WWW-Authenticate header, so git is told no auth scheme and sends nothing. The credential is fine; the door must challenge. See GIT_AUTH_CHALLENGE in cloud/factory/src/credentials.ts"
+		else
+			warn "the remote answered $auth_status to a probe carrying this run's own credential, so the credential is accepted and the refusal is something else — re-read the fetch error above"
+		fi
+		[[ -z ${anon_body// /} ]] || warn "unauthenticated, the remote said: $anon_body"
+		return 0
+	fi
+
+	case "$auth_status" in
+	000) warn "the remote could not be reached at all for the probe" ;;
+	401 | 403)
+		warn "the remote refused this run's own credential with $auth_status, and it did challenge for one (WWW-Authenticate: $challenge), so git sent it: the credential is unknown, revoked, or not this run's"
+		;;
+	*) warn "the remote answered $auth_status to a credentialled probe" ;;
+	esac
+	[[ -z ${auth_body// /} ]] || warn "the remote said: $auth_body"
+	return 0
+}
+
 # The submission boundary is a pushed SHA: the factory never sees local state,
 # and the run is pinned to the base it was submitted with. The checkout is
 # always fresh, even in a sandbox that has run before.
@@ -709,10 +798,24 @@ clone_at_sha() {
 
 	git init -q "$workdir" || die $EXIT_CLONE "git init failed in $workdir"
 	git -C "$workdir" remote add origin "$repo_url" || die $EXIT_CLONE "cannot add the remote $repo_url"
-	if ! git -C "$workdir" fetch -q --depth 1 origin "$base_sha" 2>/dev/null; then
-		say "the remote refused a shallow fetch of the SHA; fetching history"
-		git -C "$workdir" fetch -q origin || die $EXIT_CLONE "cannot fetch $repo_url"
+	# The shallow fetch's stderr is KEPT rather than discarded. A remote that
+	# will not serve a bare SHA is ordinary and its complaint is noise, so it
+	# stays quiet on the happy path — but when the full fetch fails too, that
+	# first message is the only record of why the FIRST attempt failed, and
+	# throwing it away is what let "the remote refused a shallow fetch" stand
+	# as a diagnosis of what was actually an authentication failure (tick jwd).
+	local shallow_err
+	shallow_err="$(mktemp 2>/dev/null || echo /tmp/ticks-shallow-fetch.$$)"
+	if ! git -C "$workdir" fetch -q --depth 1 origin "$base_sha" 2>"$shallow_err"; then
+		say "the remote would not serve a shallow fetch of the SHA; fetching history"
+		if ! git -C "$workdir" fetch -q origin; then
+			say "the shallow attempt said: $(tr '\n' ' ' <"$shallow_err" | sed 's/  */ /g')"
+			explain_git_refusal "$repo_url"
+			rm -f "$shallow_err"
+			die $EXIT_CLONE "cannot fetch $repo_url"
+		fi
 	fi
+	rm -f "$shallow_err"
 	git -C "$workdir" checkout -q --detach "$base_sha" || die $EXIT_CLONE "cannot check out $base_sha — is it pushed?"
 	local head
 	head="$(git -C "$workdir" rev-parse HEAD)"

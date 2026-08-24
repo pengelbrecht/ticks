@@ -5,6 +5,7 @@ import { GIT_PREFIX, isAuthExempt } from "../src/auth";
 import { getRun, insertRun, type Run } from "../src/db";
 import {
   DEFAULT_RUN_CREDENTIAL_GRADE,
+  GIT_AUTH_CHALLENGE,
   GIT_PATH_PREFIX,
   containerGitToken,
   credentialGrade,
@@ -558,5 +559,133 @@ describe("a read-only run attempting to push", () => {
     );
 
     expect(response.status).toBe(401);
+  });
+});
+
+/**
+ * Tick jwd: the door refused the run's own credential, and the reason was that
+ * it never asked for it.
+ *
+ * Every case above hands `proxyGitRequest` an `Authorization: Basic` header
+ * built by hand, which proves the door can PARSE a credential and proves
+ * nothing about whether a git client would send one. Git speaks HTTP auth
+ * through libcurl with `CURLAUTH_ANY`, and `CURLAUTH_ANY` reads its scheme out
+ * of the `WWW-Authenticate` header of the 401. A 401 with no challenge names
+ * no scheme, so git sends no `Authorization` header on the retry — the
+ * container's credential helper answers, git holds the run's `tkr_` token, and
+ * the token never leaves the container. What the operator sees is
+ * `fatal: Authentication failed`, which is git rejecting a credential it never
+ * sent. That is how run_19cb914ba6484ac59847f0e85f680712 died in 28 seconds.
+ *
+ * The client half of this — that git really does send nothing, and that the
+ * container says so rather than parroting git — is proved against a real git
+ * client in `internal/sandbox/git_door_test.go`. These are the door's half.
+ */
+describe("the challenge the door must send", () => {
+  const advertisement = (init?: RequestInit) =>
+    new Request(
+      `${FACTORY}${GIT_PATH_PREFIX}/${PROJECT}.git/info/refs?service=git-upload-pack`,
+      init
+    );
+  const noUpstream = {
+    fetcher: async () => {
+      throw new Error("upstream must not be called");
+    },
+  };
+
+  it("challenges for Basic, which is the scheme git can answer", async () => {
+    const response = await proxyGitRequest(
+      env,
+      advertisement(),
+      ["example-org", "example-repo.git", "info", "refs"],
+      noUpstream
+    );
+
+    expect(response.status).toBe(401);
+    // The header itself, not just its presence: an empty or Bearer-only
+    // challenge leaves git in exactly the state that broke the run.
+    const challenge = response.headers.get("WWW-Authenticate");
+    expect(challenge).toBe(GIT_AUTH_CHALLENGE);
+    expect(challenge).toMatch(/^Basic /i);
+  });
+
+  it("challenges through the deployed route too — the one a container reaches", async () => {
+    const response = await SELF.fetch(
+      `${FACTORY}${GIT_PATH_PREFIX}/${PROJECT}.git/info/refs?service=git-upload-pack`
+    );
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get("WWW-Authenticate")).toBe(GIT_AUTH_CHALLENGE);
+  });
+
+  it("challenges a credential it does not recognise, so a stale helper can answer again", async () => {
+    const response = await proxyGitRequest(
+      env,
+      advertisement({ headers: { authorization: gitBasic("tkr_not_a_token_this_factory_issued") } }),
+      ["example-org", "example-repo.git", "info", "refs"],
+      noUpstream
+    );
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get("WWW-Authenticate")).toBe(GIT_AUTH_CHALLENGE);
+    await expect(response.json()).resolves.toMatchObject({ error: "run_token_unknown" });
+  });
+
+  it("does NOT challenge a 403 — a retry with the same credential cannot help", async () => {
+    const { run, token } = await liveRun("read_only");
+    await revokeRunTokens(env, run.run_id, "stopped:hard");
+
+    const response = await proxyGitRequest(
+      env,
+      advertisement({ headers: { authorization: gitBasic(token) } }),
+      ["example-org", "example-repo.git", "info", "refs"],
+      noUpstream
+    );
+
+    expect(response.status).toBe(403);
+    expect(response.headers.get("WWW-Authenticate")).toBeNull();
+  });
+});
+
+/**
+ * The failure one step past the credential.
+ *
+ * git compresses the upload-pack RPC body when it is small enough and says so
+ * with `Content-Encoding: gzip`. A door that forwards the body and drops that
+ * header hands GitHub gzip bytes labelled as pkt-lines — a clone that fails
+ * AFTER authenticating, which is no cheaper to diagnose than the one before it.
+ */
+describe("the request the door forwards", () => {
+  it("keeps the encoding git compressed the pack request with", async () => {
+    const { token } = await liveRun("read_only");
+    let forwarded: Headers | null = null;
+    const fetcher: typeof fetch = async (_input, init) => {
+      forwarded = new Headers(init?.headers);
+      return new Response("0008NAK\n", { status: 200 });
+    };
+
+    const response = await proxyGitRequest(
+      env,
+      new Request(`${FACTORY}${GIT_PATH_PREFIX}/${PROJECT}.git/git-upload-pack`, {
+        method: "POST",
+        headers: {
+          authorization: gitBasic(token),
+          "content-type": "application/x-git-upload-pack-request",
+          "content-encoding": "gzip",
+          "git-protocol": "version=2",
+        },
+        body: "0000",
+      }),
+      ["example-org", "example-repo.git", "git-upload-pack"],
+      { fetcher }
+    );
+
+    expect(response.status).toBe(200);
+    expect(forwarded).not.toBeNull();
+    expect(forwarded!.get("content-encoding")).toBe("gzip");
+    expect(forwarded!.get("git-protocol")).toBe("version=2");
+    // The run's own credential is still replaced by the operator's, exactly as
+    // on the advertisement path.
+    expect(forwarded!.get("authorization")).toBe(`Basic ${btoa(`x-access-token:${OPERATOR_TOKEN}`)}`);
   });
 });
