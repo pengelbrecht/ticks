@@ -145,6 +145,21 @@ export const WAVE_PATH = "/api/wave";
  */
 export const GIT_PREFIX = "/api/git";
 
+/**
+ * The review door (UC5, tick v7g), exempt for the same reason as the three
+ * above: its caller is a sandbox holding a run token, never the operator's.
+ *
+ * It is where a read-only PR review run hands in its findings. There is no PR
+ * number in the path — the credential says which run is speaking and the run's
+ * `pr_reviews` row says which pull request it was dispatched for, so a
+ * container cannot ask to comment somewhere else.
+ *
+ * Declared here rather than imported from src/pr-review.ts because this module
+ * deliberately imports nothing (see {@link isAuthExempt}); the two spellings
+ * are pinned together by a test.
+ */
+export const REVIEW_PREFIX = "/api/review";
+
 /** The slice of the environment this module reads. */
 export interface FactoryAuthEnv {
   /** Worker secret: the derived hash of the current factory token. */
@@ -321,6 +336,7 @@ export function isAuthExempt(pathname: string): boolean {
   if (pathname === GATEWAY_PREFIX || pathname.startsWith(`${GATEWAY_PREFIX}/`)) return true;
   if (pathname === WAVE_PATH) return true;
   if (pathname === GIT_PREFIX || pathname.startsWith(`${GIT_PREFIX}/`)) return true;
+  if (pathname === REVIEW_PREFIX) return true;
   return pathname === WEBHOOK_PREFIX || pathname.startsWith(`${WEBHOOK_PREFIX}/`);
 }
 

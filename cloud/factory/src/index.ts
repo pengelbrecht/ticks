@@ -57,6 +57,7 @@ import { proxyGitRequest } from "./credentials";
 import { proxyModelRequest } from "./gateway";
 import { handleDraftPress, parseDraftCallback } from "./drafts";
 import { GITHUB_WEBHOOK_PATH, githubWebhookRoute } from "./github-issues";
+import { REVIEW_PATH, postReviewFindings } from "./pr-review";
 import { WEBHOOK_SOURCE_PREFIX, webhookSourceRoute } from "./webhook-sources";
 import { observeRoute } from "./observe";
 import { requestWave } from "./wave-request";
@@ -1110,6 +1111,31 @@ export default {
         return Response.json({ error: result.error, detail: result.detail }, { status: result.status });
       }
       return Response.json({ wave: result.request }, { status: 202 });
+    }
+
+    // A read-only PR review run handing in its findings (UC5, tick v7g).
+    // Beside the other run-credential doors and before the /api/runs table,
+    // for the reason /api/wave is: it is authorized by a run token rather than
+    // the operator's, and the factory — never the run — composes what is
+    // posted.
+    if (url.pathname === REVIEW_PATH) {
+      if (request.method !== "POST") return methodNotAllowed(["POST"]);
+      const posted = await postReviewFindings(env, request);
+      if (!posted.ok) {
+        return Response.json(
+          { error: posted.denial.error, detail: posted.denial.detail },
+          { status: posted.denial.status }
+        );
+      }
+      return Response.json(
+        {
+          posted: true,
+          comment_id: posted.comment_id,
+          project: posted.project,
+          pull_request: posted.pr_number,
+        },
+        { status: 201 }
+      );
     }
 
     if (url.pathname === TELEGRAM_WEBHOOK_PATH) {

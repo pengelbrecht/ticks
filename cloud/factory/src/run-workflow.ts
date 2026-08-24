@@ -100,6 +100,7 @@ import {
   settled,
   settledOutcome,
 } from "./reconcile";
+import { getReviewForRun, reviewEvidence, reviewGradeComplaint, type ReviewTarget } from "./pr-review";
 import { readDeclaredMaxParallel, readDeclaredSandboxImage } from "./repo-config";
 import {
   epicCompleted,
@@ -739,6 +740,18 @@ export type RunContext = {
    * the dispatch-log record of it becoming a lie.
    */
   cloud_wave: CloudWavePlan | null;
+  /**
+   * The pull request this run was dispatched to review (UC5, tick v7g), or
+   * null for every other run.
+   *
+   * Read from the `pr_reviews` row keyed by this run id — the same row the
+   * review door reads, so the container's boot and its one permitted write are
+   * scoped by one fact rather than by two that could drift. Resolved here,
+   * before any container exists, for `sandbox_image`'s reason: a review run
+   * carrying a credential that could push is a configuration verdict, and the
+   * only alternative to refusing it would be booting it anyway.
+   */
+  review: ReviewTarget | null;
 };
 
 /**
@@ -934,6 +947,16 @@ export async function acquireContext(
     });
   }
 
+  // Whether this run is a pull request review (UC5, tick v7g), from the
+  // `pr_reviews` row keyed by this run id. Nothing a container said, and
+  // nothing in the params blob: the row is written by the ingestion path
+  // before the run exists, and it is the same row the review door reads back.
+  const review = await getReviewForRun(env.DB, params.run_id);
+  if (review !== null) {
+    const complaint = reviewGradeComplaint(run.credential_grade);
+    if (complaint !== null) return { ok: false, detail: complaint };
+  }
+
   // Which credential this run's containers hold (D11, tick pzf), from the
   // grade on the RUN RECORD — never from the params blob, which a resumed
   // instance could be older than, and never from anything a container said.
@@ -958,6 +981,7 @@ export async function acquireContext(
     refs_baseline: refs,
     sandbox_image: image.image,
     cloud_wave,
+    review,
   };
 
   // The run identifies itself in R2 before it does anything, so a run whose
@@ -1396,7 +1420,7 @@ async function supervisePass(
     // Flattening either into `reconcile` would boot a container that adopts
     // the state correctly and then does the wrong thing with it.
     const phase: OrchestratorPhase =
-      options.phase === "closeout" || options.phase === "wave"
+      options.phase === "closeout" || options.phase === "wave" || options.phase === "review"
         ? options.phase
         : boot === 1
           ? "run"
@@ -1458,6 +1482,19 @@ async function supervisePass(
           ...(options.pass === undefined || factoryBaseURL(env) === null
             ? {}
             : { factory_url: factoryBaseURL(env)!, factory_project: params.project }),
+          // The review half (tick v7g). Given per BOOT, from the run's own row
+          // — a container is told which pull request it is reading, and there
+          // is no other way for it to find out. The factory URL comes with it
+          // because that is where the findings go; a review container that
+          // could not reach the door would have nowhere to put its one output.
+          ...(context.review === null || factoryBaseURL(env) === null
+            ? {}
+            : {
+                review_pr: context.review.pr_number,
+                review_head_sha: context.review.head_sha,
+                factory_url: factoryBaseURL(env)!,
+                factory_project: params.project,
+              }),
         }),
       });
       return { process_id: started.id, at_ms: Date.now() };
@@ -3220,6 +3257,83 @@ export function applyProgress(outcome: RunOutcome, progress: RunProgress): RunOu
 }
 
 /**
+ * A pull request review run, start to finish (UC5, tick v7g).
+ *
+ * Deliberately short, and every way in which it is shorter than the epic
+ * lifecycle above is a property of the run rather than a simplification:
+ *
+ *  - **No closeout pass.** A closeout exists so a run that stopped early still
+ *    leaves the tracker consistent with what landed on the branch. A review
+ *    run lands nothing and writes no tracker state — it holds a read-only
+ *    credential — so there is nothing to reconcile and a second paid container
+ *    would do nothing but cost money.
+ *  - **No ref comparison.** Tick ehy's rule stands, but the evidence changes:
+ *    a run that cannot push can never move a ref, so asking whether one moved
+ *    would report every review as "nothing happened". What a review run
+ *    durably produces is a COMMENT, and {@link reviewEvidence} reads it from
+ *    the row the review door wrote.
+ *  - **The budgets are the same ones.** Cost and wall clock are enforced by
+ *    the same pass machinery as any other run, because an autonomous loop with
+ *    no ceiling is the one thing worse than a bad review.
+ */
+export async function superviseReview(
+  env: Env,
+  step: WorkflowStep,
+  params: RunWorkflowParams,
+  context: RunContext,
+  counter: BootCounter
+): Promise<RunOutcome> {
+  const work = await supervisePass(env, step, params, context, counter, {
+    label: "review",
+    phase: "review",
+    max_boots: MAX_SANDBOX_BOOTS,
+    enforce_budgets: true,
+    pass_max_ms: null,
+    // A review that ran out of observations is over: there is no clean stop to
+    // wind down into, because nothing was in flight that a closeout could
+    // finish.
+    on_exhausted: "fail",
+  });
+
+  const attempted: RunOutcome =
+    work.kind === "completed"
+      ? { state: "completed", detail: work.detail ?? "the reviewer finished", boots: work.boots }
+      : work.kind === "failed"
+        ? { state: "failed", detail: work.detail, boots: work.boots }
+        : {
+            state: "stopped",
+            detail: work.kind === "tripped" ? work.trip.detail : work.detail,
+            boots: work.boots,
+          };
+
+  const evidence = await step.do("review:evidence", OBSERVE_RETRIES, () =>
+    reviewEvidence(env.DB, params.run_id)
+  );
+  const progress: RunProgress = {
+    state: evidence.posted ? "advanced" : "none",
+    detail: evidence.detail,
+  };
+  // Nothing above this line may call the review done. A harness that exits 0
+  // has said it has nothing more to do; only the comment says it did anything.
+  const outcome: RunOutcome =
+    attempted.state !== "completed"
+      ? attempted
+      : evidence.posted
+        ? { ...attempted, detail: `${attempted.detail}; ${evidence.detail}` }
+        : {
+            state: "stopped",
+            detail: `${attempted.detail}, but ${evidence.detail}`,
+            boots: attempted.boots,
+          };
+
+  await step.do("finalize", FINALIZE_RETRIES, async () => {
+    await finalize(env, params, outcome, outcome.boots, context.cost_telemetry, progress);
+    return { finalized: true };
+  });
+  return outcome;
+}
+
+/**
  * The whole lifecycle, exported so it reads as one thing rather than as a class
  * body: context, work, clean stop if something tripped, finalize.
  */
@@ -3247,6 +3361,14 @@ export async function superviseRun(
   // substrate = cloud (tick b6e): a resolved wave fans out per-tick worker
   // containers instead of the Phase 1 single orchestrator. Absent, this is
   // the unchanged path — an ADDED one, not a replacement.
+  // A pull request review is one pass and then the run is over (UC5, tick
+  // v7g). It is checked FIRST because it is the narrower fact: a review run
+  // never has a wave — it implements no ticks — and giving it the epic paths
+  // below would boot a container to close out an epic that does not exist.
+  if (context.review !== null) {
+    return await superviseReview(env, step, params, context, counter);
+  }
+
   const work =
     context.cloud_wave !== null
       ? await superviseWaveLoop(env, step, params, context, counter, context.cloud_wave)
