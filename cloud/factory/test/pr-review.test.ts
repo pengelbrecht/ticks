@@ -11,18 +11,27 @@ import {
 } from "../src/credentials";
 import { enrolProject, getRun } from "../src/db";
 import { issueRunToken } from "../src/gateway";
+import { DEFAULT_CONSENT_LABEL } from "../src/consent";
 import { GITHUB_WEBHOOK_PATH, githubSignature } from "../src/github-issues";
 import {
   FACTORY_LINE_PREFIX,
+  REVIEW_BUDGET_PER_DAY,
+  REVIEW_BUDGET_WINDOW_MS,
   REVIEW_PATH,
+  WRITE_ACCESS_ASSOCIATIONS,
   classifyPullRequestEvent,
+  claimPullRequestReview,
   getReviewByNode,
   getReviewForRun,
+  hasWriteAccess,
   ingestPullRequestEvent,
   renderReviewComment,
+  reviewBudget,
+  reviewConsent,
   reviewEpic,
   reviewGradeComplaint,
   reviewRunSubmission,
+  type PullRequestFacts,
   type ReviewCommenter,
 } from "../src/pr-review";
 import { orchestratorEnv, repoURL } from "../src/sandbox";
@@ -127,12 +136,21 @@ async function enrolled(): Promise<string> {
 
 type Overrides = Record<string, unknown>;
 
+/**
+ * A pull request from somebody with write access, on a branch of the base
+ * repository — the ordinary case, and the one the pre-ytd cases all assumed.
+ *
+ * `author_association` and `head.repo` are named here rather than left out
+ * because tick ytd made them load-bearing: a fixture that omitted them would
+ * be an OUTSIDE contributor's fork PR, and every case below would be silently
+ * testing the refusal path instead of the thing it says it tests.
+ */
 function prPayload(project: string, over: Overrides = {}, prOver: Overrides = {}): unknown {
   counter += 1;
   return {
     action: "opened",
     repository: { full_name: project },
-    sender: { login: "contributor" },
+    sender: { login: "maintainer" },
     pull_request: {
       number: 42,
       node_id: `PR_kwDOABCD${counter}`,
@@ -140,13 +158,39 @@ function prPayload(project: string, over: Overrides = {}, prOver: Overrides = {}
       draft: false,
       title: "Add a CSV exporter",
       body: "Please review.",
-      user: { login: "contributor" },
-      head: { sha: "a".repeat(40) },
+      user: { login: "maintainer" },
+      author_association: "MEMBER",
+      labels: [],
+      head: { sha: "a".repeat(40), repo: { full_name: project } },
       base: { sha: "b".repeat(40) },
       ...prOver,
     },
     ...over,
   };
+}
+
+/**
+ * The case tick ytd exists for: a stranger's pull request, opened from their
+ * own fork, against an enrolled public repository.
+ */
+function strangerPayload(project: string, over: Overrides = {}, prOver: Overrides = {}): unknown {
+  return prPayload(project, over, {
+    user: { login: "stranger" },
+    author_association: "FIRST_TIME_CONTRIBUTOR",
+    head: { sha: "a".repeat(40), repo: { full_name: "stranger/fork" } },
+    ...prOver,
+  });
+}
+
+/** The gate reads a label, so a fixture needs one that looks like GitHub's. */
+function withConsent(prOver: Overrides = {}): Overrides {
+  return { labels: [{ name: DEFAULT_CONSENT_LABEL }], ...prOver };
+}
+
+function factsOf(payload: unknown): PullRequestFacts {
+  const verdict = classifyPullRequestEvent(payload, { label: DEFAULT_CONSENT_LABEL });
+  if (verdict.verdict !== "review") throw new Error(`not a review: ${JSON.stringify(verdict)}`);
+  return verdict.facts;
 }
 
 /** A dispatched review run, from a real ingestion, with a live sandbox credential. */
@@ -193,7 +237,7 @@ function lineKinds(body: string): { factory: number; untrusted: number; other: s
 
 describe("what a pull_request delivery is", () => {
   it("reviews an opened pull request, from structural fields only", () => {
-    const verdict = classifyPullRequestEvent(prPayload("acme/widgets"));
+    const verdict = classifyPullRequestEvent(prPayload("acme/widgets"), { label: DEFAULT_CONSENT_LABEL });
     expect(verdict.verdict).toBe("review");
     if (verdict.verdict !== "review") throw new Error("unreachable");
     expect(verdict.facts.project).toBe("acme/widgets");
@@ -206,36 +250,36 @@ describe("what a pull_request delivery is", () => {
   });
 
   it("ignores a draft, a closed pull request, and every non-reviewing action", () => {
-    const draft = classifyPullRequestEvent(prPayload("acme/widgets", {}, { draft: true }));
+    const draft = classifyPullRequestEvent(prPayload("acme/widgets", {}, { draft: true }), { label: DEFAULT_CONSENT_LABEL });
     expect(draft).toMatchObject({ verdict: "ignored", reason: "draft" });
 
-    const closed = classifyPullRequestEvent(prPayload("acme/widgets", {}, { state: "closed" }));
+    const closed = classifyPullRequestEvent(prPayload("acme/widgets", {}, { state: "closed" }), { label: DEFAULT_CONSENT_LABEL });
     expect(closed).toMatchObject({ verdict: "ignored", reason: "pull_request_closed" });
 
     // A push to the branch: fires on every commit, so it is not a review
     // trigger — an unbounded spend lever is not an autonomous loop.
-    const pushed = classifyPullRequestEvent(prPayload("acme/widgets", { action: "synchronize" }));
+    const pushed = classifyPullRequestEvent(prPayload("acme/widgets", { action: "synchronize" }), { label: DEFAULT_CONSENT_LABEL });
     expect(pushed).toMatchObject({ verdict: "ignored", reason: "not_a_reviewing_action" });
 
-    const closing = classifyPullRequestEvent(prPayload("acme/widgets", { action: "closed" }));
+    const closing = classifyPullRequestEvent(prPayload("acme/widgets", { action: "closed" }), { label: DEFAULT_CONSENT_LABEL });
     expect(closing).toMatchObject({ verdict: "ignored", reason: "not_a_reviewing_action" });
   });
 
   it("refuses a payload it cannot key or clone", () => {
-    expect(classifyPullRequestEvent(prPayload("acme/widgets", {}, { node_id: "" }))).toMatchObject({
+    expect(classifyPullRequestEvent(prPayload("acme/widgets", {}, { node_id: "" }), { label: DEFAULT_CONSENT_LABEL })).toMatchObject({
       verdict: "refused",
       reason: "invalid_payload",
     });
     expect(
-      classifyPullRequestEvent(prPayload("acme/widgets", {}, { base: { sha: "not-a-sha" } }))
+      classifyPullRequestEvent(prPayload("acme/widgets", {}, { base: { sha: "not-a-sha" } }), { label: DEFAULT_CONSENT_LABEL })
     ).toMatchObject({ verdict: "refused", reason: "invalid_payload" });
-    expect(classifyPullRequestEvent("a pull request, honest")).toMatchObject({
+    expect(classifyPullRequestEvent("a pull request, honest", { label: DEFAULT_CONSENT_LABEL })).toMatchObject({
       verdict: "refused",
     });
   });
 
   it("submits the review read-only, at the base commit, never the head", () => {
-    const verdict = classifyPullRequestEvent(prPayload("acme/widgets"));
+    const verdict = classifyPullRequestEvent(prPayload("acme/widgets"), { label: DEFAULT_CONSENT_LABEL });
     if (verdict.verdict !== "review") throw new Error("unreachable");
     const submission = reviewRunSubmission(verdict.facts);
     expect(submission.credential_grade).toBe("read_only");
@@ -244,6 +288,246 @@ describe("what a pull_request delivery is", () => {
     expect(submission.base_sha).toBe("b".repeat(40));
     expect(submission.epic).toBe("pr-42");
     expect(submission.queue).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------- the gate ---
+
+/**
+ * Tick ytd. Enrolment used to be the only gate, so a stranger's pull request
+ * on a public repository bought a paid run with nobody in between.
+ *
+ * The rule these cases pin: **write access reviews automatically, everybody
+ * else needs the consent label** — plus a per-repository daily cap behind it,
+ * because a gate is a judgement and the budget is what holds when the
+ * judgement is wrong.
+ */
+describe("who may buy a review run", () => {
+  it("reads GitHub's author_association the way GitHub means it", () => {
+    // Write access. These three are the whole list, and the test says so, so
+    // widening it is a deliberate edit rather than a drift.
+    expect([...WRITE_ACCESS_ASSOCIATIONS]).toEqual(["OWNER", "MEMBER", "COLLABORATOR"]);
+    for (const trusted of WRITE_ACCESS_ASSOCIATIONS) expect(hasWriteAccess(trusted)).toBe(true);
+
+    // CONTRIBUTOR is the trap: GitHub promotes a stranger to it the moment
+    // their first pull request is merged, so trusting it would mean one merged
+    // PR buys unlimited paid runs for ever after.
+    for (const stranger of [
+      "CONTRIBUTOR",
+      "FIRST_TIME_CONTRIBUTOR",
+      "FIRST_TIMER",
+      "MANNEQUIN",
+      "NONE",
+    ]) {
+      expect(hasWriteAccess(stranger)).toBe(false);
+    }
+
+    // Fail closed on anything this factory does not recognise, including a
+    // value GitHub might add after this was written.
+    expect(hasWriteAccess("")).toBe(false);
+    expect(hasWriteAccess("SOMETHING_NEW")).toBe(false);
+  });
+
+  it("keeps the author's standing, the consent label and the fork as facts", () => {
+    const mine = factsOf(prPayload("acme/widgets"));
+    expect(mine.author_association).toBe("MEMBER");
+    expect(mine.consented).toBe(false);
+    expect(mine.from_fork).toBe(false);
+
+    const theirs = factsOf(strangerPayload("acme/widgets"));
+    expect(theirs.author_association).toBe("FIRST_TIME_CONTRIBUTOR");
+    expect(theirs.from_fork).toBe(true);
+    expect(theirs.consented).toBe(false);
+
+    // A head repository GitHub could not name (the fork was deleted before
+    // delivery) reads as a fork, which is the conservative direction.
+    expect(factsOf(prPayload("acme/widgets", {}, { head: { sha: "a".repeat(40) } })).from_fork).toBe(
+      true
+    );
+
+    // A payload with no association at all is a stranger, not a default.
+    const bare = factsOf(prPayload("acme/widgets", {}, { author_association: undefined }));
+    expect(bare.author_association).toBe("NONE");
+
+    // The label is matched case-insensitively, as GitHub's own uniqueness is.
+    expect(factsOf(prPayload("acme/widgets", {}, withConsent())).consented).toBe(true);
+    expect(
+      factsOf(prPayload("acme/widgets", {}, { labels: [{ name: "TK" }] })).consented
+    ).toBe(true);
+    expect(
+      factsOf(prPayload("acme/widgets", {}, { labels: [{ name: "tkx" }, "bug"] })).consented
+    ).toBe(false);
+  });
+
+  it("allows write access automatically and refuses an outside contributor", () => {
+    for (const trusted of WRITE_ACCESS_ASSOCIATIONS) {
+      const facts = factsOf(prPayload("acme/widgets", {}, { author_association: trusted }));
+      expect(reviewConsent(facts, DEFAULT_CONSENT_LABEL)).toMatchObject({
+        state: "allowed",
+        via: "author_trust",
+      });
+    }
+
+    const stranger = reviewConsent(factsOf(strangerPayload("acme/widgets")), DEFAULT_CONSENT_LABEL);
+    expect(stranger).toMatchObject({ state: "refused", reason: "author_not_trusted" });
+    if (stranger.state !== "refused") throw new Error("unreachable");
+    // The refusal has to be readable by the person who has to act on it: it
+    // names the fork case and names the label that would let it through.
+    expect(stranger.detail).toContain("from a fork");
+    expect(stranger.detail).toContain(DEFAULT_CONSENT_LABEL);
+  });
+
+  it("lets the consent label through, for exactly the author it was refusing", () => {
+    const facts = factsOf(strangerPayload("acme/widgets", {}, withConsent()));
+    expect(facts.author_association).toBe("FIRST_TIME_CONTRIBUTOR");
+    expect(facts.from_fork).toBe(true);
+    expect(reviewConsent(facts, DEFAULT_CONSENT_LABEL)).toMatchObject({
+      state: "allowed",
+      via: "consent_label",
+    });
+  });
+
+  it("dispatches nothing for a stranger's fork pull request, and no claim either", async () => {
+    const project = await enrolled();
+    const payload = strangerPayload(project);
+    const result = await ingestPullRequestEvent(env, payload);
+    expect(result).toMatchObject({ state: "ignored", reason: "author_not_trusted" });
+
+    // The whole point is that no money moved: no run, and no row in the table
+    // the budget is counted from either.
+    const node = (payload as { pull_request: { node_id: string } }).pull_request.node_id;
+    expect(await getReviewByNode(env.DB, node)).toBeNull();
+    const budget = await reviewBudget(env.DB, project);
+    expect(budget).toMatchObject({ state: "within_budget", reviews: 0 });
+  });
+
+  it("refuses a CONTRIBUTOR — one merged pull request is not write access", async () => {
+    const project = await enrolled();
+    const result = await ingestPullRequestEvent(
+      env,
+      strangerPayload(project, {}, { author_association: "CONTRIBUTOR" })
+    );
+    expect(result).toMatchObject({ state: "ignored", reason: "author_not_trusted" });
+  });
+
+  it("reviews that same fork pull request once a maintainer labels it", async () => {
+    const project = await enrolled();
+    const refused = await ingestPullRequestEvent(env, strangerPayload(project));
+    expect(refused).toMatchObject({ state: "ignored", reason: "author_not_trusted" });
+
+    // `labeled` is the delivery the act of consenting produces. Without it the
+    // consent half would be unreachable: GitHub does not resend `opened`
+    // because somebody applied a label afterwards.
+    const consented = await ingestPullRequestEvent(
+      env,
+      strangerPayload(project, { action: "labeled", label: { name: DEFAULT_CONSENT_LABEL } }, withConsent())
+    );
+    expect(consented.state).toBe("dispatched");
+    if (consented.state !== "dispatched") throw new Error("unreachable");
+    const run = await getRun(env.DB, consented.run_id);
+    // Consent buys a review, never a wider credential.
+    expect(run?.credential_grade).toBe("read_only");
+  });
+
+  it("never reviews on a label being REMOVED, even from a labelled pull request", async () => {
+    const project = await enrolled();
+    const result = await ingestPullRequestEvent(
+      env,
+      strangerPayload(project, { action: "unlabeled", label: { name: DEFAULT_CONSENT_LABEL } }, withConsent())
+    );
+    expect(result).toMatchObject({ state: "ignored", reason: "not_a_reviewing_action" });
+  });
+
+  it("honours a deployment that renamed the consent label", async () => {
+    const project = await enrolled();
+    set("GITHUB_CONSENT_LABEL", "review-me");
+
+    const wrongLabel = await ingestPullRequestEvent(
+      env,
+      strangerPayload(project, {}, withConsent())
+    );
+    expect(wrongLabel).toMatchObject({ state: "ignored", reason: "author_not_trusted" });
+
+    const right = await ingestPullRequestEvent(
+      env,
+      strangerPayload(project, {}, { labels: [{ name: "review-me" }] })
+    );
+    expect(right.state).toBe("dispatched");
+  });
+
+  it("arrives at the webhook door as a settled 200, never a redelivery loop", async () => {
+    const project = await enrolled();
+    const body = JSON.stringify(strangerPayload(project));
+    const response = await SELF.fetch(`${BASE}${GITHUB_WEBHOOK_PATH}`, {
+      method: "POST",
+      headers: {
+        "X-GitHub-Event": "pull_request",
+        "X-Hub-Signature-256": await githubSignature(SECRET, body),
+        "content-type": "application/json",
+      },
+      body,
+    });
+    // 200, not 503: the answer is settled, and asking GitHub to send this
+    // again would be an infinite retry over a decision that will not change.
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      ok: true,
+      reviewing: false,
+      reason: "author_not_trusted",
+    });
+  });
+});
+
+// ----------------------------------------------------------- the daily cap ---
+
+describe("the per-repository daily review budget", () => {
+  /** Rows written straight to the table: the cap counts claims, not runs. */
+  async function claim(project: string, n: number, at: Date): Promise<void> {
+    for (let i = 0; i < n; i += 1) {
+      counter += 1;
+      await claimPullRequestReview(env.DB, {
+        ...factsOf(prPayload(project, {}, { number: 1000 + counter })),
+        node_id: `PR_budget_${counter}`,
+      });
+      await env.DB.prepare("UPDATE pr_reviews SET claimed_at = ? WHERE pr_node_id = ?")
+        .bind(at.toISOString(), `PR_budget_${counter}`)
+        .run();
+    }
+  }
+
+  it("counts this repository's reviews over a rolling day, and nobody else's", async () => {
+    const project = await enrolled();
+    const other = await enrolled();
+    const now = new Date();
+
+    await claim(project, 3, now);
+    await claim(other, 5, now);
+    // Yesterday's reviews are outside the window and buy nothing back or away.
+    await claim(project, 9, new Date(now.getTime() - REVIEW_BUDGET_WINDOW_MS - 60_000));
+
+    expect(await reviewBudget(env.DB, project, now)).toMatchObject({
+      state: "within_budget",
+      reviews: 3,
+      remaining: REVIEW_BUDGET_PER_DAY - 3,
+    });
+  });
+
+  it("stops dispatching once the cap is reached, even for a trusted author", async () => {
+    const project = await enrolled();
+    const now = new Date();
+    await claim(project, REVIEW_BUDGET_PER_DAY, now);
+    expect(await reviewBudget(env.DB, project, now)).toMatchObject({ state: "exhausted" });
+
+    // MEMBER: the gate above says yes. The backstop is what says no, which is
+    // the whole reason it is not merely a second copy of the gate.
+    const payload = prPayload(project);
+    const result = await ingestPullRequestEvent(env, payload);
+    expect(result).toMatchObject({ state: "ignored", reason: "review_budget_exhausted" });
+
+    // And a capped repository leaves no row, so today's refusals cannot
+    // inflate tomorrow's count.
+    const node = (payload as { pull_request: { node_id: string } }).pull_request.node_id;
+    expect(await getReviewByNode(env.DB, node)).toBeNull();
   });
 });
 

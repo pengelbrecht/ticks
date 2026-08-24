@@ -490,6 +490,14 @@ Two consequences worth stating: a review is *fast* (it skips the steps tick
 diff is evidence rather than direction — text in a diff that addresses the
 reviewer is a finding to report, not an instruction.
 
+**Not every pull request gets one** (tick `ytd`). A container never sees the
+decision — it is made in the control plane before a boot exists — but it is
+what decides whether this phase runs at all: a pull request whose author has
+write access to the base repository is reviewed automatically, and every other
+pull request needs the `tk` consent label, which only somebody with triage
+rights can apply. A per-repository daily cap sits behind that. The rule and its
+edges are in `repo-wiki/pr-review-loop.md`.
+
 **Exit `12`** is a review whose findings never reached the factory: the diff was
 read, the model was paid for, and the comment — the only durable thing a
 read-only run produces — does not exist. It is not terminal; a second boot

@@ -8,7 +8,7 @@ Recorded 2026-08-24 during tick v7g (epic szp, Phase 4). Consumes
     a pull request opened on an enrolled repo
               │  POST /api/hooks/github, event: pull_request
               ▼
-    classify ─→ enrolment ─→ claim (pr_reviews, UNIQUE node id)
+    classify ─→ enrolment ─→ consent ─→ budget ─→ claim (pr_reviews, UNIQUE node id)
               │
               ▼  submitRun{ credential_grade: "read_only", epic: "pr-<n>" }
     Run Workflow ──→ one container, TICKS_PHASE=review
@@ -16,10 +16,12 @@ Recorded 2026-08-24 during tick v7g (epic szp, Phase 4). Consumes
               ▼  POST /api/review  (run token; body is the file)
     the FACTORY composes the comment and posts it under the operator's token
 
-**No human gate**, unlike Phase 3's signal funnel — this is an autonomous loop,
-which is the whole point of Phase 4. What makes that acceptable is that the
-worst outcome is a bad comment. That is also why it ships before CI
-remediation: prove the shape where the blast radius is prose.
+**No human gate for your own team's pull requests**, unlike Phase 3's signal
+funnel — that is the autonomous loop Phase 4 is for. A stranger's pull request
+does have one, and `consent` above is it (tick ytd; see *Who may spend the
+money*). What makes the autonomous half acceptable is that the worst outcome is
+a bad comment. That is also why it ships before CI remediation: prove the shape
+where the blast radius is prose.
 
 ## The four mechanisms, none of which is an instruction
 
@@ -99,7 +101,104 @@ A container that exits 0 having posted nothing is `stopped`, not `completed`.
   principled answer is that a run which cannot write `.tick/` needs no
   `.tick/`-writer lease at all (D4 is about writers); that is a change to
   `run-room.ts` and was out of this tick's scope.
-- **Enrolment is the whole consent boundary.** Unlike issue ingestion there is
-  no label: a pull request *is* a request for review. What that means is that
-  enrolling a public repository enrols every stranger's pull request on it, at
-  one paid run each. The bound today is one review per pull request.
+- **`labeled` now dispatches too.** It has to: an outside contributor's PR is
+  declined on `opened`, and GitHub does not resend `opened` because a
+  maintainer labelled it afterwards, so the act of consenting must be a
+  delivery of its own. `unlabeled` still never dispatches — a removal is never
+  an act of consent.
+
+## Who may spend the money (tick ytd)
+
+Enrolment used to be the ONLY gate, and tick v7g raised that as a concern
+rather than deciding it alone. The asymmetry was the argument: Phase 3 made an
+ISSUE need the `tk` label before it became even a *draft*, and a draft need a
+human press before anything ran, while a PULL REQUEST needed neither — and a PR
+is more expensive to process and equally stranger-authored. The weaker gate was
+on the costlier path.
+
+**The rule now:**
+
+> A pull request whose author has write access to the base repository is
+> reviewed automatically. Every other pull request needs the consent label.
+
+Two mechanisms, answering different questions. They are not alternatives.
+
+### The gate — `reviewConsent`, pure
+
+Write access is read from **`author_association`**, which is already on the
+`pull_request` object in the delivery, so the gate costs no extra API call — a
+gate that needs a round trip is a gate that fails open the day GitHub is slow.
+`OWNER`, `MEMBER`, `COLLABORATOR` are trusted; everything else is not.
+
+`CONTRIBUTOR` is the trap and the reason the list is written out and pinned by
+a test: GitHub promotes a stranger to `CONTRIBUTOR` the moment their first pull
+request is merged, so trusting it would mean **one merged PR buys unlimited
+paid runs for ever after**.
+
+Where the reading is approximate, stated rather than implied: `MEMBER` is
+membership of the *organisation*, not a permission check on *this repository*,
+so an org whose base permission is `read` can have members this gate calls
+trusted who cannot actually push; a `COLLABORATOR` can likewise hold read-only
+access. The bias is deliberate and one-directional — slightly generous to
+people the operator already let into their organisation, never generous to a
+stranger. An association the factory does not recognise (absent, misspelled,
+new) is untrusted.
+
+Author trust is primary and the label is the fallback — the *opposite* weighting
+to issue ingestion — because the pull requests an operator most wants reviewed
+automatically are their own team's. A rule that made a maintainer label each of
+those would have removed the feature in order to install the gate. The pull
+requests that cost money without anybody asking are strangers'. So the gate
+falls where the asymmetry already is.
+
+**The label is a human press**, not merely a string: GitHub will not let a user
+without triage permission label an issue or a PR, and a stranger cannot ask the
+API to open one pre-labelled. So the label's presence is evidence somebody with
+standing in the repository acted — which is what "a human press" has to mean
+when the press must happen on GitHub rather than in the operator's chat. The
+vocabulary is shared with issue ingestion in `src/consent.ts` (two copies of a
+consent label is two consent labels; it is also the only arrangement without an
+import cycle, since `github-issues.ts` hands PR deliveries to `pr-review.ts`).
+
+### The backstop — `reviewBudget`, one query
+
+**20 reviews per repository per rolling 24 hours**, counted over the
+`pr_reviews` rows themselves — that table already *is* the record of every PR
+this factory claimed, and a separate counter would be a second thing to keep in
+step with it. Per repository, not per author: the money is spent per run, and
+counting per author would let ten accounts buy ten budgets, which is the exact
+shape of the attack the gate is for.
+
+The budget exists because **a gate is a judgement and a judgement can be
+wrong** — `author_association` is an approximation, a trusted account can be
+compromised, a member can simply be prolific. This is Phase 2's lesson as a
+constant: the run that cost $49.80 against a $25 ceiling did so because the
+number it checked was not the number that bounded it. A constant rather than a
+per-repository setting for `STRIKE_BUDGET`'s reason: a bound the operator must
+configure before it protects them protects nobody on the day it matters.
+
+### Ordering, and why every refusal is a 200
+
+`classify → enrolment → consent → budget → claim`. Consent before budget
+because it is pure and free and cannot fail open on a slow database, and
+because the budget should count the PRs this factory would actually have
+reviewed. Budget before the claim so a capped repository leaves **no row** —
+otherwise today's refusals would inflate tomorrow's count.
+
+Every refusal above the claim is `ignored`, answered `200`, never `503`. Each
+is a settled answer, and telling GitHub to redeliver a pull request whose
+author still has no write access would be an infinite retry over a fixed
+decision.
+
+### What this does and does not fix
+
+The read-only grade (tick pzf) already bounded the **damage**: a review run
+holds no credential github.com will accept, so it cannot act on whatever a
+hostile PR says. What was unbounded was the **cost**, and that is all tick ytd
+changes. Nothing about the credential design moved.
+
+This is also the design doc catching up with itself — `docs/design/cloud-factory.md`
+UC5 step 1 always said *"classify by author + head namespace"*. The
+trusted-bot allowlist half (dependabot, renovate) is still unbuilt: a bot's
+`author_association` is typically `NONE`, so today a Dependabot PR needs the
+label like any other outside contributor.

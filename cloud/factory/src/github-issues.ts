@@ -65,6 +65,12 @@
  * has taught it what it needs.
  */
 
+import {
+  DEFAULT_CONSENT_LABEL,
+  carriesLabel,
+  consentLabel,
+  labelNames,
+} from "./consent";
 import { getEnrolledProject } from "./db";
 import { CHECK_RUN_EVENT, checkRunWebhookRoute } from "./ci-webhook";
 import { announceDraft } from "./drafts";
@@ -88,8 +94,14 @@ import type { Env } from "./index";
 /** The funnel's source name for everything GitHub-shaped. Half the dedup key. */
 export const GITHUB_SIGNAL_SOURCE = "github";
 
-/** The consent label, when a deployment does not name its own. */
-export const DEFAULT_CONSENT_LABEL = "tk";
+/**
+ * The consent label, when a deployment does not name its own.
+ *
+ * Defined in `consent.ts` since tick ytd, because pull requests now read the
+ * same label and `pr-review.ts` cannot import it from here (this module hands
+ * deliveries to that one). Re-exported so every existing reader is unmoved.
+ */
+export { DEFAULT_CONSENT_LABEL, consentLabel };
 
 /**
  * The webhook door. Under `/api/hooks`, which `isAuthExempt` already exempts
@@ -143,13 +155,6 @@ const HTML_URL_PATTERN = /^https:\/\/[A-Za-z0-9._~:\/?#\[\]@!$&'()*+,;=%-]{1,300
  * `unlabeled` is absent on purpose and is not an oversight: see the header.
  */
 export const INGESTING_ACTIONS = ["labeled", "opened", "reopened", "edited"] as const;
-
-/** The consent label this deployment agreed on. */
-export function consentLabel(env: Pick<Env, "GITHUB_CONSENT_LABEL">): string {
-  const raw = env.GITHUB_CONSENT_LABEL;
-  if (typeof raw !== "string" || raw.trim() === "") return DEFAULT_CONSENT_LABEL;
-  return raw.trim();
-}
 
 // ---------------------------------------------------------- the signature ---
 
@@ -235,27 +240,6 @@ function ignored(reason: string, detail: string): IssueVerdict {
 
 function refused(reason: string, detail: string): IssueVerdict {
   return { verdict: "refused", reason, detail };
-}
-
-function labelNames(raw: unknown): string[] {
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .map((entry) => {
-      if (typeof entry === "string") return entry;
-      if (entry !== null && typeof entry === "object") {
-        const name = (entry as { name?: unknown }).name;
-        return typeof name === "string" ? name : "";
-      }
-      return "";
-    })
-    .map((name) => name.trim())
-    .filter((name) => name !== "");
-}
-
-/** GitHub label names are unique case-insensitively, so consent is matched that way. */
-function carriesLabel(names: string[], label: string): boolean {
-  const wanted = label.toLowerCase();
-  return names.some((name) => name.toLowerCase() === wanted);
 }
 
 function login(raw: unknown): string {

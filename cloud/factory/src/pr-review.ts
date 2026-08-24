@@ -11,6 +11,29 @@
  * bad review is a bad comment; the worst outcome of bad remediation is a bad
  * commit.** So the shape is proven here, where the blast radius is prose.
  *
+ * ## Who may spend the money (tick ytd)
+ *
+ * Enrolment used to be the ONLY gate, and that was an open door: anyone can
+ * open a pull request against a public repository, so every stranger's PR
+ * bought a paid run on the operator's account. The read-only grade bounded the
+ * DAMAGE; nothing bounded the COST.
+ *
+ * Two mechanisms now do, and they answer different questions:
+ *
+ *  - **A gate**, {@link reviewConsent}. An author with write access to the
+ *    base repository is reviewed automatically — that is the whole point of an
+ *    automatic review, and requiring a maintainer to label their own team's
+ *    pull requests would defeat it. Everybody else needs the consent label,
+ *    which only somebody with triage rights can apply. See `consent.ts`.
+ *  - **A backstop**, {@link reviewBudget}. A per-repository daily cap, because
+ *    a gate is a judgement and a judgement can be wrong: `author_association`
+ *    is GitHub's approximation of write access, not a permission check, and a
+ *    trusted account can be compromised or simply prolific. Phase 2's lesson
+ *    is that a bound you did not write is a bound that does not exist.
+ *
+ * The two are deliberately not alternatives. The gate decides WHO; the budget
+ * decides HOW MUCH even when the gate said yes.
+ *
  * ## Four rules, and each one is a mechanism rather than an instruction
  *
  * **1. The run could not have pushed.** The submission names
@@ -70,6 +93,7 @@
  * correct.
  */
 
+import { carriesLabel, consentLabel, labelNames } from "./consent";
 import { credentialGrade, gradeMayWrite } from "./credentials";
 import { getEnrolledProject } from "./db";
 import { authorizeRunCredential, type GatewayDenial } from "./gateway";
@@ -100,13 +124,21 @@ export const PULL_REQUEST_EVENT = "pull_request";
  * how a draft says it is now asking — a draft is explicitly NOT asking, which
  * is why {@link classifyPullRequestEvent} ignores one however it was opened.
  *
- * `synchronize` — a push to the PR branch — is deliberately absent. It fires
- * on every commit, so reviewing on it would make one contributor's push loop
- * an unbounded spend on the operator's account, and the dedup below would
- * refuse the second review anyway. Re-review on push is a per-repository
- * policy question, and this tick's job is to prove the shape.
+ * `labeled` joined them in tick ytd, and without it the consent half of
+ * {@link reviewConsent} would be unreachable: an outside contributor's pull
+ * request is declined on `opened`, and GitHub does not redeliver `opened`
+ * because a maintainer later applied a label. So the act of consenting has to
+ * be a delivery of its own — exactly as it is for issues, where `labeled` is
+ * the NORMAL path rather than the second one.
+ *
+ * `unlabeled` is absent for `github-issues.ts`'s reason: a removal is never an
+ * act of consent. `synchronize` — a push to the PR branch — is absent for a
+ * different one. It fires on every commit, so reviewing on it would make one
+ * contributor's push loop an unbounded spend on the operator's account, and
+ * the dedup below would refuse the second review anyway. Re-review on push is
+ * a per-repository policy question.
  */
-export const REVIEWING_ACTIONS = ["opened", "reopened", "ready_for_review"] as const;
+export const REVIEWING_ACTIONS = ["opened", "reopened", "ready_for_review", "labeled"] as const;
 
 /**
  * The door a review run posts its findings to. Exempt from the FACTORY bearer
@@ -137,6 +169,60 @@ export function reviewEpic(number: number): string {
 export const MAX_FINDINGS_CHARS = MAX_UNTRUSTED_CHARS;
 export const MAX_FINDINGS_LINES = MAX_UNTRUSTED_LINES;
 
+// ------------------------------------------------------------ author trust ---
+
+/**
+ * The `author_association` values this factory reads as "has write access to
+ * the base repository".
+ *
+ * The field is on the `pull_request` object in every delivery, so this costs
+ * no extra API call — which matters, because a gate that needs a round trip is
+ * a gate that fails open the day GitHub is slow.
+ *
+ * **What GitHub's values actually mean**, since the gate is only as good as
+ * this reading:
+ *
+ *  - `OWNER` — the author owns the repository.
+ *  - `MEMBER` — the author is a member of the ORGANISATION that owns it.
+ *  - `COLLABORATOR` — the author was granted collaborator access on the repo.
+ *  - `CONTRIBUTOR` — the author has committed to the repository BEFORE but is
+ *    neither. This one is the trap and it is why it is not on the list: a
+ *    stranger whose first pull request was merged is promoted to
+ *    `CONTRIBUTOR` for ever after, so trusting it would mean one merged PR
+ *    buys unlimited paid runs.
+ *  - `FIRST_TIME_CONTRIBUTOR`, `FIRST_TIMER`, `MANNEQUIN`, `NONE` — strangers.
+ *
+ * **And where the reading is approximate**, stated rather than implied:
+ * `MEMBER` is organisation membership, not a permission check on THIS
+ * repository, so an org whose base permission is `read` can have members this
+ * gate calls trusted who cannot actually push; a `COLLABORATOR` can likewise
+ * hold read-only access. The bias is deliberate and one-directional — the gate
+ * may be slightly generous to people the operator has already let into their
+ * organisation, and is never generous to a stranger. {@link reviewBudget} is
+ * the bound that holds when this reading is wrong, and the read-only grade
+ * still holds whatever it says.
+ *
+ * An association this factory does not recognise — absent, misspelled, or a
+ * value GitHub adds after this was written — is untrusted. Fail closed: the
+ * cost of being wrong in that direction is one review a maintainer has to ask
+ * for with a label.
+ */
+export const WRITE_ACCESS_ASSOCIATIONS = ["OWNER", "MEMBER", "COLLABORATOR"] as const;
+
+/** Whether an `author_association` means write access on the base repository. */
+export function hasWriteAccess(association: string): boolean {
+  const value = association.trim().toUpperCase();
+  return (WRITE_ACCESS_ASSOCIATIONS as readonly string[]).includes(value);
+}
+
+/** GitHub's own alphabet for the field, so an unreadable one lands as `NONE`. */
+const ASSOCIATION_PATTERN = /^[A-Z_]{1,40}$/;
+
+function association(raw: unknown): string {
+  const value = typeof raw === "string" ? raw.trim().toUpperCase() : "";
+  return ASSOCIATION_PATTERN.test(value) ? value : "NONE";
+}
+
 const LOGIN_PATTERN = /^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/;
 const NODE_ID_PATTERN = /^[A-Za-z0-9_=-]{1,255}$/;
 const PROJECT_PATTERN = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
@@ -158,6 +244,21 @@ export type PullRequestFacts = {
   base_sha: string;
   /** The author. A stranger, in the case this module is about. */
   author: string;
+  /** GitHub's own word for the author's standing. See {@link hasWriteAccess}. */
+  author_association: string;
+  /** Whether the consent label was on the pull request when this arrived. */
+  consented: boolean;
+  /**
+   * Whether the head lives somewhere other than the base repository.
+   *
+   * Recorded, never decided on: a maintainer working from a fork is ordinary,
+   * and their association says so. It is here because a fork PR from an
+   * outside contributor is the exact case the gate exists for, and an operator
+   * reading a refusal should be able to see it without opening GitHub. A head
+   * repository that is absent (a fork deleted before delivery) reads as a
+   * fork, which is the conservative direction.
+   */
+  from_fork: boolean;
 };
 
 export type PullRequestVerdict =
@@ -194,9 +295,18 @@ function sha(raw: unknown): string {
  * The title and body are not among them — not sanitised-and-kept, simply not
  * read. Nothing downstream needs them (the comment lands ON the pull request,
  * where a human already sees its title), and a field that is never read is a
- * field no sanitiser can be wrong about.
+ * field no sanitiser can be wrong about. The labels are read but not KEPT: the
+ * facts carry one boolean, so a label named after a factory heading has no
+ * path to any rendered line.
+ *
+ * It reads the consent facts and does not act on them — {@link reviewConsent}
+ * is the gate, and it is separate so that "who may spend money" is one pure
+ * function a test can enumerate rather than a branch buried in an ingestion.
  */
-export function classifyPullRequestEvent(payload: unknown): PullRequestVerdict {
+export function classifyPullRequestEvent(
+  payload: unknown,
+  options: { label: string }
+): PullRequestVerdict {
   if (payload === null || typeof payload !== "object" || Array.isArray(payload)) {
     return refused("invalid_payload", "a pull_request event must be an object");
   }
@@ -260,6 +370,13 @@ export function classifyPullRequestEvent(payload: unknown): PullRequestVerdict {
 
   const author = login((pr.user as { login?: unknown } | undefined)?.login);
 
+  // The head repository, for the fork fact only. `head.repo` is null when the
+  // fork was deleted between opening and delivery, and an absent name must not
+  // read as "same repository" — hence the explicit default.
+  const headRepo = head?.repo as { full_name?: unknown } | null | undefined;
+  const headProject =
+    typeof headRepo?.full_name === "string" ? headRepo.full_name.trim().toLowerCase() : "";
+
   return {
     verdict: "review",
     facts: {
@@ -270,8 +387,143 @@ export function classifyPullRequestEvent(payload: unknown): PullRequestVerdict {
       head_sha: headSHA,
       base_sha: baseSHA,
       author: author === "" ? "unknown" : author,
+      author_association: association(pr.author_association),
+      consented: carriesLabel(labelNames(pr.labels), options.label),
+      from_fork: headProject !== project.toLowerCase(),
     },
   };
+}
+
+// ---------------------------------------------------------------- the gate ---
+
+/**
+ * Who may buy a review run, as one pure function.
+ *
+ * The rule, in one sentence: **a pull request whose author has write access to
+ * the base repository is reviewed automatically; every other pull request
+ * needs the consent label, which only somebody with triage rights can apply.**
+ *
+ * Why author trust is primary and the label is the fallback, rather than the
+ * other way round (which is what issue ingestion does): the pull requests an
+ * operator most wants reviewed automatically are their own team's, and a rule
+ * that made a maintainer label each of those would have removed the
+ * automatic-review feature to install a gate. Meanwhile the pull requests that
+ * cost money without anybody asking are strangers', and those are precisely
+ * the ones the association identifies. So the gate falls where the asymmetry
+ * already is.
+ *
+ * Note what this is NOT: it is not a permission check, and it does not pretend
+ * to be one — see {@link WRITE_ACCESS_ASSOCIATIONS} for exactly where the
+ * reading is approximate, and {@link reviewBudget} for the bound that holds
+ * when it is wrong.
+ */
+export type ReviewConsentVerdict =
+  | { state: "allowed"; via: "author_trust" | "consent_label"; detail: string }
+  | { state: "refused"; reason: "author_not_trusted"; detail: string };
+
+export function reviewConsent(facts: PullRequestFacts, label: string): ReviewConsentVerdict {
+  const where = `${facts.project}#${facts.number}`;
+  if (hasWriteAccess(facts.author_association)) {
+    return {
+      state: "allowed",
+      via: "author_trust",
+      detail:
+        `@${facts.author} is ${facts.author_association} on ${facts.project}, so ${where} is ` +
+        "reviewed without anyone having to ask",
+    };
+  }
+  if (facts.consented) {
+    return {
+      state: "allowed",
+      via: "consent_label",
+      detail:
+        `@${facts.author} has no write access to ${facts.project} (${facts.author_association}), ` +
+        `but ${where} carries \`${label}\` — which only somebody with triage rights on the ` +
+        "repository can have applied",
+    };
+  }
+  return {
+    state: "refused",
+    reason: "author_not_trusted",
+    detail:
+      `@${facts.author} has no write access to ${facts.project} (${facts.author_association}) ` +
+      `and opened ${where}${facts.from_fork ? " from a fork" : ""}, so nothing is spent on it: ` +
+      "enrolment says which repositories may spend the operator's money, not which strangers " +
+      "may. Add " +
+      `\`${label}\` to review it — applying a label needs triage rights, so the label is the ` +
+      "human press",
+  };
+}
+
+// ------------------------------------------------------------- the backstop ---
+
+/**
+ * Review runs one repository may buy inside {@link REVIEW_BUDGET_WINDOW_MS}.
+ *
+ * A backstop, not a gate. {@link reviewConsent} decides who; this decides how
+ * much even when that answer was wrong — a compromised member account, an
+ * organisation whose base permission turns out to be looser than the operator
+ * believed, or simply a busy week nobody meant to pay for. Phase 2's lesson,
+ * in one constant: the run that cost $49.80 against a $25 ceiling did so
+ * because the number it checked was not the number that bounded it.
+ *
+ * Twenty is chosen to be invisible on a repository doing ordinary work and
+ * decisive on one being farmed: a project merging twenty pull requests a day
+ * is busy, a project opening a hundred is an incident. It is a constant rather
+ * than a per-repository setting for `STRIKE_BUDGET`'s reason — a bound the
+ * operator has to configure before it protects them is a bound that protects
+ * nobody on the day it matters.
+ */
+export const REVIEW_BUDGET_PER_DAY = 20;
+
+/** The rolling window the budget is counted over. One day, like the strike budget. */
+export const REVIEW_BUDGET_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+export type ReviewBudgetVerdict =
+  | { state: "within_budget"; reviews: number; remaining: number }
+  | { state: "exhausted"; reviews: number; detail: string };
+
+/**
+ * How much of this repository's daily review budget is left.
+ *
+ * Counted over the `pr_reviews` rows themselves rather than a second ledger,
+ * because that table already IS the record of every pull request this factory
+ * claimed — one row per review, written before the run and deleted again on
+ * exactly the outcomes where nothing was dispatched. A separate counter would
+ * be a second thing to keep in step with it.
+ *
+ * It counts rows whose run never bound as well, and that over-count is the
+ * safe direction: an in-flight claim is a review about to happen, and a claim
+ * that turns out to have dispatched nothing is deleted, so the over-count
+ * heals itself within one delivery.
+ *
+ * Per (project) rather than per (project, author): the money is spent per run,
+ * and counting per author would let ten accounts buy ten budgets — which is
+ * the exact shape of the attack the gate above is for.
+ */
+export async function reviewBudget(
+  db: D1Database,
+  project: string,
+  now = new Date()
+): Promise<ReviewBudgetVerdict> {
+  const since = new Date(now.getTime() - REVIEW_BUDGET_WINDOW_MS).toISOString();
+  const row = await db
+    .prepare("SELECT COUNT(*) AS reviews FROM pr_reviews WHERE project = ? AND claimed_at >= ?")
+    .bind(project, since)
+    .first<{ reviews: number }>();
+  const reviews = row?.reviews ?? 0;
+  if (reviews >= REVIEW_BUDGET_PER_DAY) {
+    return {
+      state: "exhausted",
+      reviews,
+      detail:
+        `${project} has already bought ${reviews} review runs in the last 24 hours, which is its ` +
+        `daily cap of ${REVIEW_BUDGET_PER_DAY}; nothing further is dispatched until the window ` +
+        "rolls forward. This is the bound that holds when the author gate is wrong, so a run of " +
+        "refusals here is worth reading as a question about who is opening these pull requests",
+    };
+  }
+  return { state: "within_budget", reviews, remaining: REVIEW_BUDGET_PER_DAY - reviews };
 }
 
 // ------------------------------------------------------------ the claim row ---
@@ -459,8 +711,8 @@ export type PullRequestIngestResult =
 /**
  * One pull request, all the way to a dispatched review run.
  *
- * The order of the three gates is the argument, and it is `github-issues.ts`'s
- * order for the same reasons:
+ * The order of the gates is the argument, and it is `github-issues.ts`'s order
+ * extended by tick ytd's two:
  *
  *  1. **The payload** — settled by a pure function, so a malformed delivery
  *     costs nothing.
@@ -468,14 +720,26 @@ export type PullRequestIngestResult =
  *     against a repository the operator never enrolled must not spend their
  *     money, and checking it before the claim means an unenrolled repository
  *     cannot fill this table either.
- *  3. **The claim** — the dedup, and the point past which a redelivery is
+ *  3. **Consent** — {@link reviewConsent}, and pure, so it is free and cannot
+ *     fail open on a slow database. Before the budget because it is the
+ *     cheaper of the two and because the budget should count the pull requests
+ *     this factory would actually have reviewed.
+ *  4. **The budget** — {@link reviewBudget}, one query, and before the claim
+ *     so that a capped repository leaves no row (which would otherwise inflate
+ *     tomorrow's count with reviews that never happened).
+ *  5. **The claim** — the dedup, and the point past which a redelivery is
  *     answered from the row rather than by a second run.
+ *
+ * Every refusal above the claim is `ignored`, not `deferred`: each one is a
+ * settled answer, and telling GitHub to redeliver a pull request whose author
+ * still has no write access would be an infinite retry over a fixed decision.
  */
 export async function ingestPullRequestEvent(
   env: Env,
   payload: unknown
 ): Promise<PullRequestIngestResult> {
-  const verdict = classifyPullRequestEvent(payload);
+  const label = consentLabel(env);
+  const verdict = classifyPullRequestEvent(payload, { label });
   if (verdict.verdict !== "review") {
     return { state: verdict.verdict, reason: verdict.reason, detail: verdict.detail };
   }
@@ -490,6 +754,16 @@ export async function ingestPullRequestEvent(
         "against a public repository, and enrolment is the operator saying which repositories " +
         "may spend their money",
     };
+  }
+
+  const consent = reviewConsent(facts, label);
+  if (consent.state === "refused") {
+    return { state: "ignored", reason: consent.reason, detail: consent.detail };
+  }
+
+  const budget = await reviewBudget(env.DB, facts.project);
+  if (budget.state === "exhausted") {
+    return { state: "ignored", reason: "review_budget_exhausted", detail: budget.detail };
   }
 
   const claim = await claimPullRequestReview(env.DB, facts);
@@ -524,15 +798,16 @@ export async function ingestPullRequestEvent(
 
   if (result.outcome === "started") {
     const runID = result.started.run.run_id;
-    const detail = `${facts.project}#${facts.number} is being reviewed by run ${runID}`;
+    const detail =
+      `${facts.project}#${facts.number} is being reviewed by run ${runID} (${consent.via})`;
     await bindReviewRun(env.DB, facts.node_id, runID, "dispatched", detail);
     return { state: "dispatched", run_id: runID, queued: false, facts, detail };
   }
   if (result.outcome === "queued") {
     const runID = result.queued.run_id;
     const detail =
-      `${facts.project}#${facts.number} is queued behind run ${result.holder.run_id}; it ` +
-      `ignites as run ${runID} when the project's dispatch lease frees`;
+      `${facts.project}#${facts.number} (${consent.via}) is queued behind run ` +
+      `${result.holder.run_id}; it ignites as run ${runID} when the project's dispatch lease frees`;
     await bindReviewRun(env.DB, facts.node_id, runID, "queued", detail);
     return { state: "dispatched", run_id: runID, queued: true, facts, detail };
   }
