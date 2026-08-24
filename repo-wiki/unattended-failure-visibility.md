@@ -53,6 +53,7 @@ someone happens to look?** There is now.
 |---|---|---|
 | Sweep | its last **3** firings in a row are `refused` (unreadable policy, unreadable frontier, no epic, a refused submission) | `empty` — the frontier held nothing this filter wanted, which is a working sweep on a quiet tracker. Also `ignited` and `queued`. One transient refusal is not news, and news that is not news is how a channel gets muted. |
 | PR review | a `pr_reviews` row has been in flight **> 24h** with `comment_id IS NULL` | anything that has commented, and anything claimed recently. `comment_id` is the filter rather than `state`, because `state` is bookkeeping and the comment is what a review run exists to produce. |
+| PR review, expired (tick `6tx`) | a `pr_reviews` row has `expired_at` set within the last **24h** — the review's queue window closed behind an epic run and it never started | anything older than that. This is the one finding NOT repeated until it recovers, because it cannot: it is settled, and the pull request's author has already been told on the pull request itself. |
 | Branch ownership (tick `t4y`) | CI remediation refused a branch because **nothing records who created it** (`unrecorded_branch`), and it was refused within the last **14 days** | a branch anybody has answered for, either owner. The join in `listUnrecordedBranches` is the release, so `human` ends the finding exactly as `factory` does — an answer is an answer. |
 
 Two shapes of review failure, and the digest tells them apart because the
@@ -66,6 +67,37 @@ operator's next move differs:
   duplicate. The digest says so rather than naming a command that would not
   help. *Known follow-up: nothing releases such a row yet; it has to be
   cleared in D1 by hand.*
+
+Since tick `6tx` there is a **third** shape, and it is its own finding kind
+(`pr_review_expired`) rather than a variant of the first: **the review expired
+on the dispatch queue and never ran at all**, because an epic run held the
+project's one slot for longer than `RUN_QUEUE_TTL_MS`. It has no run to ask
+about, so folding it into the stale case would have handed an operator
+`tk cloud supervisor <run-id>` for a run that never booted — which is why
+`readInFlightReviews` excludes `expired_at IS NOT NULL`. The finding's measure
+carries the one distinction the record keeps: whether the author was told
+(`expiry_comment_id`) or the notice itself failed to post, which is a person
+waiting on nothing. See `pr-review-loop.md`.
+
+**Four kinds, and what releases each** — the differences are the design, not an
+accident of which tick added what:
+
+| Kind | Released by | Repeats? |
+|---|---|---|
+| `sweep` | a firing that does not refuse | yes, until it recovers |
+| `pr_review` | a comment posted | yes, until it recovers |
+| `pr_review_expired` | nothing — it is settled | no, reported once and ages out after 24h |
+| `branch_record` | a person answering, **either way** | yes, until answered |
+
+`LOOP_LABELS` in `loop-digest.ts` is typed `Record<LoopFinding["loop"], string>`,
+so a fifth kind cannot silently inherit a fourth's label: the compiler refuses
+the file until the new kind names itself. Both ticks that added a kind hit that
+gate, which is what it is for.
+
+The digest reports kinds grouped **by loop** — sweeps, then reviews (stuck then
+expired, adjacent because an operator comparing them is deciding one thing),
+then branches last, being the only kind that is a question for a person rather
+than a report about a loop. `collectFindings` states that order and why.
 
 **Deliberately not reported:** a sweep whose run ignited and then failed. That
 run has its own completion gate, its own record and its own notify channel; a

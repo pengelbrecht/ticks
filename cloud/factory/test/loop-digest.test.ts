@@ -11,6 +11,7 @@ import {
   SWEEP_FAILURE_STREAK,
   SWEEP_RECORDS_PATH,
   UNRECORDED_BRANCH_ACTIVE_DAYS,
+  assessExpiredReviews,
   assessReviews,
   assessSweeps,
   assessUnrecordedBranches,
@@ -637,6 +638,138 @@ describe("a branch nobody can vouch for reaches the same person", () => {
       new Date(at.getTime() - (UNRECORDED_BRANCH_ACTIVE_DAYS + 1) * 86_400_000)
     );
     expect((await runDailyDigest(env, at)).state).toBe("quiet");
+  });
+});
+
+// ------------------------------------------------------------------------
+/**
+ * Ticks `6tx` and `t4y` each added a finding kind to this module, in parallel,
+ * for unrelated reasons. Neither branch could test the other, and
+ * `.tick/learnings.md` records exactly this shape: when parallel ticks share a
+ * contract, the merge gate is the only thing that tests it — and the break
+ * lands in the tick that did nothing. So the union is pinned here rather than
+ * left to two green branches.
+ */
+describe("every finding kind keeps its own words in one message", () => {
+  it("renders all four kinds distinctly, in loop order", async () => {
+    const at = morning("2026-05-23");
+    for (let day = 1; day <= SWEEP_FAILURE_STREAK; day += 1) {
+      await firing({
+        project: "acme/mill",
+        sweep: "morning",
+        at: hoursBefore(at, 24 * day),
+        outcome: "refused",
+      });
+    }
+    await noteUnrecordedBranch(
+      env,
+      {
+        project: "acme/mill",
+        branch: "tick/szp/meo",
+        check_name: "test (go)",
+        head_sha: "1f0c2b9ab4d5e6f7",
+      },
+      hoursBefore(at, 6)
+    );
+    await env.DB.prepare(
+      `INSERT INTO pr_reviews
+         (pr_node_id, project, pr_number, head_sha, base_sha, run_id, state, detail,
+          posted_at, comment_id, claimed_at, expired_at, expiry_comment_id)
+       VALUES (?, ?, ?, ?, ?, NULL, 'expired', NULL, NULL, NULL, ?, ?, 'c9')`
+    )
+      .bind(
+        "PR_expired_union",
+        "acme/mill",
+        41,
+        "d".repeat(40),
+        "e".repeat(40),
+        hoursBefore(at, 8).toISOString(),
+        hoursBefore(at, 7).toISOString()
+      )
+      .run();
+
+    const outcome = await runDailyDigest(env, at);
+    expect(outcome.state).toBe("sent");
+    const text = messageText(sent()[0]!);
+
+    // Each kind names itself. `LOOP_LABELS` is what makes this true, and it is
+    // typed against the union so a fifth kind cannot inherit a fourth's word.
+    expect(text).toContain("sweep: acme/mill/morning");
+    expect(text).toContain("review never ran: acme/mill#41");
+    expect(text).toContain("branch: acme/mill tick/szp/meo");
+
+    // And the ORDER `collectFindings` states: loops first, the question last.
+    expect(text.indexOf("sweep: acme/mill/morning")).toBeLessThan(
+      text.indexOf("review never ran: acme/mill#41")
+    );
+    expect(text.indexOf("review never ran: acme/mill#41")).toBeLessThan(
+      text.indexOf("branch: acme/mill tick/szp/meo")
+    );
+
+    // The one that would actually have bitten: an expired review must never be
+    // offered `tk cloud supervisor` for a run that never booted, and a branch
+    // question must never be offered it either.
+    expect(text).not.toContain("tk cloud supervisor");
+  });
+
+  it("gives each kind a label of its own, with no two sharing", () => {
+    const labelled = [
+      ...assessSweeps([
+        { project: "p", sweep: "s", fired_at: "2026-05-01T00:00:00.000Z", outcome: "refused", detail: "" },
+        { project: "p", sweep: "s", fired_at: "2026-05-02T00:00:00.000Z", outcome: "refused", detail: "" },
+        { project: "p", sweep: "s", fired_at: "2026-05-03T00:00:00.000Z", outcome: "refused", detail: "" },
+      ]),
+      ...assessReviews(
+        [
+          {
+            project: "p",
+            pr_number: 1,
+            run_id: "run_x",
+            state: "running",
+            claimed_at: "2026-05-01T00:00:00.000Z",
+            detail: null,
+          },
+        ],
+        new Date("2026-05-10T00:00:00.000Z")
+      ),
+      ...assessExpiredReviews(
+        [
+          {
+            project: "p",
+            pr_number: 2,
+            run_id: null,
+            claimed_at: "2026-05-10T00:00:00.000Z",
+            expired_at: "2026-05-10T00:30:00.000Z",
+            expiry_comment_id: "c1",
+            detail: null,
+          },
+        ],
+        new Date("2026-05-10T01:00:00.000Z")
+      ),
+      ...assessUnrecordedBranches([
+        {
+          project: "p",
+          branch: "tick/e/b",
+          check_name: "test",
+          head_sha: "abcdef123456",
+          refusals: 1,
+          first_seen_at: "2026-05-10T00:00:00.000Z",
+          last_seen_at: "2026-05-10T00:00:00.000Z",
+        },
+      ]),
+    ];
+    expect(labelled).toHaveLength(4);
+
+    const rendered = renderDigest(labelled, "2026-05-10");
+    const labels = rendered
+      .split("\n")
+      .filter((line) => /^[a-z][a-z ]*: /.test(line))
+      .map((line) => line.slice(0, line.indexOf(":")));
+    // Four findings, four distinct words. A kind that silently inherited
+    // another's label would show up here as a duplicate rather than as a
+    // reader's confusion months later.
+    expect(labels).toHaveLength(4);
+    expect(new Set(labels).size).toBe(4);
   });
 });
 

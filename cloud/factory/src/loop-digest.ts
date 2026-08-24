@@ -68,15 +68,40 @@
  * that pull request permanently unreviewable because every redelivery after it
  * is answered as a duplicate.
  *
+ * **A review that EXPIRED unrun** (tick 6tx) is a third thing again, and gets
+ * its own kind rather than being folded into either. It has no run to ask
+ * about — it never started, because an epic run held the project's one
+ * dispatch slot for longer than the review's queue window — so reporting it as
+ * a stalled review would hand an operator `tk cloud supervisor <run-id>` for a
+ * run that never booted. It is reported for a day rather than until it
+ * recovers, because it cannot recover: it is settled, the author has already
+ * been told on the pull request itself, and what an operator does with it is
+ * decide whether the queue window fits how long their runs take.
+ *
  * **A branch** is failing when CI remediation refused it because nothing
  * records who created it (tick t4y, `branch-registry.ts`). That refusal is the
  * SAFE direction — the factory does not push to a branch it cannot prove is
- * its own — and it is here for exactly that reason: tick am2 declined to build
- * the ownership record at all partly because "a lost record orphans a real
- * factory branch, so remediation refuses work it should do", and that refusal
- * had nowhere to be seen. It does now. The finding is released by an ANSWER,
- * either one: recording the branch as the factory's puts the loop back to
- * work, recording it as a person's ends the question for good.
+ * its own — and it is here for exactly that reason: tick `am2` declined to
+ * build the ownership record at all partly because "a lost record orphans a
+ * real factory branch, so remediation refuses work it should do", and that
+ * refusal would have landed in `dispatch_log` and nowhere else. It lands here
+ * now. Unlike an expiry it is NOT settled: it is a question, and it is
+ * released by an ANSWER either way — recording the branch as the factory's
+ * puts the loop back to work, recording it as a person's ends the question for
+ * good. So it follows this file's ordinary rule and repeats until answered.
+ *
+ * Those four kinds are the whole taxonomy, and the thing they have in common
+ * is worth stating once: **each is a loop that stopped producing work without
+ * anybody being told.** They differ in what releases them, and the differences
+ * are deliberate rather than incidental — see {@link LOOP_LABELS}, which is
+ * where a fifth kind has to declare itself.
+ *
+ * | Kind | Released by |
+ * |---|---|
+ * | `sweep` | a firing that does not refuse — evidence of recovery |
+ * | `pr_review` | a comment posted — the thing a review run exists to produce |
+ * | `pr_review_expired` | nothing; it is settled, so it ages out after a day |
+ * | `branch_record` | a person answering, either way |
  *
  * What is deliberately NOT here: a sweep whose run ignited and then failed.
  * That run has its own completion gate, its own record and its own notify
@@ -133,16 +158,36 @@ export const SWEEP_FIRING_LIMIT = 500;
 export const REVIEW_STALE_HOURS = 24;
 
 /**
+ * How far back an expired review is still news (tick 6tx).
+ *
+ * A review whose queue window closed behind an epic run is a SETTLED outcome,
+ * not a stuck one: the author has been told on the pull request itself
+ * (`queue-expiry.ts`), and nothing is going to change. Reporting it forever
+ * would be the cry-wolf failure this module is built to avoid, so it is
+ * reported for a day — long enough that an operator watching one repository
+ * starve its reviews sees the pattern, short enough that a settled fact stops
+ * occupying the channel.
+ *
+ * That is a deliberate exception to this file's "repeated until it works
+ * again" rule, and the exception is what the rule is FOR: a finding is
+ * repeated while it is still actionable. An expiry stops being actionable the
+ * moment it is announced.
+ */
+export const REVIEW_EXPIRY_LOOKBACK_HOURS = 24;
+
+/**
  * How recently a branch must have been refused for want of a record to still
  * be worth reporting (tick t4y).
  *
- * The finding's real release is EVIDENCE — a record appears, of either owner,
- * and the question is answered (`listUnrecordedBranches` joins it away). This
- * bound is the other half of the same idea and not a clock excusing the
- * question: a branch nothing has asked the factory about in two weeks is not a
- * live refusal, and a digest that recites dead branches forever is a digest
- * people learn to skip. Longer than the sweep streak's reach because a branch
- * can go a week between CI runs.
+ * NOT the same kind of bound as {@link REVIEW_EXPIRY_LOOKBACK_HOURS} above,
+ * and the difference is the point. An expiry is settled, so the clock is its
+ * whole release. This finding's real release is EVIDENCE — a record appears,
+ * of either owner, and the question is answered
+ * (`listUnrecordedBranches` joins it away). This bound only asks whether the
+ * refusal is still HAPPENING: a branch nothing has asked the factory about in
+ * a fortnight is not a live refusal, and a digest that recites dead branches
+ * forever is a digest people learn to skip. Longer than the sweep streak's
+ * reach because a branch can go a week between CI runs.
  */
 export const UNRECORDED_BRANCH_ACTIVE_DAYS = 14;
 
@@ -163,17 +208,46 @@ const DETAIL_MAX_CHARS = 220;
  */
 export const SWEEP_RECORDS_PATH = "/api/sweeps";
 
+/**
+ * Where an operator answers the branch-ownership question, re-exported for the
+ * same reason {@link SWEEP_RECORDS_PATH} is declared here: the message recites
+ * it. It is owned by `branch-registry.ts` and pinned against the real route by
+ * a test.
+ */
 export { CI_BRANCHES_PATH };
 
 // ------------------------------------------------------------ the findings ---
 
 /** One loop that is not working, in the words the digest will use. */
 export type LoopFinding = {
-  loop: "sweep" | "pr_review" | "branch_record";
-  /** What is broken: `project/sweep-name`, `project#pr-number`, or `project branch`. */
+  /**
+   * Which loop. Every kind here earned its own name rather than being folded
+   * into a neighbour, and twice for the same reason — the two ticks that added
+   * one arrived at it independently:
+   *
+   *  - `pr_review_expired` (tick 6tx): a review that is STUCK and one that
+   *    EXPIRED unrun need different commands and mean different things about
+   *    the factory. Folded together, an expired review would be offered
+   *    `tk cloud supervisor <run-id>` for a run that never booted.
+   *  - `branch_record` (tick t4y): a branch CI remediation refused for want of
+   *    a creation record is a QUESTION, not a broken loop, and the operator
+   *    answers it rather than fixing anything.
+   *
+   * Folding any of them into another would be the collapse this whole epic
+   * keeps ruling out. Adding a fifth means adding a {@link LOOP_LABELS} entry,
+   * which the compiler requires.
+   */
+  loop: "sweep" | "pr_review" | "pr_review_expired" | "branch_record";
+  /**
+   * What is broken: `project/sweep-name`, `project#pr-number`, or
+   * `project branch`.
+   */
   subject: string;
   project: string;
-  /** How bad: consecutive refusals for a sweep, hours in flight for a review. */
+  /**
+   * How bad: consecutive refusals for a sweep, hours in flight for a review,
+   * refusals so far for a branch.
+   */
   measure: string;
   /** The oldest failure still being reported, ISO. */
   since: string;
@@ -199,6 +273,18 @@ export type InFlightReview = {
   run_id: string | null;
   state: string;
   claimed_at: string;
+  detail: string | null;
+};
+
+/** A pull request whose review expired on the dispatch queue without ever running (tick 6tx). */
+export type ExpiredReview = {
+  project: string;
+  pr_number: number;
+  run_id: string | null;
+  claimed_at: string;
+  expired_at: string;
+  /** The comment that told the author, or NULL — which is a finding in itself. */
+  expiry_comment_id: string | null;
   detail: string | null;
 };
 
@@ -325,14 +411,63 @@ export function assessReviews(reviews: InFlightReview[], now: Date): LoopFinding
 }
 
 /**
+ * Reviews that expired on the dispatch queue without ever running (tick 6tx).
+ *
+ * Pure. These are NOT the stale reviews above and must never be reported as
+ * them: a stale review has a run to ask about (`tk cloud supervisor`), and an
+ * expired one never had a run at all, so that command would answer about
+ * nothing. Before this kind existed, an expired row was a `pr_reviews` row
+ * with no comment and an old `claimed_at`, which is exactly the shape
+ * {@link assessReviews} reports — so it would have been reported as a stalled
+ * supervisor, naming a run id that never booted.
+ *
+ * The measure carries the one distinction the record keeps: whether the pull
+ * request's author was told. An expiry that was announced is a factory working
+ * as designed under load; an expiry that was not is a person waiting on
+ * nothing, and the two get different words.
+ */
+export function assessExpiredReviews(reviews: ExpiredReview[], now: Date): LoopFinding[] {
+  const cutoff = now.getTime() - REVIEW_EXPIRY_LOOKBACK_HOURS * 3_600_000;
+  const findings: LoopFinding[] = [];
+  for (const review of reviews) {
+    const expired = Date.parse(review.expired_at);
+    // An unreadable timestamp is reported rather than skipped, for
+    // `assessReviews`' reason: it is itself a broken record.
+    if (Number.isFinite(expired) && expired < cutoff) continue;
+    const told = review.expiry_comment_id !== null && review.expiry_comment_id !== "";
+    findings.push({
+      loop: "pr_review_expired",
+      subject: `${review.project}#${review.pr_number}`,
+      project: review.project,
+      measure: told
+        ? "expired on the dispatch queue without running; the author was told on the pull request"
+        : "expired on the dispatch queue without running, AND the notice never reached the pull " +
+          "request — nobody outside this factory knows",
+      since: review.expired_at,
+      detail: sanitizeUntrustedLine(review.detail ?? "", DETAIL_MAX_CHARS),
+      // There is no run to inspect: the whole point is that none was ever
+      // started. What an operator can act on is the queue window against how
+      // long this project's runs actually take.
+      command:
+        `no run exists to inspect — this review never started. RUN_QUEUE_TTL_MS is the window ` +
+        `it waited in; compare it with how long ${review.project}'s epic runs hold the ` +
+        `dispatch lease`,
+    });
+  }
+  findings.sort((a, b) => (a.since < b.since ? -1 : a.since > b.since ? 1 : 0));
+  return findings;
+}
+
+/**
  * Branches CI remediation refused because nothing recorded creating them
  * (tick t4y).
  *
- * Pure. This is the third loop the digest watches, and it is here for the
- * reason tick am2 named when it declined to build the record at all: a lost or
- * missing record orphans a REAL factory branch, so remediation refuses work it
- * should do — and that refusal would otherwise land in `dispatch_log` and
- * nowhere else, "a trace you read once you already suspect something".
+ * Pure. This is the one finding that is a QUESTION rather than a broken loop,
+ * and it is here for the reason tick `am2` named when it declined to build the
+ * ownership record at all: a lost or missing record orphans a REAL factory
+ * branch, so remediation refuses work it should do — and that refusal would
+ * otherwise land in `dispatch_log` and nowhere else, "a trace you read once
+ * you already suspect something".
  *
  * The refusal is the SAFE direction (acting on a person's branch is the worse
  * failure), which is exactly why it needs saying out loud: a fail-closed gate
@@ -389,18 +524,47 @@ export async function readSweepFirings(env: Env, now: Date): Promise<SweepFiring
  * table (`migrations/0010_pr_reviews.sql` says so in as many words), and a
  * watcher that trusted it would be reading the field the loop updates last.
  * The comment id is the thing a review run exists to produce.
+ *
+ * `expired_at IS NULL` is the second half of the filter and it is the same
+ * argument (tick 6tx): a review that expired unrun also has no comment and an
+ * old `claimed_at`, so without this it would arrive here and be reported as a
+ * stalled supervisor — naming a run id that never booted. It is a settled
+ * outcome with its own read and its own finding below.
  */
 export async function readInFlightReviews(env: Env, now: Date): Promise<InFlightReview[]> {
   const cutoff = new Date(now.getTime() - REVIEW_STALE_HOURS * 3_600_000).toISOString();
   const rows = await env.DB.prepare(
     `SELECT project, pr_number, run_id, state, claimed_at, detail
        FROM pr_reviews
-      WHERE comment_id IS NULL AND claimed_at <= ?
+      WHERE comment_id IS NULL AND expired_at IS NULL AND claimed_at <= ?
       ORDER BY claimed_at ASC
       LIMIT ?`
   )
     .bind(cutoff, MAX_DIGEST_FINDINGS + 1)
     .all<InFlightReview>();
+  return rows.results ?? [];
+}
+
+/**
+ * Every review that expired unrun inside the lookback, most recent first.
+ *
+ * `expired_at IS NOT NULL` is the whole filter, and it is durable evidence for
+ * the same reason `comment_id IS NULL` is above: `state` is bookkeeping, and
+ * the timestamp is what the room's conditional UPDATE actually claimed.
+ */
+export async function readExpiredReviews(env: Env, now: Date): Promise<ExpiredReview[]> {
+  const cutoff = new Date(
+    now.getTime() - REVIEW_EXPIRY_LOOKBACK_HOURS * 3_600_000
+  ).toISOString();
+  const rows = await env.DB.prepare(
+    `SELECT project, pr_number, run_id, claimed_at, expired_at, expiry_comment_id, detail
+       FROM pr_reviews
+      WHERE expired_at IS NOT NULL AND expired_at >= ?
+      ORDER BY expired_at DESC
+      LIMIT ?`
+  )
+    .bind(cutoff, MAX_DIGEST_FINDINGS + 1)
+    .all<ExpiredReview>();
   return rows.results ?? [];
 }
 
@@ -418,21 +582,61 @@ export async function readUnrecordedBranches(env: Env, now: Date): Promise<Unrec
   return listUnrecordedBranches(env, since, MAX_DIGEST_FINDINGS + 1);
 }
 
-/** Everything the digest has to say today, sweeps first. */
+/**
+ * Everything the digest has to say today.
+ *
+ * The ORDER is a decision, not the order the kinds happened to be added in —
+ * six ticks have now touched this path, and an order nobody stated is an order
+ * the next tick appends to blindly. It groups by LOOP, so a reader scanning
+ * one morning's message sees one subsystem at a time:
+ *
+ *  1. **sweeps** — the loop that produces work at all;
+ *  2. **reviews**, stuck then expired — the two ways one loop fails, adjacent
+ *     because an operator comparing them is deciding one thing (is my queue
+ *     window too short, or did a run die?);
+ *  3. **branches** — last, because it is the only kind that is a question for
+ *     a person rather than a report about a loop, and it is the one an
+ *     operator can settle without looking anything up.
+ *
+ * Each assessor already sorts within its own kind, so the whole message is
+ * deterministic: two digests over the same evidence read identically.
+ */
 export async function collectFindings(env: Env, now: Date): Promise<LoopFinding[]> {
-  const [firings, reviews, unrecorded] = await Promise.all([
+  const [firings, reviews, expired, unrecorded] = await Promise.all([
     readSweepFirings(env, now),
     readInFlightReviews(env, now),
+    readExpiredReviews(env, now),
     readUnrecordedBranches(env, now),
   ]);
   return [
     ...assessSweeps(firings),
     ...assessReviews(reviews, now),
+    ...assessExpiredReviews(expired, now),
     ...assessUnrecordedBranches(unrecorded),
   ];
 }
 
 // ------------------------------------------------------------- the message ---
+
+/**
+ * How each kind of finding names itself in the message.
+ *
+ * A table rather than a ternary, so adding a kind cannot silently inherit
+ * another kind's label — which is how "expired unrun" would have arrived
+ * reading as an ordinary stalled "review" (tick 6tx). Typed
+ * `Record<LoopFinding["loop"], string>`, so the compiler, not a reviewer, is
+ * what makes a new kind declare its own word: tick t4y's `branch_record` was
+ * added here because tsc refused the file until it was.
+ *
+ * The labels are what a person scans, so they are what the finding IS rather
+ * than which module produced it — "branch", not "branch record".
+ */
+const LOOP_LABELS: Record<LoopFinding["loop"], string> = {
+  sweep: "sweep",
+  pr_review: "review",
+  pr_review_expired: "review never ran",
+  branch_record: "branch",
+};
 
 /**
  * What the person reads.
@@ -455,13 +659,7 @@ export function renderDigest(findings: LoopFinding[], day: string): string {
   ];
   for (const finding of shown) {
     lines.push(
-      `${
-        finding.loop === "sweep"
-          ? "sweep"
-          : finding.loop === "pr_review"
-            ? "review"
-            : "branch"
-      }: ${finding.subject}`,
+      `${LOOP_LABELS[finding.loop]}: ${finding.subject}`,
       `  ${finding.measure}`,
       `  since ${finding.since}`,
       ...(finding.detail === "" ? [] : [`  ${finding.detail}`]),
@@ -474,18 +672,20 @@ export function renderDigest(findings: LoopFinding[], day: string): string {
   }
   lines.push(
     "This is a daily digest, not an alert: it is sent only on the days it has something to " +
-      "say, and a problem is repeated every day until the loop works again. Nothing here was " +
-      "retried and nothing was escalated. A sweep that refuses, a review that never comments " +
-      "and a branch the factory will not touch all stop quietly, which is why this message " +
-      "exists."
+      "say, and a problem is repeated every day until it is dealt with — a loop that works " +
+      "again, or a question answered. An expired review is the one exception: it is settled, " +
+      "so it is reported once and ages out. Nothing here was retried and nothing was " +
+      "escalated. A sweep that refuses, a review that never comments, a review that never " +
+      "ran and a branch the factory will not touch all stop quietly, which is why this " +
+      "message exists."
   );
   return lines.join("\n");
 }
 
 /** The sentence a quiet day's row carries, so the record says why it sent nothing. */
 export const QUIET_DETAIL =
-  "every sweep and every claimed pull request was healthy; no message was sent, because a " +
-  "daily all-clear is a message people learn to skip";
+  "every sweep, every claimed pull request and every branch the factory was asked about was " +
+  "healthy; no message was sent, because a daily all-clear is a message people learn to skip";
 
 // ---------------------------------------------------------------- the pass ---
 
