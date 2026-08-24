@@ -2,8 +2,8 @@
   "id": "acy",
   "title": "tk cloud logs --follow and a debugging UX that does not need the Workflow API",
   "description": "The operator-facing half of Phase 4, and it is owed from Phase 2 rather than new.\n\nDiagnosing Phase 2's runs repeatedly required hand-written curl against Cloudflare's Workflow instance API — that is how the 10-minute step cap (2xm) and the lapsed lease (7n7) were both found, and neither was reachable from tk. Autonomous loops make this worse: nobody is watching when a cron sweep misbehaves at 3am.\n\nDeliverable: --follow on tk cloud logs so a live run can be watched; and surface what the Workflow instance API answers — is the supervisor alive, which step is it on, did it error — through tk rather than through curl. Phase 2's rule is the design brief: a supervisor cannot report its own death, so its liveness must be observable from OUTSIDE it.\n\nAlso here because it is the same gap: worker harness output still stops streaming once the harness starts (Phase 2's 0fg shipped boot logs only), so a mid-run stall is still diagnosed from the gateway trace rather than the container's own words.",
-  "notes": "2026-08-24 17:41 - runner-state: substrate=herdr kind=claude branch=tick/acy worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-acy workspace=wF0 base=12398fd412603bca0802348b055fdd43ad5b895b agent=tick-acy pane=wF0:p1 session=13c0d277-93a5-4321-bda5-ee51cc4d4742",
-  "status": "in_progress",
+  "notes": "2026-08-24 17:41 - runner-state: substrate=herdr kind=claude branch=tick/acy worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-acy workspace=wF0 base=12398fd412603bca0802348b055fdd43ad5b895b agent=tick-acy pane=wF0:p1 session=13c0d277-93a5-4321-bda5-ee51cc4d4742\n2026-08-24 18:17 - runner-state: runner=herdr branch=tick/acy merged=de97b8b3 gate=green (factory vitest 955)",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -11,6 +11,7 @@
   "acceptance_criteria": "An operator can follow a live run's logs and see whether its supervisor is alive, which step it is on and whether it errored, without touching the Cloudflare API directly; worker harness output reaches R2 during the run.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-23T18:05:00.013797Z",
-  "updated_at": "2026-08-24T15:41:26.328104Z",
-  "started_at": "2026-08-24T15:41:26.328103Z"
+  "updated_at": "2026-08-24T16:17:45.290894Z",
+  "closed_at": "2026-08-24T16:17:45.290894Z",
+  "closed_reason": "Completed: tk cloud supervisor answers whether a run's supervisor is alive, which step it is on and whether it errored — the questions that in Phase 2 could only be answered by hand-written curl against Cloudflare's Workflow instance API, and that is how both 2xm and 7n7 were actually found. Plus --follow on tk cloud logs. Observability now lands in wave 1 rather than last, which is the inverse of Phase 2 and the mistake its retro named."
 }
