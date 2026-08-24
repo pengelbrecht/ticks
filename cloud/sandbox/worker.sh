@@ -269,6 +269,9 @@ adopt_worker_branch() {
 			worker_branch_inherited="$(git -C "$workdir" rev-list --count "${base_sha}..HEAD" 2>/dev/null)" ||
 				worker_branch_inherited=0
 			say "adopted ${worker_branch} from origin: ${worker_branch_inherited} commit(s) an earlier attempt at ${tick_id} pushed, on top of ${base_sha}"
+			# Recorded on adoption too: the earlier attempt may have died
+			# before it recorded, and a record already written stands.
+			record_branch "$worker_branch" "worker branch for tick ${tick_id}, adopted from an earlier attempt"
 			return 0
 		fi
 		worker_branch="${worker_branch}-${run_id}"
@@ -277,6 +280,7 @@ adopt_worker_branch() {
 	git -C "$workdir" checkout -q -B "$worker_branch" HEAD ||
 		die $EXIT_CLONE "cannot create the worker branch ${worker_branch}"
 	say "worker branch ${worker_branch} at ${base_sha}"
+	record_branch "$worker_branch" "worker branch for tick ${tick_id} at ${base_sha}"
 }
 
 # The repository's own `[sandbox]` setup, timed and skippable — see setup_mode.

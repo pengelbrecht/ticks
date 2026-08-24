@@ -42,16 +42,17 @@
  * that one names where a LOCAL orchestrator puts its work; this one is the
  * list of branches a cloud run may be pointed at without a person asking.
  *
- * ### What the brand does not prove, and why it stays that way (tick am2)
+ * ### What the brand does not prove, and what now does (ticks am2, t4y)
  *
  * All of the above is about PARSING, and it holds: the Phase 4 final review
  * went looking for the cast, the JSON boundary and a second constructor and
  * found none. What none of it does is verify that a branch is ACTUALLY the
- * factory's. Ownership is a naming convention — {@link BRANCH_OWNERSHIP_BASIS}
- * says so in as many words — and there is no positive record anywhere that the
- * factory created the branch it is about to push to.
+ * factory's. Tick am2 examined that, chose to document rather than fix it, and
+ * wrote the exposure down per namespace instead of implying it. That
+ * documentation is below, unchanged and still true — it is the reason the
+ * record exists, and the reason the name test can never be the whole answer.
  *
- * In this repository that convention is shared, and not narrowly:
+ * In this repository the naming convention is shared, and not narrowly:
  *
  *  - `tk herd spawn` names a worker's branch `<worktree_branch_prefix><tick-id>`
  *    and that prefix DEFAULTS TO `tick/`. Branches in the factory's first
@@ -74,38 +75,53 @@
  * is therefore the one a person pushed.
  *
  * The fix the review named is a positive record: the factory writes down the
- * branches it creates, and ownership becomes a lookup. It is the right answer
- * and it is not this tick's, for three reasons worth writing down rather than
- * rediscovering:
+ * branches it creates, and ownership becomes a lookup. am2 gave three reasons
+ * it was not that tick's, and tick t4y is what happened to them.
  *
- *  1. **The write side does not exist where the risk is.** A wave dispatch
- *     could record `tick/<epic>/<tick>` easily enough — it names the branch
- *     itself, in `workerBranch`. `epic/<id>` is pushed by an orchestrator
- *     running INSIDE a sandbox container, through `tk`, with no D1 handle. A
- *     record complete on the namespace with no live exposure and empty on the
- *     namespace that carries it is not a safety property, it is a decoration.
- *  2. **Required today, it would refuse every delivery this repo can make.**
- *     See the CI triggers above. "The loop is off" is a safe direction, but it
- *     is not the direction anybody chose.
- *  3. **Its failure mode cannot yet be made loud.** A lost record orphans a
- *     real factory branch: remediation refuses work it should do. That refusal
- *     would land in `dispatch_log` and nowhere else, which is a trace you read
- *     once you already suspect something. A positive record is worth having
- *     when a missing one can page somebody; until then it trades a loud wrong
- *     answer for a quiet one.
+ *  1. **The write side did not exist where the risk is.** A wave dispatch
+ *     could record `tick/<epic>/<tick>` easily enough. The branches that
+ *     matter are pushed from INSIDE a sandbox container, which has no D1
+ *     handle — and "a record complete on the namespace with no live exposure
+ *     and empty on the namespace that carries it is not a safety property, it
+ *     is a decoration". **This was the actual work.** A container is not
+ *     without a voice: tick wiy gave it an authenticated door to the control
+ *     plane, identity taken from the run's own gateway token rather than
+ *     claimed in a body. `branch-ownership.ts` is the same shape — a container
+ *     records the branch it just created, for its own run's project and epic
+ *     and no other. `cloud/sandbox/entrypoint.sh` and `worker.sh` call it at
+ *     the moment they create a branch, so the record is written by the
+ *     substrate rather than asked of an agent's prompt (`.tick/learnings.md`,
+ *     tick dxk).
+ *  2. **Required, it would refuse every delivery this repo can make.** It
+ *     still refuses them — and that is now the DESIGNED behaviour rather than
+ *     an outage, because the refusal is reported and answerable. A person
+ *     records the branch (`POST /api/ci/branches`) and the loop resumes; a
+ *     person records it as `human` and the loop leaves it alone for good. What
+ *     changed is that "the loop is off" cannot happen quietly.
+ *  3. **Its failure mode could not be made loud.** Tick zaw landed the daily
+ *     digest in the same wave. A branch refused for want of a record is
+ *     written to `unrecorded_branch` and reported every day until somebody
+ *     answers — released by the record appearing, never by a clock and never
+ *     by an acknowledgement.
  *
- * So the convention stands, deliberately, and the residual risk is stated
- * rather than implied: **a branch a person named the way the factory names
- * its own is a branch this factory will push to.** Two things bound it, and
- * neither is the ownership test. The branch must also carry a failing check on
- * an ENROLLED project that survives the flake gate and the strike budget; and
- * the run that results is issued exactly {@link REMEDIATION_CREDENTIAL_GRADE},
- * so its damage is bounded by what a `write` credential can do — push to a
- * branch, never to `main`, never past a review.
+ * So {@link BRANCH_OWNERSHIP_BASIS} is now `creation_record`, and the name
+ * test has become a NECESSARY condition rather than a sufficient one: a branch
+ * outside {@link FACTORY_BRANCH_NAMESPACES} is refused without a database read
+ * (cheapest, most final first), and a branch inside them still has to be
+ * looked up. Nothing was removed — the brand, the single constructor and the
+ * runtime re-derivation all still stand, and am2's per-namespace statement of
+ * who else creates branches here is why the lookup exists.
  *
- * {@link FACTORY_BRANCH_NAMESPACE_OVERLAP} carries that statement per
- * namespace, and a test requires an entry for every namespace claimed: the
- * list cannot be widened without saying who else is already there.
+ * The residual risk am2 stated — **a branch a person named the way the factory
+ * names its own is a branch this factory will push to** — is what this closes.
+ * The two bounds it named still hold underneath: the branch must carry a
+ * failing check on an ENROLLED project that survives the flake gate and the
+ * strike budget, and the run that results is issued exactly
+ * {@link REMEDIATION_CREDENTIAL_GRADE}.
+ *
+ * {@link FACTORY_BRANCH_NAMESPACE_OVERLAP} carries the per-namespace statement,
+ * and a test requires an entry for every namespace claimed: the list cannot be
+ * widened without saying who else is already there.
  *
  * ## 2. The flake gate: reproduce before you pay
  *
@@ -182,6 +198,12 @@
  * ordering re-runs. Cheapest, most final answer first.
  */
 
+import {
+  CI_BRANCHES_PATH,
+  branchRecord,
+  noteUnrecordedBranch,
+  type BranchRecord,
+} from "./branch-registry";
 import { credentialGrade, type RunCredentialGrade } from "./credentials";
 import {
   getEnrolledProject,
@@ -223,14 +245,18 @@ export type FactoryBranchNamespace = (typeof FACTORY_BRANCH_NAMESPACES)[number];
 /**
  * How ownership is decided, named so that nothing has to infer it.
  *
- * `naming_convention` means exactly what it says: a prefix match on the branch
- * name, with no record anywhere that the factory created the branch. The
- * alternative — a positive record written when the factory creates a branch,
- * and a lookup here — is the Phase 4 review's recommendation and the module
- * note explains why it is not yet the answer. Changing that decision changes
- * this constant, which is the point of having it.
+ * `creation_record` means a row in `factory_branch` written by whatever
+ * created the branch (tick t4y). It was `naming_convention` until then — a
+ * prefix match and nothing else — and the module note above records what
+ * changed and why the prefix match survives as the cheap first half.
+ *
+ * The name test is now NECESSARY and not sufficient: {@link factoryOwnedBranch}
+ * still refuses everything outside {@link FACTORY_BRANCH_NAMESPACES} before
+ * any database is touched, and {@link branchOwnership} decides what happens to
+ * what is left. Changing the basis changes this constant, which is the point
+ * of having it.
  */
-export const BRANCH_OWNERSHIP_BASIS = "naming_convention" as const;
+export const BRANCH_OWNERSHIP_BASIS = "creation_record" as const;
 
 /** Who else creates branches in a namespace the factory claims, and what that costs. */
 export type BranchNamespaceOverlap = {
@@ -338,9 +364,56 @@ export function factoryOwnedBranch(branch: unknown): FactoryOwnedBranch | null {
   return null;
 }
 
-/** {@link factoryOwnedBranch} as a plain verdict, for logs and refusal messages. */
+/**
+ * {@link factoryOwnedBranch} as a plain verdict, for logs and refusal messages.
+ *
+ * The NAME test only. Since tick t4y this answers "could this branch be the
+ * factory's" and not "is it" — {@link branchOwnership} answers that, and it
+ * needs a database. Kept as the runtime re-derivation at the dispatch site,
+ * which is a check about a branded value having been laundered, not a check
+ * about who created the branch.
+ */
 export function branchOwner(branch: unknown): BranchOwner {
   return factoryOwnedBranch(branch) === null ? "human" : "factory";
+}
+
+/**
+ * What the positive record says about a branch that already passed the name
+ * test (tick t4y).
+ *
+ * Three answers, and the third is the one that made this worth building:
+ * `unrecorded` is "nobody has said", which is neither of the other two and
+ * must not be quietly folded into either.
+ */
+export type BranchOwnershipVerdict =
+  /** A run of this factory created it. Remediation may proceed. */
+  | { state: "recorded"; record: BranchRecord }
+  /** A person has claimed it. Remediation refuses, and says nothing further. */
+  | { state: "disclaimed"; record: BranchRecord }
+  /** Nothing recorded creating it. Remediation refuses AND reports. */
+  | { state: "unrecorded" };
+
+/**
+ * Who owns a branch, from the record rather than from its name.
+ *
+ * Fails CLOSED: no record is a refusal, not a pass. That direction is the
+ * cheap one to be wrong in — refusing work the factory should have done costs
+ * a person answering a message, while the other direction spends a
+ * `write`-grade run on somebody else's branch — but it is only acceptable
+ * because the refusal is REPORTED. See {@link noteUnrecordedBranch} and
+ * `loop-digest.ts`: a fail-closed gate whose refusals are invisible is a loop
+ * that stops working without anybody noticing.
+ */
+export async function branchOwnership(
+  env: Env,
+  project: string,
+  branch: string
+): Promise<BranchOwnershipVerdict> {
+  const record = await branchRecord(env, project, branch);
+  if (record === null) return { state: "unrecorded" };
+  return record.owner === "factory"
+    ? { state: "recorded", record }
+    : { state: "disclaimed", record };
 }
 
 declare const FACTORY_OWNED_BRAND: unique symbol;
@@ -1112,6 +1185,18 @@ export async function dispatchRemediation(
         "cast past FactoryOwnedBranch"
     );
   }
+  // And the record, re-read here for the same reason the name is (tick t4y).
+  // Ownership is `creation_record` now, so a re-derivation that checked only
+  // the name would be re-deriving the thing that stopped being the answer.
+  // Unreachable through `remediateCheckFailure`, which asked before it spent
+  // anything; it exists for the caller who reaches for a cast.
+  if ((await branchOwnership(env, facts.project, facts.branch)).state !== "recorded") {
+    throw new Error(
+      `factory ci: refusing to dispatch against ${String(facts.branch)}, which no record says ` +
+        "this factory created; this is unreachable through remediateCheckFailure and means a " +
+        `caller skipped the ownership door (answer it at POST ${CI_BRANCHES_PATH})`
+    );
+  }
 
   const runID = newRunID();
   const traceID = newTraceID();
@@ -1182,10 +1267,12 @@ async function logCIDispatch(
 /**
  * A `check_run` delivery, all the way to a run or to a reason there is none.
  *
- * The order is ownership, evidence, budget, gate, dispatch — cheapest and most
- * final first. Every outcome except `deferred` is settled and written down:
- * `tk factory trace` answers "why did this not run" from D1, never from
- * Workers logs.
+ * The order is name, enrolment, RECORD, evidence, budget, gate, dispatch —
+ * cheapest and most final first. The record sits inside ownership, right after
+ * the name test it completes (tick t4y): a branch nothing created is refused
+ * before a single observation, strike or GitHub read is spent on it. Every
+ * outcome except `deferred` is settled and written down: `tk factory trace`
+ * answers "why did this not run" from D1, never from Workers logs.
  */
 export async function remediateCheckFailure(
   env: Env,
@@ -1218,6 +1305,50 @@ export async function remediateCheckFailure(
       state: "refused",
       code: "not_enrolled",
       detail: `${facts.project} is not enrolled with this factory`,
+    };
+  }
+
+  // The positive record (tick t4y). This is the OTHER half of the ownership
+  // door: `classifyCheckEvent` proved the name is one the factory could own,
+  // and this proves something actually created it. Asked here — after
+  // enrolment, before any evidence or budget — because it is an ownership
+  // question, and ownership is the first and most final of the governors.
+  const ownership = await branchOwnership(env, facts.project, facts.branch);
+  if (ownership.state !== "recorded") {
+    if (ownership.state === "unrecorded") {
+      // Refused for want of a record, and REPORTED rather than only logged.
+      // am2's third reason for leaving this undone was that a lost record
+      // would orphan a real factory branch quietly; this row is what the daily
+      // digest reads so it cannot (tick zaw, `loop-digest.ts`).
+      await noteUnrecordedBranch(env, {
+        project: facts.project,
+        branch: facts.branch,
+        check_name: facts.check_name,
+        head_sha: facts.head_sha,
+      });
+    }
+    await logCIDispatch(env, {
+      epic: epicOfBranch(facts.branch),
+      decision: `refused:${
+        ownership.state === "unrecorded" ? "branch_unrecorded" : "branch_disclaimed"
+      }:${facts.branch}`,
+      // The branch is waiting on a person to say whose it is, which is exactly
+      // what this reason means everywhere else it is used.
+      reason: "awaiting_approval",
+    });
+    return {
+      state: "refused",
+      code: ownership.state === "unrecorded" ? "branch_unrecorded" : "branch_disclaimed",
+      detail:
+        ownership.state === "unrecorded"
+          ? `nothing recorded creating ${facts.branch}, so this factory does not know it is ` +
+            "its own branch and will not push to it; the name matches a namespace the factory " +
+            "uses, which is a claim anybody can make. Say whose it is: " +
+            `POST ${CI_BRANCHES_PATH} {"project":"${facts.project}","branch":"${facts.branch}",` +
+            '"owner":"factory"|"human"}. Until then this is reported in the daily digest'
+          : `${facts.branch} is recorded as a person's branch (by ` +
+            `${ownership.record.recorded_by} at ${ownership.record.recorded_at}); the factory ` +
+            "reviews a human's branch, it never pushes to it",
     };
   }
 

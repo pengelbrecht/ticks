@@ -23,6 +23,13 @@
  * - POST /api/hooks/source/:owner/:repo/:name - a webhook source the repository
  *                             declares in its own `.tick/runners.toml`; signed
  *                             with the scheme that declaration names
+ * - POST /api/branches      - a container recording a branch it just created,
+ *                             on its own run's gateway token (tick t4y); this
+ *                             is what makes branch ownership a lookup rather
+ *                             than a naming convention
+ * - GET/POST/DELETE /api/ci/branches - a person answering the same question,
+ *                             on the operator's token; the only door that may
+ *                             say a branch is a HUMAN's
  * - GET/POST/DELETE /api/projects[/:owner/:repo] - project enrolment
  * - everything else        - requires `Authorization: Bearer <factory token>`
  *
@@ -57,6 +64,7 @@ import { proxyGitRequest } from "./credentials";
 import { proxyModelRequest } from "./gateway";
 import { handleDraftPress, parseDraftCallback } from "./drafts";
 import { ciEscalationsRoute } from "./ci-escalations";
+import { BRANCH_CLAIM_PATH, branchOwnershipRoute, claimBranch } from "./branch-ownership";
 import { GITHUB_WEBHOOK_PATH, githubWebhookRoute } from "./github-issues";
 import { REVIEW_PATH, postReviewFindings } from "./pr-review";
 import { WEBHOOK_SOURCE_PREFIX, webhookSourceRoute } from "./webhook-sources";
@@ -1164,6 +1172,29 @@ export default {
       return Response.json({ wave: result.request }, { status: 202 });
     }
 
+    // A container recording the branch it just created (tick t4y). Beside
+    // /api/wave and authorized the same way, because it is the same kind of
+    // caller: a sandbox holding its run's own token, never the operator's.
+    // This is the write side that made a positive record of branch ownership
+    // possible at all — before it, `epic/<id>` and the run branch were pushed
+    // from inside a container with no way to say so.
+    if (url.pathname === BRANCH_CLAIM_PATH) {
+      if (request.method !== "POST") return methodNotAllowed(["POST"]);
+      const claimed = await claimBranch(env, request);
+      if (!claimed.ok) {
+        return Response.json(
+          { error: claimed.error, detail: claimed.detail },
+          { status: claimed.status }
+        );
+      }
+      return Response.json(
+        { recorded: claimed.created, branch: claimed.record },
+        // 200 rather than 201 when the record already existed: the branch is
+        // decided either way, and the container is told which happened.
+        { status: claimed.created ? 201 : 200 }
+      );
+    }
+
     // A read-only PR review run handing in its findings (UC5, tick v7g).
     // Beside the other run-credential doors and before the /api/runs table,
     // for the reason /api/wave is: it is authorized by a run token rather than
@@ -1261,6 +1292,15 @@ export default {
     // rolling over does not, which is what this route was written to fix.
     if (segments[0] === "api" && segments[1] === "ci" && segments[2] === "escalations") {
       return await ciEscalationsRoute(request, env, segments.slice(3));
+    }
+
+    // Who created a branch, answered by a person (tick t4y). Beside the
+    // escalation route because it is the same kind of surface — the CI loop
+    // waiting on somebody — and authenticated the same way. Distinct from the
+    // container's `/api/branches` door above, which carries a run credential
+    // and may only ever say "the factory created this".
+    if (segments[0] === "api" && segments[1] === "ci" && segments[2] === "branches") {
+      return await branchOwnershipRoute(request, env, segments.slice(3));
     }
 
     if (segments[0] === "api" && segments[1] === "projects") {

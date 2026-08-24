@@ -28,6 +28,11 @@ import {
   type CheckHistoryReader,
   type FactoryOwnedBranch,
 } from "../src/ci-remediation";
+import {
+  CI_BRANCHES_PATH,
+  listUnrecordedBranches,
+  recordBranch,
+} from "../src/branch-registry";
 import { WORKER_BRANCH_PREFIX } from "../src/worker-boot";
 import type { RunWorkflowInstance, RunWorkflowParams } from "../src/runs";
 
@@ -203,6 +208,36 @@ async function enrolled(): Promise<string> {
     enrolled_by: "operator@example.com",
     enrolled_at: new Date().toISOString(),
   });
+  // Ownership is a positive record since tick t4y, so a test about the flake
+  // gate or the strike budget has to say that the factory created the branch
+  // it is failing on — the same sentence `cloud/sandbox/worker.sh` says
+  // through `tk cloud branch` the moment it creates one. The block that tests
+  // the record itself uses `unrecordedProject()` instead.
+  await recorded(project, OWNED);
+  return project;
+}
+
+/** `<project>` with `<branch>` recorded as factory-created, as a container would. */
+async function recorded(project: string, branch: string): Promise<void> {
+  await recordBranch(env, {
+    project,
+    branch,
+    owner: "factory",
+    recorded_by: "run:run_test",
+    run_id: "run_test",
+    epic: "szp",
+  });
+}
+
+/** An enrolled project whose branches nobody has decided about. */
+async function unrecordedProject(): Promise<string> {
+  projectCounter += 1;
+  const project = `acme/mill-${projectCounter}`;
+  await enrolProject(env.DB, {
+    project,
+    enrolled_by: "operator@example.com",
+    enrolled_at: new Date().toISOString(),
+  });
   return project;
 }
 
@@ -359,15 +394,15 @@ describe("branch ownership is structural", () => {
  *    pull request is the ONLY thing in the claimed namespaces this repo's
  *    `.github/workflows/ci.yml` produces a `check_run` for at all.
  *
- * These tests pin the collision rather than close it. `ci-remediation.ts`'s
- * module note carries why a positive record was not today's answer; what these
- * cases guarantee is that the convention cannot be silently widened, and cannot
- * be mistaken for a fact the factory checked. A pinned uncomfortable truth is
- * the difference between a decision and an assumption.
+ * These tests pinned the collision; tick t4y closed it, and they stay because
+ * the collision is still true — the NAME still cannot separate the two, which
+ * is precisely why the record has to. What these cases guarantee is that the
+ * claimed set cannot be silently widened, and that the naming convention is
+ * never again mistaken for a fact the factory checked. The record's own half
+ * is the block below, and `branch-registry.test.ts`.
  */
-describe("ownership is a naming convention, and the namespace is shared", () => {
+describe("the namespace is shared, so the name settles nothing", () => {
   it("names another creator for every namespace it claims", () => {
-    expect(BRANCH_OWNERSHIP_BASIS).toBe("naming_convention");
     const claimed = [...FACTORY_BRANCH_NAMESPACES].sort();
     const named = FACTORY_BRANCH_NAMESPACE_OVERLAP.map((entry) => entry.namespace).sort();
     // Widening the claimed list without saying who else creates branches there
@@ -393,14 +428,152 @@ describe("ownership is a naming convention, and the namespace is shared", () => 
     }
   });
 
-  it("asks nothing durable: the verdict is a pattern match, not a lookup", () => {
-    // No D1, no GitHub, no `runs` row — this whole block runs without touching
-    // a binding. `runs` carries (project, epic) and is the record a reader
-    // reaches for first: it says the factory RAN an epic, never that it pushed
-    // that epic's branch, and "probably ours" is the answer this module refuses
-    // everywhere else.
+  it("asks nothing durable, which is why it cannot be the whole answer", () => {
+    // No D1, no GitHub, no `runs` row — the NAME half runs without touching a
+    // binding, and that is exactly its limit: it says a branch is shaped like
+    // one the factory names, never that the factory made it. Tick t4y put the
+    // record behind it; `branchOwnership` is the half that costs a lookup.
     expect(factoryOwnedBranch("epic/szp")).toBe("epic/szp");
     expect(branchOwner("epic/an-epic-this-factory-has-never-heard-of")).toBe("factory");
+  });
+
+  it("names its basis, and the basis is now a record", () => {
+    // The constant exists so nothing has to infer how ownership is decided,
+    // and changing the decision changes it. am2 set it to `naming_convention`
+    // and said so in as many words; t4y is what changed.
+    expect(BRANCH_OWNERSHIP_BASIS).toBe("creation_record");
+  });
+});
+
+// ---------------------------------------------- ownership is a record now ---
+
+/**
+ * The record decides, and a missing one is loud (tick t4y, closing am2).
+ *
+ * am2 named the fix and declined to build it, for three reasons. Tick zaw
+ * removed the third by landing the daily digest; the first — that the write
+ * side did not exist for branches pushed from inside a container — was the
+ * work, and it lives in `branch-registry.test.ts` where the real HTTP door is
+ * exercised on a real run token.
+ *
+ * What is pinned HERE is the consequence at the dispatcher, through the same
+ * signed GitHub door every other case in this file uses:
+ *
+ *  - the same branch name buys a run when a record says the factory made it,
+ *    and buys nothing when nothing does — the name is identical in both, which
+ *    is the whole demonstration;
+ *  - the refusal is not silent: it writes the row the digest reads, and it
+ *    names the call that answers it;
+ *  - a branch a person has claimed is refused for good and reported to nobody,
+ *    because it is an ANSWER;
+ *  - nothing was spent on the way to the refusal — no observation, no strike,
+ *    no re-run ordered from GitHub. Ownership is still the first governor.
+ */
+describe("ownership is decided by a record of creation", () => {
+  it("refuses the very branch it would have dispatched, when nothing recorded it", async () => {
+    const project = await unrecordedProject();
+
+    const response = await deliver(checkRunPayload(project));
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { reason: string; detail: string };
+    expect(body.reason).toBe("branch_unrecorded");
+    // The refusal says what to do about it. A refusal that does not is a
+    // refusal people work around.
+    expect(body.detail).toContain(CI_BRANCHES_PATH);
+    expect(workflow.created).toHaveLength(0);
+
+    // And the same branch name, once a record says the factory created it, is
+    // work: two failing deliveries reproduce it and a run ignites.
+    await recorded(project, OWNED);
+    await deliver(checkRunPayload(project));
+    const dispatched = await deliver(checkRunPayload(project));
+    expect(dispatched.status).toBe(201);
+    expect(workflow.created).toHaveLength(1);
+  });
+
+  it("reaches the digest instead of only the dispatch log", async () => {
+    const project = await unrecordedProject();
+    await deliver(checkRunPayload(project));
+    await deliver(checkRunPayload(project));
+
+    const open = (await listUnrecordedBranches(env, "1970-01-01T00:00:00.000Z")).filter(
+      (row) => row.project === project
+    );
+    // This row is the whole reason am2 said no: without it the refusal lands
+    // in `dispatch_log` and nowhere else, and a lost record orphans a real
+    // factory branch quietly. `loop-digest.ts` turns it into a message.
+    expect(open).toHaveLength(1);
+    expect(open[0]).toMatchObject({ branch: OWNED, refusals: 2, check_name: "test (go)" });
+
+    // Still written down where a trace can find it, too.
+    const log = await listRecentDispatch(env.DB, 20);
+    expect(log.some((entry) => entry.decision === `refused:branch_unrecorded:${OWNED}`)).toBe(true);
+  });
+
+  it("spends nothing on the way to that refusal", async () => {
+    const project = await unrecordedProject();
+    await deliver(checkRunPayload(project));
+
+    // No evidence, no strike, and — the expensive one — no re-run ordered from
+    // GitHub. The record is asked before the flake gate for the reason the
+    // strike budget is: a branch that must not be worked on must not be able
+    // to order CI minutes either.
+    const observations = await env.DB.prepare(
+      `SELECT COUNT(*) AS n FROM ci_check_observation WHERE project = ?`
+    )
+      .bind(project)
+      .first<{ n: number }>();
+    expect(Number(observations?.n ?? 0)).toBe(0);
+    expect(await attemptsFor(project, OWNED)).toBe(0);
+    expect(checks.reruns).toHaveLength(0);
+    expect(await runsFor(project)).toBe(0);
+  });
+
+  it("refuses a branch a person has claimed, and says nothing further about it", async () => {
+    const project = await unrecordedProject();
+    await recordBranch(env, {
+      project,
+      branch: OWNED,
+      owner: "human",
+      recorded_by: "operator",
+    });
+
+    const response = await deliver(checkRunPayload(project));
+    expect((await response.json()) as { reason: string }).toMatchObject({
+      reason: "branch_disclaimed",
+    });
+    expect(workflow.created).toHaveLength(0);
+    // A decided branch is not a finding. The digest reports questions, not
+    // answers — this one has been answered, and repeating it daily would be
+    // the cry-wolf failure zaw's design exists to avoid.
+    expect(
+      (await listUnrecordedBranches(env, "1970-01-01T00:00:00.000Z")).filter(
+        (row) => row.project === project
+      )
+    ).toHaveLength(0);
+  });
+
+  it("throws at the dispatch site for a caller that skipped the record door", async () => {
+    const project = await unrecordedProject();
+    const facts: CheckFailureFacts = {
+      project,
+      // The brand is satisfiable by a cast, and so was the name check behind
+      // it. Since ownership is a record, the runtime re-derivation reads the
+      // record too — otherwise it would be re-deriving the thing that stopped
+      // being the answer.
+      branch: OWNED as FactoryOwnedBranch,
+      head_sha: HEAD,
+      base_branch: "main",
+      check_name: "test (go)",
+      check_run_id: 1,
+      external_ref: "CR_cast_past_the_record",
+      conclusion: "failure",
+      details_url: null,
+    };
+    await expect(dispatchRemediation(env, facts, { strikes: 0 })).rejects.toThrow(
+      /no record says this factory created/
+    );
+    expect(await runsFor(project)).toBe(0);
   });
 });
 
@@ -827,6 +1000,7 @@ describe("the strike budget", () => {
   it("counts per branch, so one branch cannot spend another's budget", async () => {
     const project = await enrolled();
     await spend(project, STRIKE_BUDGET);
+    await recorded(project, "tick/szp/v7g");
 
     const response = await reproduce(project, { head_branch: "tick/szp/v7g" });
     expect(response.status).toBe(201);

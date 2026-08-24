@@ -209,6 +209,10 @@ adopt_run_branch() {
 			run_branch_inherited="$(git -C "$workdir" rev-list --count "${base_sha}..HEAD" 2>/dev/null)" ||
 				run_branch_inherited=0
 			say "adopted ${run_branch} from origin: ${run_branch_inherited} commit(s) an earlier boot pushed, on top of ${base_sha}"
+			# Recorded on adoption too, not only on creation: the earlier boot
+			# may have died before it could record, and a record already
+			# written is not overwritten by this one.
+			record_branch "$run_branch" "run branch for epic ${epic}, adopted from an earlier boot"
 			return 0
 		fi
 		run_branch="tick-run/${epic}-${run_id}"
@@ -217,6 +221,7 @@ adopt_run_branch() {
 	git -C "$workdir" checkout -q -B "$run_branch" HEAD ||
 		die $EXIT_CLONE "cannot create the run branch ${run_branch}"
 	say "run branch ${run_branch} at ${base_sha}"
+	record_branch "$run_branch" "run branch for epic ${epic} at ${base_sha}"
 }
 
 # The pull request under review, fetched as a REF and never checked out.
@@ -470,6 +475,13 @@ it: this branch descends from the SHA the run was submitted at, so when that
 submission came off a branch already ahead of the default branch, merging the
 PR lands those commits too — the body is what makes that cargo visible instead
 of silent.
+
+If you do create any other branch and push it, record it with
+'tk cloud branch <name>' straight after. The factory decides whether it may
+touch a branch from a record that something created it, not from the branch's
+name: an unrecorded branch is refused by CI remediation and reported in the
+daily digest until a person answers for it. ${run_branch} is already recorded
+by this container, so you do not need to record it again.
 PROMPT
 }
 

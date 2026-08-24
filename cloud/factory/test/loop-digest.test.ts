@@ -10,12 +10,19 @@ import {
   REVIEW_STALE_HOURS,
   SWEEP_FAILURE_STREAK,
   SWEEP_RECORDS_PATH,
+  UNRECORDED_BRANCH_ACTIVE_DAYS,
   assessReviews,
   assessSweeps,
+  assessUnrecordedBranches,
   digestHour,
   renderDigest,
   runDailyDigest,
 } from "../src/loop-digest";
+import {
+  CI_BRANCHES_PATH,
+  noteUnrecordedBranch,
+  recordBranch,
+} from "../src/branch-registry";
 
 /**
  * The daily loop digest (Phase 4 review, tick zaw).
@@ -109,6 +116,8 @@ beforeEach(async () => {
   await env.DB.prepare("DELETE FROM sweep_selection").run();
   await env.DB.prepare("DELETE FROM pr_reviews").run();
   await env.DB.prepare("DELETE FROM loop_digest").run();
+  await env.DB.prepare("DELETE FROM unrecorded_branch").run();
+  await env.DB.prepare("DELETE FROM factory_branch").run();
 });
 
 afterEach(() => {
@@ -529,6 +538,109 @@ describe("the clock is what asks", () => {
 });
 
 // ------------------------------------------------------------------------
+describe("a branch nobody can vouch for reaches the same person", () => {
+  it("reports a refusal CI remediation would otherwise have made in silence", async () => {
+    const at = morning("2026-05-20");
+    await noteUnrecordedBranch(
+      env,
+      {
+        project: "acme/mill",
+        branch: "tick/szp/meo",
+        check_name: "test (go)",
+        head_sha: "1f0c2b9ab4d5e6f7",
+      },
+      hoursBefore(at, 6)
+    );
+
+    const outcome = await runDailyDigest(env, at);
+
+    expect(outcome.state).toBe("sent");
+    const text = messageText(sent()[0]!);
+    expect(text).toContain("acme/mill tick/szp/meo");
+    // Both readings, because the factory genuinely cannot tell them apart —
+    // that is what the record is for — and the operator's next move differs.
+    expect(text).toContain("remediation is refusing work it should do");
+    // And what to do about it, in one call, either way. The quotes reach
+    // Telegram HTML-escaped, exactly as the escalation message's own JSON
+    // does — so the path and both answers are asserted, not the punctuation.
+    expect(text).toContain(CI_BRANCHES_PATH);
+    expect(text).toContain("owner");
+    expect(text).toContain("human");
+    expect(
+      assessUnrecordedBranches([
+        {
+          project: "acme/mill",
+          branch: "tick/szp/meo",
+          check_name: "test (go)",
+          head_sha: "1f0c2b9ab4d5e6f7",
+          refusals: 1,
+          first_seen_at: "2026-05-20T01:00:00.000Z",
+          last_seen_at: "2026-05-20T01:00:00.000Z",
+        },
+      ])[0]!.command
+    ).toContain('"owner":"human"');
+  });
+
+  it("stops the moment somebody answers, whichever answer it is", async () => {
+    const at = morning("2026-05-21");
+    await noteUnrecordedBranch(
+      env,
+      {
+        project: "acme/mill",
+        branch: "tick/szp/meo",
+        check_name: "test (go)",
+        head_sha: "1f0c2b9ab4d5e6f7",
+      },
+      hoursBefore(at, 6)
+    );
+    // The release is EVIDENCE — the question has an answer now — not an
+    // acknowledgement and not a clock (tick uls's rule, tick zaw's shape).
+    await recordBranch(env, {
+      project: "acme/mill",
+      branch: "tick/szp/meo",
+      owner: "human",
+      recorded_by: "operator",
+    });
+
+    const outcome = await runDailyDigest(env, at);
+
+    expect(outcome.state).toBe("quiet");
+    expect(sent()).toHaveLength(0);
+  });
+
+  it("stops reciting a branch nothing has asked about in a fortnight", async () => {
+    const rows = [
+      {
+        project: "acme/mill",
+        branch: "tick/szp/ancient",
+        check_name: "test (go)",
+        head_sha: "1f0c2b9ab4d5e6f7",
+        refusals: 9,
+        first_seen_at: "2026-01-01T00:00:00.000Z",
+        last_seen_at: "2026-01-02T00:00:00.000Z",
+      },
+    ];
+    // The assessor is pure and reports what it is handed; the bound is the
+    // READ's, and this is the constant that sets it.
+    expect(assessUnrecordedBranches(rows)).toHaveLength(1);
+    expect(UNRECORDED_BRANCH_ACTIVE_DAYS).toBe(14);
+
+    const at = morning("2026-05-22");
+    await noteUnrecordedBranch(
+      env,
+      {
+        project: "acme/mill",
+        branch: "tick/szp/ancient",
+        check_name: "test (go)",
+        head_sha: "1f0c2b9ab4d5e6f7",
+      },
+      new Date(at.getTime() - (UNRECORDED_BRANCH_ACTIVE_DAYS + 1) * 86_400_000)
+    );
+    expect((await runDailyDigest(env, at)).state).toBe("quiet");
+  });
+});
+
+// ------------------------------------------------------------------------
 describe("the message's command is a real one", () => {
   it("names a sweep-records path this factory actually serves", async () => {
     const response = await SELF.fetch(`https://factory.example.com${SWEEP_RECORDS_PATH}`, {
@@ -538,6 +650,16 @@ describe("the message's command is a real one", () => {
     // The digest recites this path to an operator. A message naming a route
     // that 404s is worse than no message, so the constant is pinned against
     // the router rather than against a comment.
+    expect(response.status).toBe(200);
+  });
+
+  it("names a branch-ownership path this factory actually serves", async () => {
+    const response = await SELF.fetch(
+      `https://factory.example.com${CI_BRANCHES_PATH}?project=acme/mill`,
+      { headers: { authorization: `Bearer ${operatorToken}` } }
+    );
+    // Same rule, for the finding tick t4y added: the one call that answers it
+    // has to be a call.
     expect(response.status).toBe(200);
   });
 });

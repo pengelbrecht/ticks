@@ -53,6 +53,7 @@ someone happens to look?** There is now.
 |---|---|---|
 | Sweep | its last **3** firings in a row are `refused` (unreadable policy, unreadable frontier, no epic, a refused submission) | `empty` — the frontier held nothing this filter wanted, which is a working sweep on a quiet tracker. Also `ignited` and `queued`. One transient refusal is not news, and news that is not news is how a channel gets muted. |
 | PR review | a `pr_reviews` row has been in flight **> 24h** with `comment_id IS NULL` | anything that has commented, and anything claimed recently. `comment_id` is the filter rather than `state`, because `state` is bookkeeping and the comment is what a review run exists to produce. |
+| Branch ownership (tick `t4y`) | CI remediation refused a branch because **nothing records who created it** (`unrecorded_branch`), and it was refused within the last **14 days** | a branch anybody has answered for, either owner. The join in `listUnrecordedBranches` is the release, so `human` ends the finding exactly as `factory` does — an answer is an answer. |
 
 Two shapes of review failure, and the digest tells them apart because the
 operator's next move differs:
@@ -72,8 +73,21 @@ second opinion from the digest would be the duplicate notification this design
 exists to avoid. The digest reports loops that are **not producing runs**, not
 runs that produced a bad answer.
 
-CI remediation is also deliberately absent: it already pages on its own two
-paths, and repeating it here would be the same duplication.
+CI remediation's own two paths are also deliberately absent: it already pages
+on strike-out and on an unforeseen fault, and repeating them here would be the
+same duplication. Its **third** path is here, and it is the exception that
+proves the rule — a branch refused for want of an ownership record pages
+nobody, by design, because the refusal is the safe direction. Tick `am2`
+declined to build that record at all partly because its failure mode could not
+be made loud: "a lost record orphans a real factory branch, so remediation
+refuses work it should do", and that refusal would land in `dispatch_log` and
+nowhere else. This digest is what made it buildable; see
+`ci-remediation-governors.md`, **Ownership is a record now**.
+
+The finding puts **both readings** in front of the operator, because the
+factory genuinely cannot tell them apart — that is what the record is for —
+and names the one call that settles it either way
+(`POST /api/ci/branches`, `owner` `factory` or `human`).
 
 ## What an operator runs
 

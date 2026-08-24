@@ -3,9 +3,10 @@
 Recorded 2026-08-24 during tick meo (epic szp, Phase 4). UC4 and D10 in
 `docs/design/cloud-factory.md`. Amended 2026-08-24 by tick `uls`, the Phase 4
 final review's one HIGH finding — see **What reopens an escalated branch**,
-which is the part of this page most worth reading — and by tick `am2`, which
-settled what the ownership brand does *not* prove: see **Ownership is a naming
-convention, and the namespace is shared**.
+which is the part of this page most worth reading — by tick `am2`, which
+settled what the ownership brand does *not* prove (**Ownership is a naming
+convention, and the namespace is shared**), and by tick `t4y`, which closed it
+with a positive record of branch creation (**Ownership is a record now**).
 
 ## Why this loop is different from every other path
 
@@ -54,7 +55,14 @@ Everything in the section above is about **parsing**, and it holds. What it does
 not do is verify that a branch is *actually* the factory's. There is no positive
 record anywhere that the factory created the branch it is about to push to —
 ownership is a prefix match, and `BRANCH_OWNERSHIP_BASIS` in
-`ci-remediation.ts` now says `"naming_convention"` in as many words.
+`ci-remediation.ts` said `"naming_convention"` in as many words.
+
+> **Amended by tick `t4y`.** `BRANCH_OWNERSHIP_BASIS` is now `"creation_record"`:
+> ownership is a lookup, and the name test survives as the cheap NECESSARY half
+> in front of it. Everything below still describes why — the collision is
+> exactly as real as `am2` recorded, which is the reason the record exists. Read
+> this section for the problem, and **Ownership is a record now** for the
+> answer.
 
 Tick `am2` settled this as a decision rather than leaving it implicit. The
 review called the overlap a risk; the repository makes it sharper than that.
@@ -83,9 +91,10 @@ budget, and the resulting run is issued exactly `write` grade, so its damage is
 bounded by what a `write` credential can do: push to a branch, never to `main`,
 never past a review.
 
-### Why not a positive record
+### Why not a positive record (and what happened to each reason)
 
-It is the right answer and it was not this tick's, for three reasons:
+It was the right answer and it was not `am2`'s tick, for three reasons. Tick
+`t4y` is what became of them — see the table at the end of this section.
 
 1. **The write side does not exist where the risk is.** A wave dispatch could
    record `tick/<epic>/<tick>` easily — `workerBranch()` names it. `epic/<id>`
@@ -101,6 +110,12 @@ It is the right answer and it was not this tick's, for three reasons:
    suspect something. A positive record is worth having when a *missing* one can
    page somebody; until then it trades a loud wrong answer for a quiet one.
 
+| `am2`'s reason | What `t4y` did |
+|---|---|
+| the write side does not exist inside a container | built it: `POST /api/branches`, authorized by the run's own gateway token, called by `entrypoint.sh` and `worker.sh` through `tk cloud branch` at the moment each creates a branch |
+| it would refuse every delivery this repo can make | it does — and that is now designed rather than an outage, because each refusal is reported and answerable in one call |
+| a lost record's refusal cannot be made loud | tick `zaw` landed the daily digest in the same wave; the refusal is a `unrecorded_branch` row the digest reads every morning |
+
 The `runs` table is the record a reader reaches for first. It is not one: it
 carries `(project, epic)` and says the factory **ran** an epic, never that it
 pushed that epic's branch — and "probably ours" is the answer this module
@@ -112,9 +127,63 @@ refuses everywhere else.
 risk **per namespace**, and a test requires an entry for every namespace in
 `FACTORY_BRANCH_NAMESPACES`. Widening the claimed set without naming who is
 already there turns the suite red. Further tests pin the collision itself —
-`tick/szp/am2`, `tick/am2`, `tick/szp/uls` and `epic/szp` all answer `factory`,
-under comments naming who really creates each. A pinned uncomfortable truth is
-the difference between a decision and an assumption.
+`tick/szp/am2`, `tick/am2`, `tick/szp/uls` and `epic/szp` all answer `factory`
+*by name*, under comments naming who really creates each. A pinned
+uncomfortable truth is the difference between a decision and an assumption —
+and here it became the specification for the fix.
+
+## Ownership is a record now (tick `t4y`)
+
+`BRANCH_OWNERSHIP_BASIS` = `"creation_record"`. The dispatcher asks two
+questions in order, and the first is still free:
+
+1. **The name.** `factoryOwnedBranch` refuses everything outside the
+   namespaces, with no database read. Necessary, never sufficient.
+2. **The record.** `branchOwnership()` reads `factory_branch`. Three answers,
+   and the third is the point.
+
+| Answer | What the loop does |
+|---|---|
+| `factory` — a run of this factory created it | remediation proceeds |
+| `human` — a person says it is theirs | refused for good, and reported to nobody: an ANSWER is not a complaint |
+| **no row** — nobody has said | refused, **and written to `unrecorded_branch`, which the daily digest reports every morning until somebody answers** |
+
+Fail-closed, and the third row is why that is acceptable. Refusing work the
+factory should have done costs a person answering a message; the other
+direction spends a `write`-grade run on somebody else's branch. But a
+fail-closed gate whose refusals are invisible is indistinguishable from a loop
+that is working — which is precisely `am2`'s third reason, and why this could
+not land before `zaw`.
+
+### Who may write a record
+
+| Door | Credential | May say |
+|---|---|---|
+| `POST /api/branches` | the **run's own gateway token** | `factory`, for a branch of its own epic, in the factory's namespaces. Nothing else — the project, run and epic come from the token, so a container cannot record on behalf of a run it is not |
+| `GET`/`POST`/`DELETE /api/ci/branches` | the **operator's** bearer token | either owner, any branch. The only door that may say a branch is a person's |
+
+Records are **never overwritten**: every write is `INSERT OR IGNORE`, first
+writer wins, and changing an answer is a `DELETE` — a different verb with a
+different weight. A record is evidence of who created a branch, not a setting;
+a door that let a later caller overwrite an earlier claim would let a container
+relabel a branch a person had already claimed.
+
+The container door is called by the substrate, not by a prompt:
+`cloud/sandbox/common.sh`'s `record_branch` runs `tk cloud branch` from
+`adopt_run_branch` and `adopt_worker_branch`, on creation **and** on adoption
+(an earlier boot may have died before it recorded). A failure warns and does
+not stop the boot — the branch exists either way, and the unrecorded branch is
+refused and reported, which is the designed failure mode.
+
+### What is still a person's job
+
+`epic/<id>` in this repository is pushed by a **local** orchestrator on a
+laptop, which holds no run token. Its record is a person's, once per epic, at
+`POST /api/ci/branches` — and until it exists, a red epic PR is refused and
+appears in the digest naming the two calls that answer it. That is the
+behaviour change an operator will notice first, and it is the point: the epic's
+stated property is that nothing can reach a human-owned branch, and that no
+longer rests on nobody naming a branch the way the factory does.
 
 ## The flake gate: four answers, in cost order
 
@@ -249,6 +318,8 @@ cannot page anybody repeatedly, released by a person.
 | Ownership, gate, budget, escalation, dispatch | `cloud/factory/src/ci-remediation.ts` |
 | Status codes | `cloud/factory/src/ci-webhook.ts` |
 | The door | `POST /api/hooks/github` with `X-GitHub-Event: check_run` — the same signed door as issues, because GitHub sends every event for a repository to one URL |
+| Branch ownership record | `cloud/factory/src/branch-registry.ts` (storage), `cloud/factory/src/branch-ownership.ts` (both doors), `migrations/0013_branch_registry.sql` |
+| The container's write side | `tk cloud branch` (`cmd/tk/cmd/cloud_branch.go`), called by `record_branch` in `cloud/sandbox/common.sh` |
 | Durable memory | `migrations/0010_ci_remediation.sql`: `ci_check_observation`, `ci_remediation_attempt`, `ci_escalation`; `migrations/0011_ci_escalation_release.sql`: the escalation's `state`/`cleared_at`/`cleared_by`, and `ci_webhook_fault` |
 | Unforeseen failures | `cloud/factory/src/ci-fault.ts` |
 | The operator's release | `cloud/factory/src/ci-escalations.ts` — `GET /api/ci/escalations`, `POST /api/ci/escalations/clear` |

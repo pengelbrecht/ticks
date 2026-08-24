@@ -658,6 +658,7 @@ func ResetFlags() {
 	cloudPRBodyBase = ""
 	cloudPRBodyRunBase = ""
 	cloudPRBodyEpic = ""
+	cloudBranchDetail = ""
 
 	// Reset cloud wave (spawn/wait/collect/reconcile) flags
 	cloudSpawnTicks = nil

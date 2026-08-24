@@ -68,6 +68,16 @@
  * that pull request permanently unreviewable because every redelivery after it
  * is answered as a duplicate.
  *
+ * **A branch** is failing when CI remediation refused it because nothing
+ * records who created it (tick t4y, `branch-registry.ts`). That refusal is the
+ * SAFE direction — the factory does not push to a branch it cannot prove is
+ * its own — and it is here for exactly that reason: tick am2 declined to build
+ * the ownership record at all partly because "a lost record orphans a real
+ * factory branch, so remediation refuses work it should do", and that refusal
+ * had nowhere to be seen. It does now. The finding is released by an ANSWER,
+ * either one: recording the branch as the factory's puts the loop back to
+ * work, recording it as a person's ends the question for good.
+ *
  * What is deliberately NOT here: a sweep whose run ignited and then failed.
  * That run has its own completion gate, its own record and its own notify
  * channel; a second opinion about it from here would be the duplicate
@@ -83,6 +93,11 @@
  * schedule is a second schedule to keep correct.
  */
 
+import {
+  CI_BRANCHES_PATH,
+  listUnrecordedBranches,
+  type UnrecordedBranch,
+} from "./branch-registry";
 import { sendTelegramReport } from "./telegram";
 import { sanitizeUntrustedLine } from "./untrusted-text";
 
@@ -117,6 +132,20 @@ export const SWEEP_FIRING_LIMIT = 500;
 /** How long a claimed pull request may be in flight before it is stuck. */
 export const REVIEW_STALE_HOURS = 24;
 
+/**
+ * How recently a branch must have been refused for want of a record to still
+ * be worth reporting (tick t4y).
+ *
+ * The finding's real release is EVIDENCE — a record appears, of either owner,
+ * and the question is answered (`listUnrecordedBranches` joins it away). This
+ * bound is the other half of the same idea and not a clock excusing the
+ * question: a branch nothing has asked the factory about in two weeks is not a
+ * live refusal, and a digest that recites dead branches forever is a digest
+ * people learn to skip. Longer than the sweep streak's reach because a branch
+ * can go a week between CI runs.
+ */
+export const UNRECORDED_BRANCH_ACTIVE_DAYS = 14;
+
 /** How many findings one message carries before it says "and N more". */
 export const MAX_DIGEST_FINDINGS = 20;
 
@@ -134,12 +163,14 @@ const DETAIL_MAX_CHARS = 220;
  */
 export const SWEEP_RECORDS_PATH = "/api/sweeps";
 
+export { CI_BRANCHES_PATH };
+
 // ------------------------------------------------------------ the findings ---
 
 /** One loop that is not working, in the words the digest will use. */
 export type LoopFinding = {
-  loop: "sweep" | "pr_review";
-  /** What is broken: `project/sweep-name`, or `project#pr-number`. */
+  loop: "sweep" | "pr_review" | "branch_record";
+  /** What is broken: `project/sweep-name`, `project#pr-number`, or `project branch`. */
   subject: string;
   project: string;
   /** How bad: consecutive refusals for a sweep, hours in flight for a review. */
@@ -293,6 +324,46 @@ export function assessReviews(reviews: InFlightReview[], now: Date): LoopFinding
   return findings;
 }
 
+/**
+ * Branches CI remediation refused because nothing recorded creating them
+ * (tick t4y).
+ *
+ * Pure. This is the third loop the digest watches, and it is here for the
+ * reason tick am2 named when it declined to build the record at all: a lost or
+ * missing record orphans a REAL factory branch, so remediation refuses work it
+ * should do — and that refusal would otherwise land in `dispatch_log` and
+ * nowhere else, "a trace you read once you already suspect something".
+ *
+ * The refusal is the SAFE direction (acting on a person's branch is the worse
+ * failure), which is exactly why it needs saying out loud: a fail-closed gate
+ * whose refusals are invisible is indistinguishable from a loop that is
+ * working. Both readings are put in front of the operator, because the factory
+ * genuinely cannot tell them apart — that is what the record is for — and the
+ * two answers are one call each.
+ */
+export function assessUnrecordedBranches(rows: UnrecordedBranch[]): LoopFinding[] {
+  const findings = rows.map((row) => ({
+    loop: "branch_record" as const,
+    subject: `${row.project} ${row.branch}`,
+    project: row.project,
+    measure:
+      `${row.refusals} refusal${row.refusals === 1 ? "" : "s"}, most recently ${row.last_seen_at}`,
+    since: row.first_seen_at,
+    detail:
+      `${sanitizeUntrustedLine(row.check_name, DETAIL_MAX_CHARS)} is failing on ` +
+      `${row.head_sha.slice(0, 12)} and nothing records who created ${row.branch}. Either the ` +
+      "factory made it and the record was lost — remediation is refusing work it should do — or " +
+      "a person named a branch the way the factory names its own, and refusing is correct.",
+    command:
+      `POST ${CI_BRANCHES_PATH} {"project":"${row.project}","branch":"${row.branch}",` +
+      '"owner":"factory"} to let the loop work on it, or "owner":"human" to leave it alone ' +
+      "for good; either answer ends this finding",
+  }));
+  // Deterministic order, so two digests over the same evidence read the same.
+  findings.sort((a, b) => (a.subject < b.subject ? -1 : a.subject > b.subject ? 1 : 0));
+  return findings;
+}
+
 // --------------------------------------------------------------- the reads ---
 
 /** Every sweep firing inside the lookback, newest first. */
@@ -333,13 +404,32 @@ export async function readInFlightReviews(env: Env, now: Date): Promise<InFlight
   return rows.results ?? [];
 }
 
+/**
+ * Branch-ownership questions still unanswered, oldest first.
+ *
+ * The join that releases a finding lives in `branch-registry.ts`; this only
+ * bounds how far back a refusal still counts as live. See
+ * {@link UNRECORDED_BRANCH_ACTIVE_DAYS}.
+ */
+export async function readUnrecordedBranches(env: Env, now: Date): Promise<UnrecordedBranch[]> {
+  const since = new Date(
+    now.getTime() - UNRECORDED_BRANCH_ACTIVE_DAYS * 86_400_000
+  ).toISOString();
+  return listUnrecordedBranches(env, since, MAX_DIGEST_FINDINGS + 1);
+}
+
 /** Everything the digest has to say today, sweeps first. */
 export async function collectFindings(env: Env, now: Date): Promise<LoopFinding[]> {
-  const [firings, reviews] = await Promise.all([
+  const [firings, reviews, unrecorded] = await Promise.all([
     readSweepFirings(env, now),
     readInFlightReviews(env, now),
+    readUnrecordedBranches(env, now),
   ]);
-  return [...assessSweeps(firings), ...assessReviews(reviews, now)];
+  return [
+    ...assessSweeps(firings),
+    ...assessReviews(reviews, now),
+    ...assessUnrecordedBranches(unrecorded),
+  ];
 }
 
 // ------------------------------------------------------------- the message ---
@@ -365,7 +455,13 @@ export function renderDigest(findings: LoopFinding[], day: string): string {
   ];
   for (const finding of shown) {
     lines.push(
-      `${finding.loop === "sweep" ? "sweep" : "review"}: ${finding.subject}`,
+      `${
+        finding.loop === "sweep"
+          ? "sweep"
+          : finding.loop === "pr_review"
+            ? "review"
+            : "branch"
+      }: ${finding.subject}`,
       `  ${finding.measure}`,
       `  since ${finding.since}`,
       ...(finding.detail === "" ? [] : [`  ${finding.detail}`]),
@@ -379,8 +475,9 @@ export function renderDigest(findings: LoopFinding[], day: string): string {
   lines.push(
     "This is a daily digest, not an alert: it is sent only on the days it has something to " +
       "say, and a problem is repeated every day until the loop works again. Nothing here was " +
-      "retried and nothing was escalated. A sweep that refuses and a review that never " +
-      "comments both stop quietly, which is why this message exists."
+      "retried and nothing was escalated. A sweep that refuses, a review that never comments " +
+      "and a branch the factory will not touch all stop quietly, which is why this message " +
+      "exists."
   );
   return lines.join("\n");
 }

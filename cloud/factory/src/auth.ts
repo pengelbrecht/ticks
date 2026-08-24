@@ -160,6 +160,22 @@ export const GIT_PREFIX = "/api/git";
  */
 export const REVIEW_PREFIX = "/api/review";
 
+/**
+ * The branch-record door (tick t4y), exempt for the same reason as the four
+ * above: its caller is a sandbox holding a run token, never the operator's.
+ *
+ * It is where a container records the branch it just created, which is what
+ * turns branch ownership from a naming convention into a lookup. There is no
+ * run id in the path — the credential says which run is speaking, so a
+ * container cannot record a branch on behalf of a run it is not, and it cannot
+ * record one outside its own epic.
+ *
+ * Declared here rather than imported from src/branch-registry.ts because this
+ * module deliberately imports nothing (see {@link isAuthExempt}); the two
+ * spellings are pinned together by a test.
+ */
+export const BRANCH_CLAIM_PREFIX = "/api/branches";
+
 /** The slice of the environment this module reads. */
 export interface FactoryAuthEnv {
   /** Worker secret: the derived hash of the current factory token. */
@@ -337,6 +353,7 @@ export function isAuthExempt(pathname: string): boolean {
   if (pathname === WAVE_PATH) return true;
   if (pathname === GIT_PREFIX || pathname.startsWith(`${GIT_PREFIX}/`)) return true;
   if (pathname === REVIEW_PREFIX) return true;
+  if (pathname === BRANCH_CLAIM_PREFIX) return true;
   return pathname === WEBHOOK_PREFIX || pathname.startsWith(`${WEBHOOK_PREFIX}/`);
 }
 

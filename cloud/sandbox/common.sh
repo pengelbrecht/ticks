@@ -316,6 +316,43 @@ select_model_route() {
 	say "model route $model_provider -> ${model_base_url#*://} as $model_id"
 }
 
+# Record with the factory that THIS run created a branch (tick t4y).
+#
+# CI remediation decides whether it may push to a branch from a positive
+# record, not from the branch's name. A name is a claim anybody can make —
+# `tk herd spawn` creates `tick/<id>` branches on an operator's laptop every
+# wave — and the branches the factory really does create are pushed from in
+# here, by a container with no database handle. This is the write side that
+# closes that: `tk cloud branch` posts to the control plane on the run's own
+# gateway token, and the token decides which run is speaking.
+#
+# Called at the moment a branch is created, by the script that creates it, so
+# the record is written by the substrate rather than asked of the agent's
+# prompt (`.tick/learnings.md`, tick dxk).
+#
+# A failure WARNS and does not stop the boot. The branch exists either way, and
+# a run that died because the control plane was briefly unreachable would trade
+# a reported refusal for a lost run. The unrecorded branch is refused by
+# remediation and reported in the daily digest, which is the designed failure
+# mode and not a silent one.
+record_branch() {
+	local branch="$1" detail="${2:-}"
+	if [[ -z $branch ]]; then
+		return 0
+	fi
+	if [[ -z $factory_url || -z $factory_token ]]; then
+		say "no factory credential in this container, so ${branch} is not recorded as factory-created; CI remediation will refuse to act on it"
+		return 0
+	fi
+	local recorded=1
+	tk cloud branch "$branch" --detail "$detail" || recorded=0
+	if ((recorded)); then
+		return 0
+	fi
+	warn "could not record ${branch} with the factory; CI remediation will refuse to act on it and report it in the daily digest until somebody answers (POST /api/ci/branches)"
+	return 0
+}
+
 # Prove the route before the harness gets it: one bounded, one-token completion
 # through the gateway, with the run's own credential.
 #
