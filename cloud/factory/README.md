@@ -58,6 +58,8 @@ only turns that decision into a status code.
 | `GET /api/projects/:owner/:repo/pending` | Read open pending entries; `include_resolved=true` lets the terminal report the winning surface. |
 | `POST /api/projects/:owner/:repo/pending/:id/answer` | Terminal answer. RunRoom arbitrates first-wins and returns `409` with the winner when already resolved. |
 | `POST /api/projects/:owner/:repo/reports` | Send a completion report, optionally with `ref` to reply in the originating Telegram thread. |
+| `GET /api/ci/escalations` | What the CI remediation loop is waiting on a person for: every branch it struck out and gave up on, and every fault its `check_run` door hit and had no rule for. |
+| `POST /api/ci/escalations/clear` | Release one of them — `{project, branch, cleared_by?}` for a branch, `{fault, cleared_by?}` for a fault. **This is the only thing that reopens an escalated branch**: the strike window rolling over does not, deliberately (tick `uls`). Releasing a branch also forgives the strikes that struck it out, so it starts from a full budget. `404` when nothing was open under that name — an operator who clears the wrong branch must find out rather than read a success. |
 
 **The submission boundary is a pushed sha.** `base_sha` must be a full 40-hex
 commit and `project` the canonical `owner/repo` pair — remote URLs are refused

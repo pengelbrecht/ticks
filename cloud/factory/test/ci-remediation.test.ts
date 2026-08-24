@@ -1,16 +1,20 @@
 import { env, SELF } from "cloudflare:test";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
+import { deriveTokenHash, mintFactoryToken } from "../src/auth";
 import { enrolProject, listRecentDispatch } from "../src/db";
 import { GITHUB_WEBHOOK_PATH, githubSignature } from "../src/github-issues";
 import {
   CHECK_RUN_EVENT,
 } from "../src/ci-webhook";
+import { CI_ESCALATIONS_PATH } from "../src/ci-escalations";
 import {
   FACTORY_BRANCH_NAMESPACES,
   FLAKE_GATE_CONFIRMATIONS,
   STRIKE_BUDGET,
+  STRIKE_WINDOW_MS,
   branchOwner,
+  clearEscalation,
   checkConclusion,
   classifyCheckEvent,
   dispatchRemediation,
@@ -120,7 +124,15 @@ class FakeChecks implements CheckHistoryReader {
 
 let workflow: FakeWorkflow;
 let checks: FakeChecks;
+/** The operator's own credential, for the release route. Minted once: PBKDF2 is not cheap. */
+let operatorToken: string;
+let operatorTokenHash: string;
 const saved: Record<string, unknown> = {};
+
+beforeAll(async () => {
+  operatorToken = mintFactoryToken();
+  operatorTokenHash = await deriveTokenHash(operatorToken);
+});
 
 function set(name: string, value: unknown): void {
   if (!(name in saved)) saved[name] = (env as unknown as Record<string, unknown>)[name];
@@ -164,6 +176,7 @@ beforeEach(() => {
   set("TELEGRAM_USER_ID", OPERATOR);
   set("TELEGRAM_CHAT_ID", CHAT);
   set("TELEGRAM_API_BASE_URL", "https://telegram.test");
+  set("FACTORY_TOKEN_HASH", operatorTokenHash);
   fakeBotAPI();
 });
 
@@ -599,6 +612,9 @@ describe("the strike budget", () => {
     "dddddddddddddddddddddddddddddddddddddddd",
   ];
 
+  /** Distinct across calls: a branch released by a person may spend a second budget. */
+  let seedCounter = 0;
+
   /** `n` attempts already spent on `branch`, `ageMs` ago. */
   async function spend(
     project: string,
@@ -612,7 +628,7 @@ describe("the strike budget", () => {
          VALUES (?, ?, ?, ?, ?, ?, ?)`
       )
         .bind(
-          `run_seed_${project}_${branch}_${i}`,
+          `run_seed_${(seedCounter += 1)}`,
           project,
           branch,
           SHAS[i % SHAS.length],
@@ -791,6 +807,231 @@ describe("the strike budget", () => {
     // let a busy project strike itself out without buying a single fix.
     expect(await attemptsFor(project, OWNED)).toBe(1);
   });
+
+  /**
+   * What releases an escalated branch (Phase 4 review, tick uls).
+   *
+   * The strike budget bounds a WINDOW. It never bounded the BRANCH, and the
+   * difference is the whole of this block: three strikes inside 24h struck the
+   * branch out and paged a person, and then the oldest strike aged out of the
+   * rolling window and the branch — which nobody had touched, and which the
+   * factory had explicitly given up on — started buying WRITE-grade runs
+   * again, silently, because escalation deduped against the row it had already
+   * written and never sent a second message.
+   *
+   * So the gate is the escalation row, not the strike count, and the only
+   * thing that opens it is a person saying so. Every test here advances the
+   * clock past STRIKE_WINDOW_MS, which is precisely what the suite could not
+   * do before: `grep STRIKE_WINDOW` used to find nothing in this file.
+   */
+  describe("an escalated branch is released by a person, never by the clock", () => {
+    /** A commit none of these tests has delivered a failure for yet. */
+    const FRESH = "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee";
+
+    /** Push every attempt on `project` `ms` into the past: the window rolls. */
+    async function rollWindow(project: string, ms = STRIKE_WINDOW_MS + 60 * 60 * 1000): Promise<void> {
+      await env.DB.prepare(
+        `UPDATE ci_remediation_attempt SET dispatched_at = ? WHERE project = ?`
+      )
+        .bind(new Date(Date.now() - ms).toISOString(), project)
+        .run();
+    }
+
+    /** A call carrying the operator's own credential. */
+    function operator(path: string, init: RequestInit = {}): Promise<Response> {
+      return SELF.fetch(`${BASE}${path}`, {
+        ...init,
+        headers: { "content-type": "application/json", Authorization: `Bearer ${operatorToken}` },
+      });
+    }
+
+    /** Spend the budget and take the escalation it opens. */
+    async function strikeOut(project: string): Promise<void> {
+      await spend(project, STRIKE_BUDGET);
+      const response = await failOnce(project);
+      expect(await response.json()).toMatchObject({ escalated: true, opened: true });
+    }
+
+    it("keeps refusing after the strike window has rolled over", async () => {
+      const project = await enrolled();
+      await strikeOut(project);
+      const before = sent().length;
+
+      // A day passes. Nothing else happens — nobody looked at the branch, and
+      // the branch is still failing. This is the exact moment the loop used to
+      // resume spending.
+      await rollWindow(project);
+
+      const response = await reproduce(project, { head_sha: FRESH });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({
+        dispatched: false,
+        escalated: true,
+        opened: false,
+      });
+      expect(workflow.created).toHaveLength(0);
+      expect(await attemptsFor(project, OWNED)).toBe(STRIKE_BUDGET);
+      // And still silent: the person was told once and nothing has changed.
+      expect(sent().slice(before)).toHaveLength(0);
+    });
+
+    it("does not order re-runs after the window rolls either", async () => {
+      const project = await enrolled();
+      await strikeOut(project);
+      await rollWindow(project);
+      const rerunsBefore = checks.reruns.length;
+
+      await reproduce(project, { head_sha: FRESH });
+
+      // The escalation is read BEFORE the budget for the reason the budget is
+      // read before the gate: a branch a person now owns must not be able to
+      // spend this factory's CI minutes either.
+      expect(checks.reruns.length).toBe(rerunsBefore);
+    });
+
+    it("still forgets a branch's attempts when it never escalated", async () => {
+      const project = await enrolled();
+      // Three attempts, no fourth failure, so no escalation was ever opened.
+      // The budget is a rate for a branch nobody gave up on, and it must stay
+      // one: this is what the new gate must NOT break.
+      await spend(project, STRIKE_BUDGET, { ageMs: 25 * 60 * 60 * 1000 });
+
+      const response = await reproduce(project);
+      expect(response.status).toBe(201);
+      expect(await response.json()).toMatchObject({ dispatched: true, strikes: 1 });
+    });
+
+    it("dispatches again once a person clears it, window rolled or not", async () => {
+      const project = await enrolled();
+      await strikeOut(project);
+
+      const released = await clearEscalation(env, {
+        project,
+        branch: OWNED,
+        cleared_by: "operator@example.com",
+      });
+      expect(released).toBe(true);
+
+      // The strikes that caused the escalation are still inside the 24h
+      // window. Forgiving them is the point: a release that left them
+      // standing would re-escalate on the very next failure, which is a
+      // release in name only.
+      const response = await reproduce(project, { head_sha: FRESH });
+      expect(response.status).toBe(201);
+      expect(await response.json()).toMatchObject({ dispatched: true, strikes: 1 });
+      expect(workflow.created).toHaveLength(1);
+    });
+
+    it("records who released it, and refuses to release twice", async () => {
+      const project = await enrolled();
+      await strikeOut(project);
+
+      expect(
+        await clearEscalation(env, { project, branch: OWNED, cleared_by: "operator@example.com" })
+      ).toBe(true);
+      // Idempotent, and honestly so: the second call reports that it changed
+      // nothing rather than stamping a fresh release over the real one.
+      expect(
+        await clearEscalation(env, { project, branch: OWNED, cleared_by: "someone-else" })
+      ).toBe(false);
+
+      const row = await env.DB.prepare(
+        `SELECT state, cleared_at, cleared_by FROM ci_escalation WHERE project = ? AND branch = ?`
+      )
+        .bind(project, OWNED)
+        .first<{ state: string; cleared_at: string | null; cleared_by: string | null }>();
+      expect(row?.state).toBe("cleared");
+      expect(row?.cleared_at).toBeTruthy();
+      expect(row?.cleared_by).toBe("operator@example.com");
+    });
+
+    it("clears nothing for a branch nobody escalated", async () => {
+      const project = await enrolled();
+      expect(await clearEscalation(env, { project, branch: OWNED, cleared_by: "op" })).toBe(false);
+    });
+
+    it("pages the person again when a released branch strikes out a second time", async () => {
+      const project = await enrolled();
+      await strikeOut(project);
+      await clearEscalation(env, { project, branch: OWNED, cleared_by: "operator@example.com" });
+      const before = sent().length;
+
+      // A full second budget, spent after the release: the attempts before it
+      // are forgiven, so these are the only ones that count.
+      await spend(project, STRIKE_BUDGET);
+      const response = await failOnce(project);
+
+      expect(await response.json()).toMatchObject({ escalated: true, opened: true });
+      // Silence after the first page was the other half of the bug. A branch
+      // that strikes out again after a person dealt with it is news.
+      expect(sent().slice(before)).toHaveLength(1);
+
+      const row = await env.DB.prepare(
+        `SELECT state, cleared_at FROM ci_escalation WHERE project = ? AND branch = ?`
+      )
+        .bind(project, OWNED)
+        .first<{ state: string; cleared_at: string | null }>();
+      expect(row?.state).toBe("open");
+      // The release survives the re-escalation: it is the budget's floor, and
+      // losing it would make the forgiven attempts count again.
+      expect(row?.cleared_at).toBeTruthy();
+    });
+
+    it("tells the person how to release the branch", async () => {
+      const project = await enrolled();
+      const before = sent().length;
+      await strikeOut(project);
+
+      const text = String(sent().slice(before)[0]!.body.text);
+      // A gate with no documented release is a gate that gets worked around.
+      expect(text).toContain(CI_ESCALATIONS_PATH);
+      expect(text).toContain(project);
+      expect(text).toContain(OWNED);
+    });
+
+    it("lists open escalations for an operator, and clears one over HTTP", async () => {
+      const project = await enrolled();
+      await strikeOut(project);
+
+      const listed = await operator(CI_ESCALATIONS_PATH);
+      expect(listed.status).toBe(200);
+      const body = (await listed.json()) as {
+        escalations: { project: string; branch: string; strikes: number }[];
+      };
+      expect(body.escalations.some((e) => e.project === project && e.branch === OWNED)).toBe(true);
+
+      const cleared = await operator(`${CI_ESCALATIONS_PATH}/clear`, {
+        method: "POST",
+        body: JSON.stringify({ project, branch: OWNED, cleared_by: "operator@example.com" }),
+      });
+      expect(cleared.status).toBe(200);
+      expect(await cleared.json()).toMatchObject({ cleared: true });
+
+      const after = await operator(CI_ESCALATIONS_PATH);
+      const remaining = (await after.json()) as { escalations: { project: string }[] };
+      expect(remaining.escalations.some((e) => e.project === project)).toBe(false);
+
+      // And the branch spends again, which is the only reason the route exists.
+      const response = await reproduce(project, { head_sha: FRESH });
+      expect(response.status).toBe(201);
+    });
+
+    it("does not let an unauthenticated caller release a branch", async () => {
+      const project = await enrolled();
+      await strikeOut(project);
+
+      const response = await SELF.fetch(`${BASE}${CI_ESCALATIONS_PATH}/clear`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ project, branch: OWNED }),
+      });
+      expect(response.status).toBe(401);
+
+      // Still shut.
+      const failed = await reproduce(project, { head_sha: FRESH });
+      expect(await failed.json()).toMatchObject({ escalated: true, dispatched: false });
+    });
+  });
 });
 
 describe("the door itself", () => {
@@ -830,5 +1071,150 @@ describe("remediateCheckFailure is callable without the door", () => {
     expect(await remediateCheckFailure(env, checkRunPayload(project), checks)).toMatchObject({
       state: "dispatched",
     });
+  });
+});
+
+/**
+ * The failure the loop did not predict (Phase 4 review, tick uls).
+ *
+ * Three governors cover the failures this module thought of, and each ends in
+ * a durable row — the last of them in a message to a person. An unexpected
+ * throw had neither: it left the route as an unhandled 5xx, so the ONE path
+ * built to page a human was the one path that said nothing when something
+ * genuinely unforeseen broke. A Workers log is not an escalation mechanism.
+ *
+ * The seam here is a D1 binding that refuses one statement. It is not a
+ * contrived failure: `.tick/learnings.md` has this factory losing a deploy to
+ * a platform limit local workerd does not enforce, and a table that is not
+ * there yet is what a half-applied migration looks like.
+ */
+describe("when the door breaks in a way it has no rule for", () => {
+  /** A D1 binding that throws on one statement and is otherwise the real thing. */
+  function refuseStatement(pattern: RegExp): D1Database {
+    const real = env.DB;
+    return new Proxy(real, {
+      get(target, property, receiver) {
+        if (property !== "prepare") return Reflect.get(target, property, receiver);
+        return (sql: string) => {
+          if (pattern.test(sql)) throw new Error("D1_ERROR: no such table: ci_check_observation");
+          return real.prepare(sql);
+        };
+      },
+    });
+  }
+
+  /** A call carrying the operator's own credential. */
+  function operator(path: string, init: RequestInit = {}): Promise<Response> {
+    return SELF.fetch(`${BASE}${path}`, {
+      ...init,
+      headers: { "content-type": "application/json", Authorization: `Bearer ${operatorToken}` },
+    });
+  }
+
+  /** Scoped to one project: every test in this file shares one D1. */
+  async function faults(project: string): Promise<
+    { fault_id: string; occurrences: number; notified_at: string | null; cleared_at: string | null }[]
+  > {
+    const rows = await env.DB.prepare(
+      `SELECT fault_id, occurrences, notified_at, cleared_at FROM ci_webhook_fault
+        WHERE project = ?`
+    ).bind(project).all<{
+      fault_id: string;
+      occurrences: number;
+      notified_at: string | null;
+      cleared_at: string | null;
+    }>();
+    return rows.results ?? [];
+  }
+
+  it("writes a durable, alertable record instead of an unhandled 5xx", async () => {
+    const project = await enrolled();
+    const before = sent().length;
+    set("DB", refuseStatement(/ci_check_observation/));
+
+    const response = await deliver(checkRunPayload(project));
+
+    // 500, and a body that names the fault without handing out the error text.
+    expect(response.status).toBe(500);
+    const body = (await response.json()) as { error: string; fault: string; detail: string };
+    expect(body.error).toBe("internal_error");
+    expect(body.fault).toBeTruthy();
+    expect(JSON.stringify(body)).not.toContain("no such table");
+
+    // Durable: the record outlives the request that produced it.
+    const rows = await faults(project);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.occurrences).toBe(1);
+    expect(rows[0]!.notified_at).toBeTruthy();
+
+    // Alertable: a person was actually told, which is the whole complaint.
+    const messages = sent().slice(before);
+    expect(messages).toHaveLength(1);
+    const text = String(messages[0]!.body.text);
+    expect(text).toContain("does not have a rule for");
+    expect(text).toContain(project);
+    expect(text).toContain(OWNED);
+  });
+
+  it("counts a redelivered fault rather than paging again", async () => {
+    const project = await enrolled();
+    const before = sent().length;
+    set("DB", refuseStatement(/ci_check_observation/));
+
+    for (let i = 0; i < 4; i++) await deliver(checkRunPayload(project));
+
+    // The same trade the escalation makes: replacing a silent failure with an
+    // unbounded notification loop is not a fix. GitHub redelivers freely.
+    expect(sent().slice(before)).toHaveLength(1);
+    const rows = await faults(project);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]!.occurrences).toBe(4);
+  });
+
+  it("dispatches nothing while it is failing", async () => {
+    const project = await enrolled();
+    set("DB", refuseStatement(/ci_check_observation/));
+
+    await deliver(checkRunPayload(project));
+    await deliver(checkRunPayload(project));
+
+    expect(workflow.created).toHaveLength(0);
+  });
+
+  it("lists the fault for an operator and pages again once they clear it", async () => {
+    const project = await enrolled();
+    set("DB", refuseStatement(/ci_check_observation/));
+    await deliver(checkRunPayload(project));
+    const faultID = (await faults(project))[0]!.fault_id;
+
+    // Restore the binding so the operator surface can be read.
+    set("DB", saved.DB as D1Database);
+    const listed = await operator(CI_ESCALATIONS_PATH);
+    const body = (await listed.json()) as { faults: { fault: string; occurrences: number }[] };
+    expect(body.faults.some((f) => f.fault === faultID)).toBe(true);
+
+    const cleared = await operator(`${CI_ESCALATIONS_PATH}/clear`, {
+      method: "POST",
+      body: JSON.stringify({ fault: faultID, cleared_by: "operator@example.com" }),
+    });
+    expect(cleared.status).toBe(200);
+    expect(await cleared.json()).toMatchObject({ cleared: true });
+
+    // It comes back. A fault a person has dealt with and which returns anyway
+    // is news again — the silence is bounded by the person, not by the row.
+    const before = sent().length;
+    set("DB", refuseStatement(/ci_check_observation/));
+    await deliver(checkRunPayload(project));
+    expect(sent().slice(before)).toHaveLength(1);
+    expect((await faults(project))[0]!.cleared_at).toBeNull();
+  });
+
+  it("still answers a delivery it can handle", async () => {
+    const project = await enrolled();
+    // The refusal is scoped to one statement: a fault must not be this door's
+    // answer to everything, or the record would say nothing.
+    const response = await deliver(checkRunPayload(project));
+    expect(response.status).toBe(200);
+    expect(await faults(project)).toHaveLength(0);
   });
 });

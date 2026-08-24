@@ -90,6 +90,25 @@
  * not be able to make a struck-out branch look un-escalated to the next
  * delivery and drop the loop back into dispatching.
  *
+ * And the escalation is READ, which is the correction tick uls made. The
+ * budget bounds a window; it never bounded the branch. For as long as that row
+ * went unread, a struck-out branch resumed spending the moment its oldest
+ * strike aged out of the rolling 24h — with `write` credentials, and silently,
+ * because the escalation deduped against the row it had already written. What
+ * reopens an escalated branch is a PERSON ({@link clearEscalation}, reachable
+ * at {@link CI_ESCALATIONS_PATH}), and the release is named in the escalation
+ * message itself. "Time passes" is the answer that caused the bug.
+ *
+ * ## 4. And when something unforeseen breaks
+ *
+ * The three governors above cover the failures this module predicted. An
+ * unexpected throw is the failure it did not, and before tick uls it became an
+ * unhandled 5xx — so the one path built to page a human was the one path that
+ * said nothing when something genuinely unknown went wrong. `ci-webhook.ts`
+ * catches at the door and writes a durable, alertable fault record instead,
+ * deduped by the SHAPE of the failure for the same reason escalation is deduped
+ * by branch: a redelivered crash must not be able to page anybody twice.
+ *
  * ## The order of the governors, which is itself a decision
  *
  * Strike budget BEFORE flake gate. The gate's unconfirmed branch asks GitHub
@@ -205,14 +224,22 @@ export type FactoryOwnedBranch = string & { readonly [FACTORY_OWNED_BRAND]: true
  * answers are the right one. No GitHub round trip: a remediation run must be
  * decidable from the delivery, because the alternative is a network call in
  * the middle of a decision about whether to make network calls.
+ *
+ * Exactly ONE namespace is stripped, and it is the same namespace
+ * {@link factoryOwnedBranch} matched on. The previous fold walked the whole
+ * list and stripped each prefix that still matched, so `tick/tick-run/x`
+ * answered `x` rather than `tick-run` — the epic of a branch that does not
+ * exist. No current caller could reach it, which is precisely why it was worth
+ * removing rather than documenting.
  */
 export function epicOfBranch(branch: FactoryOwnedBranch): string {
-  const rest = FACTORY_BRANCH_NAMESPACES.reduce(
-    (name, namespace) => (name.startsWith(namespace) ? name.slice(namespace.length) : name),
-    branch as string
+  const name = branch as string;
+  const namespace = FACTORY_BRANCH_NAMESPACES.find(
+    (candidate) => name.startsWith(candidate) && name.length > candidate.length
   );
+  const rest = namespace === undefined ? name : name.slice(namespace.length);
   const [first] = rest.split("/");
-  return first ?? rest;
+  return first === undefined || first === "" ? rest : first;
 }
 
 // -------------------------------------------------------------- the facts ---
@@ -644,6 +671,16 @@ export async function flakeGate(
 
 // ------------------------------------------------------- the strike budget ---
 
+/**
+ * Where an operator reads and releases escalations (`src/ci-escalations.ts`).
+ *
+ * Declared here rather than beside the route because the escalation MESSAGE
+ * has to name it — a gate whose release is not written on the page that tells
+ * you about the gate is a gate people work around — and a decision module
+ * importing its own HTTP surface would be a cycle. The route re-exports it.
+ */
+export const CI_ESCALATIONS_PATH = "/api/ci/escalations";
+
 /** Remediation runs one branch may buy inside {@link STRIKE_WINDOW_MS}. */
 export const STRIKE_BUDGET = 3;
 
@@ -659,22 +696,95 @@ export type RemediationAttempt = {
 
 export type StrikeVerdict =
   | { state: "within_budget"; strikes: number; remaining: number }
-  | { state: "struck_out"; strikes: number; history: RemediationAttempt[] };
+  | { state: "struck_out"; strikes: number; history: RemediationAttempt[] }
+  /** A person owns this branch already. The clock has no opinion here. */
+  | { state: "escalated"; escalation: EscalationRecord };
+
+/** The escalation row as it is stored, plus the release that may have ended it. */
+export type EscalationRecord = {
+  project: string;
+  branch: string;
+  head_sha: string;
+  check_name: string;
+  strikes: number;
+  opened_at: string;
+  notified_at: string | null;
+  /** `open` means the factory dispatches nothing against this branch. */
+  state: "open" | "cleared";
+  /** When a person last released it — the strike budget's floor, kept across a re-escalation. */
+  cleared_at: string | null;
+  cleared_by: string | null;
+};
+
+/** The escalation row for a branch, released or not. Null when there never was one. */
+export async function escalationFor(
+  env: Env,
+  project: string,
+  branch: string
+): Promise<EscalationRecord | null> {
+  const row = await env.DB.prepare(
+    `SELECT project, branch, head_sha, check_name, strikes, opened_at, notified_at,
+            state, cleared_at, cleared_by
+       FROM ci_escalation
+      WHERE project = ? AND branch = ?`
+  )
+    .bind(project, branch)
+    .first<EscalationRecord>();
+  return row ?? null;
+}
+
+/** Every branch this factory has given up on and nobody has taken back. */
+export async function listOpenEscalations(env: Env): Promise<EscalationRecord[]> {
+  const rows = await env.DB.prepare(
+    `SELECT project, branch, head_sha, check_name, strikes, opened_at, notified_at,
+            state, cleared_at, cleared_by
+       FROM ci_escalation
+      WHERE state = 'open'
+      ORDER BY opened_at DESC`
+  ).all<EscalationRecord>();
+  return rows.results ?? [];
+}
 
 /**
- * How much of this branch's budget is left.
+ * May this branch buy a remediation run?
  *
- * Counted over (project, branch) rather than (project, branch, check): three
- * runs that each fixed one check and broke the next are three runs, and the
- * money is spent per run. Counting per check would let a branch with five
- * failing checks buy fifteen.
+ * ONE function answers it, and that is the correction this whole tick is
+ * (Phase 4 review, tick uls). The budget and the escalation used to be two
+ * separate questions with one of them unasked: `ci_escalation` had two write
+ * sites and zero reads, so the only thing between a struck-out branch and a
+ * fresh `write`-grade dispatch was a ROLLING window. The moment the oldest of
+ * the three strikes aged past {@link STRIKE_WINDOW_MS}, the branch the factory
+ * had already handed to a person silently resumed spending — and escalation
+ * deduped against the row it had already written, so nobody was told twice.
+ *
+ * So the escalation is read FIRST, and it is not a rate:
+ *
+ *  - **An open escalation refuses, full stop.** No window, no arithmetic. The
+ *    clock cannot reopen a branch, because "time passes" is the answer that
+ *    caused the bug. Only {@link clearEscalation} — a person — can.
+ *  - **A release forgives the strikes that caused it.** The floor is the later
+ *    of `now - STRIKE_WINDOW_MS` and `cleared_at`. Leaving the three strikes
+ *    standing would re-escalate the branch on its very next failure, which is
+ *    a release in name only.
+ *
+ * The budget itself is unchanged, and still counted over (project, branch)
+ * rather than (project, branch, check): three runs that each fixed one check
+ * and broke the next are three runs, and the money is spent per run. Counting
+ * per check would let a branch with five failing checks buy fifteen.
  */
 export async function strikeBudget(
   env: Env,
   facts: CheckFailureFacts,
   now = new Date()
 ): Promise<StrikeVerdict> {
-  const since = new Date(now.getTime() - STRIKE_WINDOW_MS).toISOString();
+  const escalation = await escalationFor(env, facts.project, facts.branch);
+  if (escalation !== null && escalation.state === "open") {
+    return { state: "escalated", escalation };
+  }
+
+  const windowStart = new Date(now.getTime() - STRIKE_WINDOW_MS).toISOString();
+  const released = escalation?.cleared_at ?? null;
+  const since = released !== null && released > windowStart ? released : windowStart;
   const rows = await env.DB.prepare(
     `SELECT run_id, head_sha, check_name, dispatched_at
        FROM ci_remediation_attempt
@@ -696,11 +806,50 @@ export async function strikeBudget(
 }
 
 /**
+ * A person taking a struck-out branch back: the only thing that reopens one.
+ *
+ * Returns whether THIS call released it. A branch nobody escalated, and a
+ * branch already released, both answer `false` rather than stamping a fresh
+ * release over the real one — who released it and when is evidence, and the
+ * second caller did not produce it.
+ *
+ * `cleared_at` deliberately outlives the release (see migrations/0011): it is
+ * the strike budget's floor, so it survives a later re-escalation and is
+ * overwritten only by the next release.
+ */
+export async function clearEscalation(
+  env: Env,
+  release: { project: string; branch: string; cleared_by?: string },
+  now = new Date()
+): Promise<boolean> {
+  const cleared = await env.DB.prepare(
+    `UPDATE ci_escalation
+        SET state = 'cleared', cleared_at = ?, cleared_by = ?
+      WHERE project = ? AND branch = ? AND state = 'open'`
+  )
+    .bind(
+      now.toISOString(),
+      sanitizeUntrustedLine(release.cleared_by ?? "", 120) || null,
+      release.project,
+      release.branch
+    )
+    .run();
+  return (cleared.meta.changes ?? 0) > 0;
+}
+
+/**
  * Hands the branch to a person: a durable row first, one message second.
  *
  * Returns whether THIS call opened the escalation. Every later failure on a
- * struck-out branch gets `false` and stays silent — replacing an unbounded
- * spend loop with an unbounded notification loop is not a fix.
+ * branch that is already escalated gets `false` and stays silent — replacing
+ * an unbounded spend loop with an unbounded notification loop is not a fix.
+ *
+ * A branch a person RELEASED and which then struck out again is a different
+ * case, and it opens again and pages again (tick uls). The old `INSERT OR
+ * IGNORE` could not tell the two apart: the row was the whole memory, so once
+ * it existed the operator was never told anything about that branch again.
+ * The upsert below reopens only a `cleared` row, and keeps `cleared_at` —
+ * that is the budget's floor, not a field about the current escalation.
  */
 export async function escalate(
   env: Env,
@@ -708,9 +857,17 @@ export async function escalate(
   verdict: { strikes: number; history: RemediationAttempt[] }
 ): Promise<boolean> {
   const opened = await env.DB.prepare(
-    `INSERT OR IGNORE INTO ci_escalation
-       (project, branch, head_sha, check_name, strikes, opened_at, notified_at)
-     VALUES (?, ?, ?, ?, ?, ?, NULL)`
+    `INSERT INTO ci_escalation
+       (project, branch, head_sha, check_name, strikes, opened_at, notified_at, state)
+     VALUES (?, ?, ?, ?, ?, ?, NULL, 'open')
+     ON CONFLICT (project, branch) DO UPDATE SET
+       head_sha    = excluded.head_sha,
+       check_name  = excluded.check_name,
+       strikes     = excluded.strikes,
+       opened_at   = excluded.opened_at,
+       notified_at = NULL,
+       state       = 'open'
+     WHERE ci_escalation.state = 'cleared'`
   )
     .bind(
       facts.project,
@@ -764,7 +921,14 @@ export function escalationReport(
     `${verdict.strikes} of ${STRIKE_BUDGET} attempts in the last 24h:\n` +
     `${attempts || "  (no attempts recorded)"}\n` +
     "The factory has stopped dispatching against this branch and is waiting for you: " +
-    "keep trying (raise the budget), take it over yourself, or close the branch."
+    "keep trying (raise the budget), take it over yourself, or close the branch.\n" +
+    // A gate with no documented release is a gate that gets worked around, and
+    // the release is deliberately NOT the clock (tick uls): this branch stays
+    // shut until a person says otherwise, however long that is.
+    "Nothing here expires. When you have dealt with it, release the branch:\n" +
+    `  POST ${CI_ESCALATIONS_PATH}/clear ` +
+    `{"project":"${facts.project}","branch":"${facts.branch}","cleared_by":"<you>"}\n` +
+    "That forgives the strikes above and lets the factory try again."
   );
 }
 
@@ -937,8 +1101,24 @@ export async function remediateCheckFailure(
   }
 
   // The budget first: a struck-out branch must not even be able to order the
-  // re-runs the gate's unconfirmed branch asks for.
+  // re-runs the gate's unconfirmed branch asks for. `strikeBudget` reads the
+  // open escalation before it reads the clock, so a branch a person now owns
+  // never reaches the arithmetic at all (tick uls).
   const budget = await strikeBudget(env, facts);
+  if (budget.state === "escalated") {
+    // Silent by design, and silent for as long as it takes: this branch was
+    // handed to a person, the person was told once, and nothing has changed.
+    // The next thing that changes anything is that person releasing it.
+    return {
+      state: "escalated",
+      strikes: budget.escalation.strikes,
+      opened: false,
+      detail:
+        `${facts.branch} was escalated at ${budget.escalation.opened_at} and no one has ` +
+        `released it; the factory dispatches nothing against it until somebody does ` +
+        `(POST ${CI_ESCALATIONS_PATH}/clear)`,
+    };
+  }
   if (budget.state === "struck_out") {
     const opened = await escalate(env, facts, budget);
     if (opened) {

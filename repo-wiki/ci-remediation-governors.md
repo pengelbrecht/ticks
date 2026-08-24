@@ -1,7 +1,9 @@
-# The loop with teeth: CI remediation, and the three things that hold it
+# The loop with teeth: CI remediation, and the things that hold it
 
 Recorded 2026-08-24 during tick meo (epic szp, Phase 4). UC4 and D10 in
-`docs/design/cloud-factory.md`.
+`docs/design/cloud-factory.md`. Amended 2026-08-24 by tick `uls`, the Phase 4
+final review's one HIGH finding — see **What reopens an escalated branch**,
+which is the part of this page most worth reading.
 
 ## Why this loop is different from every other path
 
@@ -13,7 +15,8 @@ than a launcher, and it is also why a wrong answer here does not cost one run �
 it costs every run until somebody notices.
 
 So the interesting engineering is not "how do we fix a failing test". It is the
-three things that stop the loop.
+things that stop the loop — three governors for the failures the design
+predicted, plus a fault record for the ones it did not.
 
 ## Ownership: a brand, not a condition
 
@@ -85,16 +88,89 @@ Three orderings, each of which is the decision:
   charges no strike — otherwise a busy project strikes itself out without ever
   buying a fix.
 - **Escalation row before the message.** The row *is* the escalation; the
-  message is only its delivery. `INSERT OR IGNORE` on `(project, branch)`, and
-  only the insert that lands sends anything — so a Telegram outage cannot make a
-  struck-out branch look un-escalated to the next delivery and restart the loop,
-  and the failures that keep arriving afterwards do not become an unbounded
-  *notification* loop where an unbounded spend loop used to be.
+  message is only its delivery. An upsert on `(project, branch)`, and only the
+  write that actually opens an escalation sends anything — so a Telegram outage
+  cannot make a struck-out branch look un-escalated to the next delivery and
+  restart the loop, and the failures that keep arriving afterwards do not become
+  an unbounded *notification* loop where an unbounded spend loop used to be.
+- **Escalation before budget.** Added by tick `uls`; see the next section.
 
 The budget counts **dispatches**, not failures-to-converge: an attempt whose
 outcome is unknown has already spent the money, and a fix that works ends the
 loop by itself (the branch stops failing, so no signal arrives). Nothing has to
 notice that it worked.
+
+## What reopens an escalated branch
+
+**A person. Never the clock.** This is the correction tick `uls` made, and it is
+the single most important line on this page.
+
+For the whole of Phase 4 up to that tick, `ci_escalation` had **two write sites
+and zero reads**. Nothing ever asked whether a branch was escalated, so the only
+thing between a struck-out branch and a fresh `write`-grade dispatch was the
+strike budget's **rolling** window. Read that sentence next to the section
+above: the budget bounds a *window*. It never bounded the *branch*.
+
+The failure ran like this, and nothing had to go wrong for it to happen:
+
+1. Three dispatches inside 24h strike the branch out.
+2. `escalate()` opens the durable row and sends one message. Correct, and tested.
+3. A day passes. The oldest of the three strikes ages out of the sliding window.
+4. `strikeBudget` answers `within_budget`, and the branch the factory had
+   explicitly given up on starts buying runs again — with push access.
+5. Nobody is told. `INSERT OR IGNORE` deduped against the row already there, so
+   `opened` was `false` and no second message was ever sent.
+
+The test suite could not see it: "escalates once, however many failures keep
+arriving afterwards" never advanced the clock past `STRIKE_WINDOW_MS`, and
+`grep STRIKE_WINDOW` found nothing in the test file at all.
+
+What holds it now:
+
+- **`strikeBudget` reads the escalation before it reads the clock** and answers
+  `escalated` with no arithmetic performed. One function owns "may this branch
+  buy a run" — splitting that into a budget question and an escalation question,
+  with one half unasked, is precisely how this happened.
+- **The release is `POST /api/ci/escalations/clear`**, carrying the operator's
+  own bearer token; `GET /api/ci/escalations` lists every escalation and fault
+  waiting on a person. "Human-driven" has to be something the substrate checks.
+- **A release forgives the strikes that caused it.** `cleared_at` is the budget's
+  floor as well as the release record: leaving three strikes standing inside the
+  window would re-escalate the branch on its next failure, which is a release in
+  name only. The floor therefore *outlives* the release and survives a later
+  re-escalation; only the next release overwrites it.
+- **A released branch that strikes out again opens again and pages again.**
+  `escalate()` is an upsert that reopens a `cleared` row. The old
+  `INSERT OR IGNORE` could not tell "already escalated" from "escalated, dealt
+  with, and back" — so once the row existed the operator heard nothing about
+  that branch ever again.
+- **The escalation message names its own release.** A gate with no documented
+  release is a gate that gets worked around.
+
+A branch that spent three attempts and then went green is a different case and
+still gets a fresh budget when the window rolls: it was never escalated. The
+gate is the escalation row, not the strike count.
+
+## When the door breaks in a way it has no rule for
+
+The three governors handle failures this module predicted. An unexpected throw
+is the one it did not, and before tick `uls` it left `checkRunWebhookRoute` as
+an unhandled 5xx — so the one path built to page a human was the one path that
+said nothing when something genuinely unforeseen broke.
+
+`ci_webhook_fault` is the answer, and it is deliberately shaped like the
+escalation: durable row first, message second, deduped so a redelivery loop
+cannot page anybody repeatedly, released by a person.
+
+- Keyed by the **shape** of the failure (event, project, branch, message), not
+  the delivery. First sighting alerts; later sightings increment `occurrences`.
+- The primary key is a **digest** of that shape. The shape embeds the error
+  message, and the id is handed back to whoever posted the delivery: an operator
+  joins the id to the row, the caller gets an identifier and nothing to read.
+- **500, not 503.** 503 is this module's word for "nothing was decided and the
+  delivery is still good, send it again". A throw makes no such promise.
+- Cleared through the same route as an escalation, so a fault that returns after
+  somebody dealt with it is news again.
 
 ## Where it lives
 
@@ -103,7 +179,9 @@ notice that it worked.
 | Ownership, gate, budget, escalation, dispatch | `cloud/factory/src/ci-remediation.ts` |
 | Status codes | `cloud/factory/src/ci-webhook.ts` |
 | The door | `POST /api/hooks/github` with `X-GitHub-Event: check_run` — the same signed door as issues, because GitHub sends every event for a repository to one URL |
-| Durable memory | `migrations/0010_ci_remediation.sql`: `ci_check_observation`, `ci_remediation_attempt`, `ci_escalation` |
+| Durable memory | `migrations/0010_ci_remediation.sql`: `ci_check_observation`, `ci_remediation_attempt`, `ci_escalation`; `migrations/0011_ci_escalation_release.sql`: the escalation's `state`/`cleared_at`/`cleared_by`, and `ci_webhook_fault` |
+| Unforeseen failures | `cloud/factory/src/ci-fault.ts` |
+| The operator's release | `cloud/factory/src/ci-escalations.ts` — `GET /api/ci/escalations`, `POST /api/ci/escalations/clear` |
 | Refusal trail | `dispatch_log`, under the `flake_gate` and `strike_out` reasons Phase 1 reserved in `migrations/0002` for exactly this |
 | GitHub seam | `CHECK_HISTORY` binding (`CheckHistoryReader`) — a check that passed once and failed once on identical code cannot be staged against real GitHub |
 

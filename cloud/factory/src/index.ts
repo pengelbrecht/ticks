@@ -56,6 +56,7 @@ import {
 import { proxyGitRequest } from "./credentials";
 import { proxyModelRequest } from "./gateway";
 import { handleDraftPress, parseDraftCallback } from "./drafts";
+import { ciEscalationsRoute } from "./ci-escalations";
 import { GITHUB_WEBHOOK_PATH, githubWebhookRoute } from "./github-issues";
 import { REVIEW_PATH, postReviewFindings } from "./pr-review";
 import { WEBHOOK_SOURCE_PREFIX, webhookSourceRoute } from "./webhook-sources";
@@ -1249,6 +1250,16 @@ export default {
       if (request.method !== "GET") return methodNotAllowed(["GET"]);
       if (segments.length === 2) return await sweepsRoute(url, env);
       if (segments.length === 3) return await sweepRoute(segments[2]!, env);
+    }
+
+    // What the CI remediation loop is waiting on a person for, and the one
+    // way a person releases it (tick uls). Authenticated by the operator's own
+    // token like every other /api route: the release of a struck-out branch is
+    // human-driven, and "human" has to be something the substrate checks. It
+    // is the ONLY thing that reopens an escalated branch — the strike window
+    // rolling over does not, which is what this route was written to fix.
+    if (segments[0] === "api" && segments[1] === "ci" && segments[2] === "escalations") {
+      return await ciEscalationsRoute(request, env, segments.slice(3));
     }
 
     if (segments[0] === "api" && segments[1] === "projects") {
