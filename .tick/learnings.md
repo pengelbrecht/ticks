@@ -5,16 +5,13 @@ Cross-repo learnings belong in the ticks skill's promotion table, not here.
 
 ## This repo's build
 
-**Problem:** In-process command tests hang or no-op after other tests. **Cause:** cobra state leaks
-across in-process executions. **Rule:** Drive commands in tests only via `ExecuteArgs`/
-`ExecuteArgsContext`, never `rootCmd.Execute()`; reset every persistent flag var in `ResetFlags()`.
+**Problem:** In-process command tests hang or no-op after other tests (cobra state leaks). **Rule:**
+Drive commands in tests only via `ExecuteArgs`/`ExecuteArgsContext`, never `rootCmd.Execute()`, and
+reset every persistent flag var in `ResetFlags()`.
 
-**Problem:** UI changes pass `pnpm test` but don't appear in `tk board`. **Cause:** the Go binary
-embeds pre-built assets from `internal/tickboard/server/static/`. **Rule:** After UI source changes
-run `scripts/build-ui.sh` and commit `static/` and `ui/dist/`.
-
-**Problem:** Worker sandboxes block loopback sockets and DNS, so httptest suites and `git push` fail
-there. **Rule:** The integrated post-wave gate is the authoritative first full run.
+**Problem:** UI changes pass `pnpm test` but don't appear in `tk board` — the Go binary embeds
+pre-built assets. **Rule:** After UI source changes run `scripts/build-ui.sh` and commit `static/`
+and `ui/dist/`.
 
 ## Orchestration
 
@@ -23,7 +20,7 @@ there. **Rule:** The integrated post-wave gate is the authoritative first full r
 `git merge-base --is-ancestor`.
 
 **Problem:** A worker was pointed at an archived report under `.tick/logs/`, gitignored and invisible
-from a worktree. **Rule:** Never reference `.tick/logs/**` in a worker prompt — paste it inline.
+from a worktree. **Rule:** Never reference `.tick/logs/**` in a prompt — paste it inline.
 
 **Problem:** Two ticks in one wave shared a file and collided at merge. **Rule:** Name the seam in
 a note on each tick, and expect the CHANGELOG to conflict regardless — resolve by keeping both.
@@ -31,7 +28,7 @@ a note on each tick, and expect the CHANGELOG to conflict regardless — resolve
 **Problem:** Seven paid runs each INFERRED a cause from a dispatch log never built to answer the
 question. The eighth persisted what the call RETURNED — one exit code — and answered it at once.
 **Rule:** Persist a remote step's return value at its return site, before anything interprets it: a
-log holds what you believed, the return value is evidence. Stream a remote worker's own output as it
+log holds what you believed, the return value is evidence. Stream a worker's own output as it
 appears, never at exit — the outcome says a step failed, its output says why.
 
 **Problem:** Cloud workers resolved `[roles.implement]` and got a model their gateway could not
@@ -44,13 +41,22 @@ control plane names the value for the runtime it owns.
 is a property of the model, not the system. Make it impossible, and REPORT every attempt.
 
 **Problem:** One parallel tick changed a shared return shape and broke another's file; both branches
-were green alone and only the INTEGRATED gate saw it. **Rule:** When parallel ticks share a contract,
-the merge gate is the only thing that tests it — and the break lands in the tick that did nothing.
+were green alone and only the INTEGRATED gate saw it. **Rule:** When parallel ticks share a
+contract, the merge gate is the only thing that tests it, and the break lands in the innocent tick.
 
 **Problem:** A row was set to `committing` before an await; a death there left it stuck forever and
 reported as already decided. **Rule:** A state meaning "in flight" must be recoverable by whoever
 finds it next — settle it from durable evidence (does the thing exist?), never by trusting the
 claimer to return. A human button press has no source that retries it.
+
+**Problem:** A table recording "this branch was given up on" had two writes and ZERO reads, so a
+rolling window re-opened it a day later and the human paged once was never told again. **Rule:**
+grep every state table for its READ sites — a record nothing consults is not a guard, and a bound
+over a rolling window bounds the window, not the subject.
+
+**Problem:** Two parallel ticks each added a case to one module; a mechanical union of the conflict
+produced malformed code. **Rule:** Two additions to one file are a union in INTENT, not in text —
+hand the resolve to a worker holding the context, never stitch halves.
 
 ## Orchestrator gates
 
@@ -84,24 +90,23 @@ accepts a platform-limited value. Pin each limit as a named constant and smoke t
 
 **Problem:** A deploy verified once immediately reported "the secret did not land" when it had.
 **Cause:** `wrangler secret put` creates a new Worker version; propagation takes ~10-30s. **Rule:**
-Verify a deploy with bounded retry over 503/5xx/1042, never a single immediate probe.
+Verify a deploy with bounded retry over 503/5xx/1042, never one immediate probe.
 
 **Problem:** A caught exception was reported as "record is not valid", sending diagnosis after a
 format bug when the fault was crypto. **Rule:** Never collapse distinct failure classes into one
-message. If two endpoints answer the same question, they must run the same check.
+message; if two endpoints answer one question they must run the same check.
 
 ## Cost, budgets and kill switches
 
 **Problem:** A run billed $49.80 against a $25 ceiling while reporting $2.98. **Cause:** the cost
 query paged on `result_info.total_pages`, which the logs API does not send, so it stopped after 50
 of 892 entries. **Rule:** Never default a pagination bound to a permissive value; page until a short
-page proves exhaustion, and treat the page cap as a telemetry FAILURE.
+page proves exhaustion, and treat the cap as a telemetry FAILURE.
 
 **Problem:** Revoking a run's gateway token stopped nothing; only deleting the container did.
-**Cause:** the supervisor minted a FRESH token at the next boot, and closeout ran with
-`enforce_budgets:false`. **Rule:** A kill switch must be a durable refusal to ISSUE credentials,
-checked before every boot. Ask "what re-creates what I just destroyed?", and revoke BEFORE the
-grace window — that window is time a runaway spends.
+**Cause:** the supervisor minted a FRESH token at the next boot. **Rule:** A kill switch must be a
+durable refusal to ISSUE credentials, checked before every boot. Ask "what re-creates what I just
+destroyed?", and revoke BEFORE any grace window — that window is time a runaway spends.
 
 **Problem:** A 4.4-hour run implemented seven ticks and lost all of it: nothing reached origin until
 closeout. **Rule:** Durability that depends on an agent remembering to push is not durability — push
@@ -114,8 +119,8 @@ Observe liveness from outside, and spread long waits across bounded steps that r
 
 **Problem:** An operator's `--max-wall-clock` and `--max-cost` were both silently clamped by
 deployment ceilings, and raising either alone changed nothing. **Rule:** When a bound does not take
-effect, enumerate every layer that can lower it, derive an agent's budget from the run's REMAINING
-allowance, and REPORT the effective number — killing an agent mid-work keeps none of the work.
+effect, enumerate every layer that can lower it, derive the budget from what the run has LEFT, and
+REPORT the effective number — killing an agent mid-work keeps none of the work.
 
 **Problem:** 46M input tokens billed at zero cache hits. **Cause:** Workers AI prefix caching is per
 model instance and needs `x-session-affinity`. **Rule:** Affinity alone is not enough — one varying
@@ -131,20 +136,16 @@ Workers AI dashboard, not the billing page; credits cover Workers AI and EXCLUDE
 
 **Problem:** A fix landed in TypeScript only; the Go half kept minting unusable records, both suites
 green because each was internally consistent. **Rule:** Any constant or format crossing the Go/TS
-boundary needs a cross-implementation golden test — nothing else catches a half-applied fix.
+boundary needs a cross-implementation golden test.
 
-**Problem:** `npx --no wrangler --version` exits 0 printing *npm's* version when wrangler is absent,
-so tooling resolution accepted npx. **Rule:** A version probe must validate WHAT answered, not the
-exit code — the green-start trap applied to CLI discovery.
+**Problem:** `npx --no wrangler --version` exits 0 printing *npm's* version when wrangler is absent.
+**Rule:** A version probe must validate WHAT answered, not the exit code.
 
-**Problem:** A hand-rolled TOML parser let `__proto__.command` set `Object.prototype` process-wide,
-and the key vanished so the unknown-key check never saw it. **Rule:** Build parsed tables with
-`Object.create(null)` and look keys up with `Object.hasOwn` — a key that evades the unknown-key
-check defeats fail-closed validation.
-
-**Problem:** A migrator's grammar was looser than the reader's, so lines the reader had IGNORED
-became authorized commands. **Rule:** A migrator must parse with the reader's grammar and report
-every line it would newly AUTHORIZE — "never drop a line" needs its mirror.
+**Problem:** Two ways to evade a fail-closed check. A hand-rolled TOML parser let `__proto__.command`
+set `Object.prototype` process-wide and the key then vanished from the unknown-key check; and a
+migrator's looser grammar turned lines the reader had IGNORED into authorized commands. **Rule:**
+Build parsed tables with `Object.create(null)` and look keys up with `Object.hasOwn`; a migrator
+must parse with the READER's grammar and report every line it would newly AUTHORIZE.
 
 **Problem:** A config format bump hard-broke older binaries. **Rule:** A version gate cannot be
-retrofitted into a released binary — ship it one release before the format needs it.
+retrofitted into a released binary — ship it a release before the format needs it.
