@@ -1,0 +1,89 @@
+{
+  "why": [
+    "A cron sweep (tick hye) selects work with nobody asking, from tick records",
+    "Go owns. cloud/factory/src/sweeps.ts is therefore a THIRD reader of",
+    "internal/tick.Tick's on-disk shape, and it reads more of it than",
+    "tick-membership.ts does: status, priority, type, labels, blocked_by,",
+    "created_at, awaiting/manual and requires.",
+    "",
+    "It matters which way this reader fails. A field renamed in Go alone would",
+    "not break a sweep loudly — the TypeScript parser is deliberately tolerant,",
+    "so a missing `priority` reads as 'lowest possible' and a missing `status`",
+    "reads as 'not closed'. The sweep would keep running every weekday morning,",
+    "selecting from keys that are no longer there, with both suites green. This",
+    "fixture is what makes that a red test instead.",
+    "",
+    "Checked from internal/tick/sweep_selection_parity_test.go and from",
+    "cloud/factory/test/sweep-contract.test.ts."
+  ],
+  "fields": {
+    "id": "id",
+    "type": "type",
+    "status": "status",
+    "priority": "priority",
+    "created_at": "created_at",
+    "labels": "labels",
+    "blocked_by": "blocked_by",
+    "awaiting": "awaiting",
+    "manual": "manual",
+    "requires": "requires"
+  },
+  "closed_status": "closed",
+  "epic_type": "epic",
+  "awaiting_human": {
+    "why": [
+      "Go's Tick.IsAwaitingHuman is `Awaiting != nil || Manual` — two spellings of",
+      "the same state, the second a legacy flag. A sweep must honour BOTH, because",
+      "the whole point of the predicate here is that time-based ignition never",
+      "picks up work a person is holding.",
+      "",
+      "Both are omitempty in Go, so the common case is that neither key is present."
+    ],
+    "fields": ["awaiting", "manual"],
+    "manual_true_means_awaiting": true
+  },
+  "order": {
+    "why": [
+      "The design doc's rule for a sweep is 'priority, then age, then ID' —",
+      "docs/design/cloud-factory.md, UC7 step 3. That is deliberately NOT the same",
+      "comparator as internal/wave.Compute's, which sorts a wave by priority then",
+      "ID with no age term: a wave orders ticks that are all being run anyway,",
+      "while a sweep CHOOSES which few of a backlog run at all, and a chooser with",
+      "no age term starves the oldest tick forever.",
+      "",
+      "The difference is recorded here so it reads as a decision rather than as",
+      "drift. If wave.Compute ever grows an age term, the two become the same rule",
+      "and this note is what says they were compared."
+    ],
+    "rule": "priority asc, created_at asc, id asc",
+    "wave_compute_rule": "priority asc, id asc",
+    "age_is_oldest_first": true
+  },
+  "declaration": {
+    "why": [
+      "Where a sweep policy is declared, and in which format. The design doc",
+      "writes it as a markdown bullet in .tick/config.md; it is implemented",
+      "against .tick/runners.toml for the reason tick 0vb settled for",
+      "[signals.sources.*] — a program-parsed surface that must fail closed on a",
+      "typo needs a schema, and config.md's machine-parsed sections were",
+      "deprecated by epic 48d.",
+      "",
+      "Listed here rather than only in prose because it is the one part of the",
+      "sweep an operator writes by hand."
+    ],
+    "path": ".tick/runners.toml",
+    "table": "sweeps",
+    "keys": ["cron", "filter", "max_ticks", "budget_usd", "tier", "gate_on_complete"],
+    "required_keys": ["cron", "filter", "max_ticks", "budget_usd"],
+    "tiers": ["economy", "standard"],
+    "gates": ["telegram", "none"],
+    "example": {
+      "cron": "0 4 * * 1-5",
+      "filter": "type:bug priority<=2 unblocked",
+      "max_ticks": 5,
+      "budget_usd": 10,
+      "tier": "economy",
+      "gate_on_complete": "telegram"
+    }
+  }
+}

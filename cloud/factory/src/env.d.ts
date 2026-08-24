@@ -351,6 +351,42 @@ declare namespace Cloudflare {
      * `FACTORY_TOKEN_HASH`, and answers 503 for a source whose secret this
      * deployment does not hold.
      */
+    /**
+     * The ceilings a cron sweep's declared policy is clamped to (D14, tick hye).
+     *
+     * `SWEEP_MAX_TICKS` bounds how many ticks one sweep may select and
+     * `SWEEP_MAX_TIER` the richest compute tier it may ask for; the COST
+     * ceiling is deliberately not here, because it is `RUN_MAX_COST_USD` — a
+     * sweep is a run, and a second cost ceiling that could disagree with the
+     * enforcing one is exactly the layering tick 5fg had to enumerate by hand.
+     * `SWEEP_MAX_PROJECTS` bounds how many enrolled projects one cron trigger
+     * sweeps, which is a subrequest bound.
+     *
+     * Every clamp these produce is REPORTED in the sweep record beside the
+     * number that was asked for (tick 7zk). Bounds and defaults live in
+     * src/sweeps.ts.
+     */
+    SWEEP_MAX_TICKS?: string;
+    SWEEP_MAX_TIER?: string;
+    SWEEP_MAX_PROJECTS?: string;
+    /**
+     * The listing a cron sweep reads the tracker's frontier from: every
+     * `.tick/issues/<id>.json` at the default branch head (tick hye).
+     *
+     * Unset on a deployment, which lists GitHub's contents API directly. Its
+     * own seam beside `TICK_TRACKER` rather than a method on it, because it
+     * answers a different question — which ticks exist, not what one says.
+     */
+    TICK_INDEX?: import("./sweep-dispatch").TickIndexReader;
+    /**
+     * The commit a cron sweep selects and runs at: the head of the
+     * repository's default branch (tick hye).
+     *
+     * Unset on a deployment, which asks GitHub for the default branch and
+     * reads its head from the refs listing. A seam for the same reason
+     * `TICK_INDEX` is one.
+     */
+    SWEEP_BASE?: import("./sweep-dispatch").SweepBaseReader;
     [signalSecret: `SIGNAL_SECRET_${string}`]: string | undefined;
   }
 }

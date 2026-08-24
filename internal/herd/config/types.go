@@ -151,15 +151,16 @@ const RoleImplement = "implement"
 // [Config.Detect], [Config.FullAuto], [Config.WorktreeBranchPrefix]) when the
 // schema defines a default.
 type Config struct {
-	Version       *int             `toml:"version"`
-	Orchestrator  *Orchestrator    `toml:"orchestrator"`
-	Orchestration *Orchestration   `toml:"orchestration"`
-	Roles         map[string]*Role `toml:"roles"`
-	Testing       *Testing         `toml:"testing"`
-	Evidence      *Evidence        `toml:"evidence"`
-	Environment   *Environment     `toml:"environment"`
-	Sandbox       *Sandbox         `toml:"sandbox"`
-	Signals       *Signals         `toml:"signals"`
+	Version       *int              `toml:"version"`
+	Orchestrator  *Orchestrator     `toml:"orchestrator"`
+	Orchestration *Orchestration    `toml:"orchestration"`
+	Roles         map[string]*Role  `toml:"roles"`
+	Testing       *Testing          `toml:"testing"`
+	Evidence      *Evidence         `toml:"evidence"`
+	Environment   *Environment      `toml:"environment"`
+	Sandbox       *Sandbox          `toml:"sandbox"`
+	Signals       *Signals          `toml:"signals"`
+	Sweeps        map[string]*Sweep `toml:"sweeps"`
 }
 
 // Orchestrator records which harness/kind the config was written for. It is
@@ -321,6 +322,60 @@ type SignalSource struct {
 	Labels      []string `toml:"labels"`
 }
 
+// Sweep is one cron sweep this repository declares: a schedule that picks work
+// and runs it with nobody asking (D14/D15, tick hye).
+//
+// Read by the cloud factory Worker, not by tk — a sweep fires from the control
+// plane's clock, and the only reader that can act on a declaration is the one
+// the trigger woke. tk decodes and validates it for the reason it validates
+// [Signals]: a repository must learn its policy is wrong from `tk` at author
+// time, not from a morning that quietly swept nothing. Without this table here
+// a repository declaring one would fail EVERY tk command with "sweeps: unknown
+// key", which is the version-gate incident of 2026-08-19 in miniature.
+//
+// `cloud/factory/src/sweeps.ts` is the second reader and the acting one;
+// `cloud/factory/test/fixtures/sweep-selection-contract.json` is the surface
+// both must agree on.
+//
+// Like [Signals] and [Sandbox] it deliberately does NOT get a format version of
+// its own, for the same reason: no released binary reads a version this table
+// could be gated behind.
+type Sweep struct {
+	// Cron is the five-field UTC schedule the sweep is due at. The deployment
+	// decides separately when the factory wakes at all; a sweep due at a
+	// minute no trigger covers simply never fires.
+	Cron string `toml:"cron"`
+	// Filter is the selection expression, e.g. `type:bug priority<=2 unblocked`.
+	Filter string `toml:"filter"`
+	// MaxTicks is how many ticks one firing may select, before the
+	// deployment's own ceiling lowers it.
+	MaxTicks *int `toml:"max_ticks"`
+	// BudgetUSD is what the sweep's run may spend, before the deployment's
+	// ceiling lowers it. Enforced by the Run Workflow, never by a prompt (D14).
+	BudgetUSD *float64 `toml:"budget_usd"`
+	// Tier is the compute tier, from [SweepTiers].
+	Tier string `toml:"tier"`
+	// GateOnComplete is what happens when the sweep's run finishes, from
+	// [SweepGates].
+	GateOnComplete string `toml:"gate_on_complete"`
+}
+
+// SweepNames reports the declared sweep names in sorted order. It is nil-safe.
+func (c *Config) SweepNames() []string {
+	if c == nil {
+		return nil
+	}
+	return sortedKeys(c.Sweeps)
+}
+
+// SweepPolicy returns one declared sweep, or nil. It is nil-safe.
+func (c *Config) SweepPolicy(name string) *Sweep {
+	if c == nil {
+		return nil
+	}
+	return c.Sweeps[name]
+}
+
 // SignalSourceNames reports the declared source names in sorted order. It is
 // nil-safe.
 func (c *Config) SignalSourceNames() []string {
@@ -378,8 +433,8 @@ func (c *Config) DeclaredVersion() int {
 
 // RequiredVersion reports the lowest format version that can express this
 // config: [CommandSurfaceVersion] once `[testing]`, `[evidence]`,
-// `[environment]`, `[sandbox]` or `[signals]` is present, [MinVersion] for a
-// routing-only file. It is nil-safe.
+// `[environment]`, `[sandbox]`, `[signals]` or `[sweeps]` is present,
+// [MinVersion] for a routing-only file. It is nil-safe.
 //
 // This is what [Migrate] writes, and why it does not bump a routing-only
 // file: a version an older tk can read is a version it should be allowed to
@@ -389,7 +444,7 @@ func (c *Config) RequiredVersion() int {
 		return MinVersion
 	}
 	if c.Testing != nil || c.Evidence != nil || c.Environment != nil || c.Sandbox != nil ||
-		c.Signals != nil {
+		c.Signals != nil || len(c.Sweeps) > 0 {
 		return CommandSurfaceVersion
 	}
 	return MinVersion

@@ -58,6 +58,8 @@ version = 2                 # optional; 1 or 2 — 2 once any command table is p
 
 [signals.sources.<name>]    # optional — a webhook sender this repo accepts
                             #            signals from; scheme + payload mapping
+[sweeps.<name>]             # optional — a cron sweep: a schedule that picks
+                            #            work and runs it with nobody asking
 ```
 
 ### `version`, and what an older reader does with a newer file
@@ -385,6 +387,52 @@ Registering a chatty sender is therefore a decision about volume, made in a pull
 | `algorithm = "md5"`, `encoding = "rot13"`, `type = "incident"`, `priority = 9` | Closed enums and bounds; an unknown value never falls back to a default. |
 
 Two readers hold this table, and they must agree: `tk` validates it at author time (so a wrong declaration fails at the CLI, not at a delivery three weeks later), and the factory Worker acts on it. The golden cases both run live in `cloud/factory/test/fixtures/signal-source-cases.json`.
+
+## The cron sweeps a repo declares
+
+`[sweeps.<name>]` declares a schedule that picks work and runs it with nobody asking (D14/D15). Absent — the common path — means this repository is never swept.
+
+```toml
+# fragment
+[sweeps.morning-bugs]
+cron = "0 4 * * 1-5"                 # five UTC fields — 06:00 Copenhagen, weekdays
+filter = "type:bug priority<=2 unblocked"
+max_ticks = 5                        # how many ticks one firing may select
+budget_usd = 10                      # what its run may spend
+tier = "economy"                     # optional; the default
+gate_on_complete = "telegram"        # optional; default "none"
+```
+
+**Two decisions, deliberately split.** The DEPLOYMENT declares when the factory wakes at all (`[triggers] crons` in the Worker's own config, which the operator owns); this table declares when a sweep is DUE. Neither side can widen the other, and a sweep due at a minute no trigger covers simply never fires — add the minute to the deployment.
+
+### Selection is deterministic
+
+Priority, then age (oldest first), then id, over the repository's tick frontier at the **default branch head** — the branch review produced. No model call and no judgement: "why did it pick these five" has a boring answer, and it is written down. Every firing records the policy as declared, every number after clamping beside what was asked for, the ordering rule in words, the frontier size, every candidate that passed the filter with its ordering key and rank, and every candidate dropped with the one reason it was dropped. The record explains the selection without the tracker it was computed from.
+
+Three kinds of tick are never selected whatever the filter says: closed ones, ones **awaiting a person**, and ones carrying a pre-declared gate (`requires`). Time-based ignition does not bypass the approval machinery.
+
+A frontier larger than the sweep will read **refuses** rather than selecting from part of it, and so does a tick record that cannot be fetched: selecting from a truncated tracker is not deterministic selection.
+
+### The budget is the Workflow's, not the prompt's
+
+`budget_usd` becomes the run's `max_cost_usd`. A model can be talked out of a budget; a Workflow step cannot. Exhausting it is the same clean stop `tk cloud stop` takes — the in-flight tick finishes, review and closeout run on what is done — so **a sweep that trips its budget keeps the work already pushed**.
+
+### Every clamped number is reported
+
+`max_ticks`, `budget_usd` and `tier` can each be lowered by a deployment ceiling. The sweep record carries requested, effective and whether it was clamped, for all three, and the operator-facing line says so too. An operator whose ceiling replaced their number should not first hear about it from a cancelled run.
+
+### Rules the loader enforces
+
+| Declaration | Why it fails |
+|---|---|
+| any key the schema does not name | **Fail closed by key.** A typo'd `budget_usd` silently ignored is an unattended run holding the deployment's whole ceiling. |
+| a missing `cron`, `filter`, `max_ticks` or `budget_usd` | A sweep runs with nobody watching; each of these is a bound it must name. |
+| `cron = "0 4 * *"` | Five fields, minute through day-of-week. |
+| `filter = "cheap-looking"` | Unknown term. Known terms: `type:<t>`, `label:<l>`, `priority<=<n>` (also `<`, `=`, `>=`, `>`), `unblocked`. |
+| `max_ticks = 0`, `budget_usd = 0` | Bounds: 1–50 ticks, a positive budget no greater than 1000. |
+| `tier = "unlimited"`, `gate_on_complete = "carrier-pigeon"` | Closed enums; an unknown value never falls back to a default. |
+
+Two readers hold this table and must agree: `tk` validates it at author time, and the factory Worker (`cloud/factory/src/sweeps.ts`) acts on it. The shared surface lives in `cloud/factory/test/fixtures/sweep-selection-contract.json`, pinned from both languages.
 
 ## The deprecated markdown path
 

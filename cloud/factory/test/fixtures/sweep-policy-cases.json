@@ -1,0 +1,119 @@
+{
+  "why": [
+    "`[sweeps.<name>]` has two readers (tick hye).",
+    "",
+    "internal/herd/config validates it at author time, so a repository learns its",
+    "policy is wrong from `tk` rather than from a morning that quietly swept",
+    "nothing. cloud/factory/src/sweeps.ts is the one that ACTS on it: a cron",
+    "trigger wakes the Worker, and this declaration decides what runs unattended",
+    "and what it may spend.",
+    "",
+    "Two readers of one format is the shape of the bug this repository has already",
+    "paid for once — a fix landed in TypeScript only, the Go half kept minting",
+    "unusable records, and both suites were green because each was internally",
+    "consistent. So both read the same cases from this one file.",
+    "",
+    "The direction that matters is `refused`: a reader that ACCEPTS a policy the",
+    "other refuses is a sweep running on numbers nobody checked. No case relies on",
+    "either side being the more permissive one.",
+    "",
+    "Every `toml` here is a WHOLE config — [roles.implement] included — because",
+    "that is what both readers are handed in practice."
+  ],
+  "cases": [
+    {
+      "name": "the design doc's own morning sweep",
+      "why": "UC7, written exactly as docs/design/cloud-factory.md writes it",
+      "toml": "version = 2\n\n[roles.implement]\nkind = \"claude\"\n\n[sweeps.morning-bugs]\ncron = \"0 4 * * 1-5\"\nfilter = \"type:bug priority<=2 unblocked\"\nmax_ticks = 5\nbudget_usd = 10\ntier = \"economy\"\ngate_on_complete = \"telegram\"\n",
+      "accepted": true,
+      "sweeps": ["morning-bugs"]
+    },
+    {
+      "name": "the optional keys are optional",
+      "why": "tier and gate_on_complete default; the four bounds do not",
+      "toml": "version = 2\n\n[roles.implement]\nkind = \"claude\"\n\n[sweeps.nightly]\ncron = \"30 2 * * *\"\nfilter = \"type:chore\"\nmax_ticks = 1\nbudget_usd = 0.5\n",
+      "accepted": true,
+      "sweeps": ["nightly"]
+    },
+    {
+      "name": "two sweeps, reported in name order",
+      "why": "two policies due at the same minute must fire in the same order every time",
+      "toml": "version = 2\n\n[roles.implement]\nkind = \"claude\"\n\n[sweeps.zebra]\ncron = \"0 4 * * *\"\nfilter = \"type:bug\"\nmax_ticks = 1\nbudget_usd = 1\n\n[sweeps.alpha]\ncron = \"0 5 * * *\"\nfilter = \"label:sweepable priority<3\"\nmax_ticks = 2\nbudget_usd = 2\n",
+      "accepted": true,
+      "sweeps": ["alpha", "zebra"]
+    },
+    {
+      "name": "no sweeps at all",
+      "why": "the common path; a repository declaring none is never swept",
+      "toml": "version = 2\n\n[roles.implement]\nkind = \"claude\"\n",
+      "accepted": true,
+      "sweeps": []
+    },
+    {
+      "name": "a typo'd key",
+      "why": "a silently ignored budget_usd is an unattended run holding the deployment's whole ceiling",
+      "toml": "version = 2\n\n[roles.implement]\nkind = \"claude\"\n\n[sweeps.morning]\ncron = \"0 4 * * *\"\nfilter = \"type:bug\"\nmax_ticks = 1\nbugdet_usd = 500\n",
+      "refused": true
+    },
+    {
+      "name": "a missing budget",
+      "why": "a sweep runs with nobody watching, so it names what it may spend",
+      "toml": "version = 2\n\n[roles.implement]\nkind = \"claude\"\n\n[sweeps.morning]\ncron = \"0 4 * * *\"\nfilter = \"type:bug\"\nmax_ticks = 1\n",
+      "refused": true
+    },
+    {
+      "name": "a missing max_ticks",
+      "why": "how many ticks a sweep selects is not a number anything downstream can invent",
+      "toml": "version = 2\n\n[roles.implement]\nkind = \"claude\"\n\n[sweeps.morning]\ncron = \"0 4 * * *\"\nfilter = \"type:bug\"\nbudget_usd = 1\n",
+      "refused": true
+    },
+    {
+      "name": "a four-field cron",
+      "why": "a schedule neither reader can place is not a schedule",
+      "toml": "version = 2\n\n[roles.implement]\nkind = \"claude\"\n\n[sweeps.morning]\ncron = \"0 4 * *\"\nfilter = \"type:bug\"\nmax_ticks = 1\nbudget_usd = 1\n",
+      "refused": true
+    },
+    {
+      "name": "a cron field that is not a number",
+      "why": "`mon` is a dialect neither reader implements; accepting it would sweep never or always",
+      "toml": "version = 2\n\n[roles.implement]\nkind = \"claude\"\n\n[sweeps.morning]\ncron = \"0 4 * * mon\"\nfilter = \"type:bug\"\nmax_ticks = 1\nbudget_usd = 1\n",
+      "refused": true
+    },
+    {
+      "name": "an unknown filter term",
+      "why": "a filter half-applied selects work nobody asked for, on a schedule, unattended",
+      "toml": "version = 2\n\n[roles.implement]\nkind = \"claude\"\n\n[sweeps.morning]\ncron = \"0 4 * * *\"\nfilter = \"type:bug cheap-looking\"\nmax_ticks = 1\nbudget_usd = 1\n",
+      "refused": true
+    },
+    {
+      "name": "max_ticks out of bounds",
+      "why": "a sweep is a batch, not a migration",
+      "toml": "version = 2\n\n[roles.implement]\nkind = \"claude\"\n\n[sweeps.morning]\ncron = \"0 4 * * *\"\nfilter = \"type:bug\"\nmax_ticks = 500\nbudget_usd = 1\n",
+      "refused": true
+    },
+    {
+      "name": "a zero budget",
+      "why": "a budget of nothing is not a bound, it is a run that trips before it starts",
+      "toml": "version = 2\n\n[roles.implement]\nkind = \"claude\"\n\n[sweeps.morning]\ncron = \"0 4 * * *\"\nfilter = \"type:bug\"\nmax_ticks = 1\nbudget_usd = 0\n",
+      "refused": true
+    },
+    {
+      "name": "a tier outside the vocabulary",
+      "why": "the tier is clamped against a deployment ceiling, and a value nobody enumerated cannot be compared with one",
+      "toml": "version = 2\n\n[roles.implement]\nkind = \"claude\"\n\n[sweeps.morning]\ncron = \"0 4 * * *\"\nfilter = \"type:bug\"\nmax_ticks = 1\nbudget_usd = 1\ntier = \"unlimited\"\n",
+      "refused": true
+    },
+    {
+      "name": "a gate outside the vocabulary",
+      "why": "an unknown gate must not fall back to a default nobody chose",
+      "toml": "version = 2\n\n[roles.implement]\nkind = \"claude\"\n\n[sweeps.morning]\ncron = \"0 4 * * *\"\nfilter = \"type:bug\"\nmax_ticks = 1\nbudget_usd = 1\ngate_on_complete = \"carrier-pigeon\"\n",
+      "refused": true
+    },
+    {
+      "name": "an unusable sweep name",
+      "why": "the name is what an operator reads in the record; `__proto__` must be an ordinary refused key, never a prototype write",
+      "toml": "version = 2\n\n[roles.implement]\nkind = \"claude\"\n\n[sweeps.__proto__]\ncron = \"0 4 * * *\"\nfilter = \"type:bug\"\nmax_ticks = 1\nbudget_usd = 1\n",
+      "refused": true
+    }
+  ]
+}
