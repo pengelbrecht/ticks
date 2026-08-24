@@ -2,8 +2,8 @@
   "id": "xjc",
   "title": "Final review of the Phase 4 diff",
   "description": "Review the epic diff outside-in. Weight it toward what a green suite cannot see — Phase 2 found twelve boundary defects by running, Phase 3 found five by reviewing against Phase 2's list, and this epic adds autonomy, which removes the human who would otherwise notice.\n\nNamed passes this epic earns:\n- CREDENTIAL GRADE. Can a read-only run push by any route — including calling GitHub directly rather than through the factory? Is the grade enforced where it is claimed to be?\n- BRANCH OWNERSHIP. Can CI remediation reach a branch a human owns, through any path including a mis-parsed branch name?\n- LOOP TERMINATION. Flake gate and strike budget: find the input that makes either loop forever or spend without converging.\n- UNATTENDED FAILURE. Everything here runs with nobody watching. For each loop, what does it do when it fails at 3am, and is that visible the next morning?",
-  "notes": "2026-08-24 19:24 - runner-state: substrate=herdr kind=claude branch=tick/xjc worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-xjc workspace=wG7 base=e40fc4c48dbe0a4324da6c75606fe0f26f688b1a agent=tick-xjc pane=wG7:p1 session=40db7c47-5280-4d2a-b60c-def37adf08b7",
-  "status": "in_progress",
+  "notes": "2026-08-24 19:24 - runner-state: substrate=herdr kind=claude branch=tick/xjc worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-xjc workspace=wG7 base=e40fc4c48dbe0a4324da6c75606fe0f26f688b1a agent=tick-xjc pane=wG7:p1 session=40db7c47-5280-4d2a-b60c-def37adf08b7\n2026-08-24 19:37 - Findings adjudicated:\n- Pass 3's HIGH (a struck-out branch silently resumes spending when the rolling window rolls over, and never pages again) plus the missing top-level catch and the epicOfBranch cleanup go to tick uls, which BLOCKS closeout. The ci_escalation table having two writes and zero reads is the kind of finding that only comes from reading the code rather than the tests.\n- Pass 2's design gap (branch ownership is namespace-prefix trust, and tick/\u003cid\u003e is a namespace humans and herdr already use in this repo) is filed as am2, P1, not blocking. The branded type holds against parsing attacks, which is what meo claimed; the residual is a naming collision, and whether to require a positive record is the operator's call.\n- Pass 4's scope question (sweeps and PR review have no proactive failure visibility) is filed as zaw. Same class as Phase 2's hardest lesson one level up: there a supervisor could not report its own death, here a loop can fail nightly and nothing says so.\n- Passes 1 and 2's structural halves came back clean, and the reviewer went looking properly — it checked the sandbox environment, the git remote, credential helpers and the image for a second credential before accepting pzf's claim.\n\nThe review's own STATUS said Phase 4 should not close until Pass 3 is routed. Agreed, and it is.",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -19,6 +19,7 @@
   "role": "review",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-23T18:05:00.045149Z",
-  "updated_at": "2026-08-24T17:24:56.532333Z",
-  "started_at": "2026-08-24T17:24:56.532333Z"
+  "updated_at": "2026-08-24T17:37:22.535503Z",
+  "closed_at": "2026-08-24T17:37:22.535503Z",
+  "closed_reason": "Completed: final review of the Phase 4 diff. Credential grade clean — no bypass found, enforced at token-mint time and verified end to end. Branch ownership structurally sound against parsing attacks with one acknowledged design gap. One confirmed HIGH in loop termination: the strike budget bounds each 24-hour window but not the branch, so an escalated branch silently reopens. One confirmed bug: an unhandled throw on the CI webhook path bypasses the loop's own escalation. All routed to uls, am2 and zaw."
 }
