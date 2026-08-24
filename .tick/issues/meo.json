@@ -2,7 +2,8 @@
   "id": "meo",
   "title": "CI-failure remediation on factory-owned branches, behind the flake gate and strike budget",
   "description": "The loop with teeth: CI fails on a branch the factory owns, the factory dispatches a run to fix it.\n\nTWO GOVERNORS, both named in the epic scope and both load-bearing:\n- THE FLAKE GATE. A test that fails intermittently must not spend money being 'fixed' repeatedly. Establish that a failure is reproducible before dispatching. This repo has already been burned by load-dependent flakes (vy2, and a TestSmokeGolden flake during Phase 2 that a bisect settled), so the gate is not theoretical.\n- THE STRIKE BUDGET. A run that fails to fix a failure gets a bounded number of attempts, then escalates to a human instead of looping. Phase 2's cost lesson applies: an agent that does not converge costs 100% of its tokens for 0% of the work.\n\nFACTORY-OWNED BRANCHES ONLY. This must never push to a branch a human owns, and 'owns' has to be structural — a branch-name convention plus the credential grade, not a check the prompt is asked to respect.",
-  "status": "open",
+  "notes": "2026-08-24 18:18 - runner-state: substrate=herdr kind=claude branch=tick/meo worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-meo workspace=wG2 base=446a8bccaf3d7f916bded44c5e2d0277d7544b99 agent=tick-meo pane=wG2:p1 session=6ff70ae5-b43a-4eed-847c-78b3bdbb22ce\n2026-08-24 18:43 - runner-state: runner=herdr branch=tick/meo merged gate=green (go build, public-repo guard, gofmt, tsc, factory vitest 988).\n\nOne flake seen and dismissed: test/run-room.test.ts 'arms at the earliest of the lease and the queue' failed once in the full suite while three herdr workers were running concurrently, and passed 36/36 in isolation and 988/988 on a clean re-run. Same timing-sensitive class as vy2 and Phase 2's TestSmokeGolden. Not caused by this tick — meo does not touch RunRoom alarms.",
+  "status": "closed",
   "priority": 1,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -13,5 +14,7 @@
   "acceptance_criteria": "A reproducible CI failure on a factory-owned branch gets a fix attempt; a flaky failure does not; a run that strikes out escalates rather than retrying; nothing can dispatch against a human-owned branch.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-23T18:04:28.872916Z",
-  "updated_at": "2026-08-23T18:04:28.872916Z"
+  "updated_at": "2026-08-24T16:43:56.618646Z",
+  "closed_at": "2026-08-24T16:43:56.618646Z",
+  "closed_reason": "Completed: CI-failure remediation on factory-owned branches, behind both governors. Branch ownership is enforced by the TYPE SYSTEM rather than a check — factoryOwnedBranch() is the only constructor of a branded FactoryOwnedBranch, CheckFailureFacts.branch is that type, and dispatchRemediation accepts only those facts, so a human-owned branch cannot be expressed as a dispatchable input rather than merely being rejected by one. The flake gate establishes reproducibility before spending, and a run that strikes out escalates to a human instead of looping."
 }
