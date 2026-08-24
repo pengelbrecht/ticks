@@ -1,0 +1,14 @@
+{
+  "id": "t4y",
+  "title": "Revisit the positive-record branch ownership now that the digest exists",
+  "description": "Deliberate follow-up to tick am2, filed with its blocker named so it is not re-derived.\n\nam2 chose to document the naming convention rather than require a positive record of factory branch creation, and gave two concrete reasons:\n1. The record's WRITE side does not exist for epic/\u003cid\u003e branches, which are pushed from inside a container that has no D1 handle. Requiring the record today would refuse every check-run delivery this repo can currently produce.\n2. The positive record's own failure mode — a lost or missing record orphaning a real factory branch, so remediation silently refuses work it should do — could not be made visible.\n\nREASON (2) IS NOW GONE. Tick zaw landed the daily digest in the same wave, so a silent refusal has a channel to surface on. Reason (1) still stands and is the actual work: give the container-pushed path a way to record what it created.\n\nWorth doing because am2 established the collision is real rather than theoretical — orchestration.worktree_branch_prefix defaults to 'tick/', the same namespace tk herd spawn uses for every local worker branch, so the factory's ownership claim overlaps what humans and the herdr substrate create every day in this repository. The exposure is bounded (a branch must also have a failing check the factory watches, and the run's damage is bounded by its credential grade) but the epic's stated property is that nothing can reach a human-owned branch, and today that rests on nobody naming a branch the way the factory does.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "szp",
+  "acceptance_criteria": "Branch ownership is decided by a record of factory creation rather than a name pattern, including for branches pushed from inside a container; a missing record refuses and that refusal reaches the digest rather than being silent.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-24T18:39:03.467917Z",
+  "updated_at": "2026-08-24T18:39:03.467917Z"
+}

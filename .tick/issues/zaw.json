@@ -2,7 +2,8 @@
   "id": "zaw",
   "title": "Sweeps and PR review have no proactive failure visibility",
   "description": "From the Phase 4 final review's unattended-failure pass, flagged as a likely-intentional scope gap rather than a defect — so this tick is a decision, not a correction.\n\nCI remediation pages a human when it strikes out. Sweeps and PR review do not: their failures are discoverable only by someone going and looking. For an epic whose whole point is that nobody is watching, 'pull-only discovery' is a choice that should be made on purpose.\n\nThe question is not whether every failure deserves a notification — it does not, and an alerting channel that cries wolf is worse than none. It is whether there is ANY path by which a sweep that has been failing every night for a week reaches a human before someone happens to run tk cloud status.\n\nOptions the review suggested: a daily digest, or a stale-supervisor sweep that reports runs whose supervisor died. Tick acy landed 'tk cloud supervisor' which answers the liveness question on demand — the gap is that nothing asks it unprompted.\n\nNote this is the same class as Phase 2's hardest lesson, one level up: there, a supervisor could not report its own death; here, a loop can fail repeatedly and nothing reports it either.",
-  "status": "open",
+  "notes": "2026-08-24 20:12 - runner-state: substrate=herdr kind=claude branch=tick/zaw worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-zaw workspace=wGA base=8a873e74b7962bd5f37eefdcb2d55213e5ceef68 agent=tick-zaw pane=wGA:p1 session=29dc16fd-e79e-4624-946f-620ea218421d\n2026-08-24 20:39 - runner-state: runner=herdr branch=tick/zaw merged=5fb63eeb gate=green (factory vitest 1136)",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -10,5 +11,7 @@
   "acceptance_criteria": "Either sweeps and PR review reach a human when they fail repeatedly, or pull-only discovery is documented as deliberate with the reasoning and the command an operator should run.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-24T17:37:00.098106Z",
-  "updated_at": "2026-08-24T17:37:00.098106Z"
+  "updated_at": "2026-08-24T18:39:00.821326Z",
+  "closed_at": "2026-08-24T18:39:00.821326Z",
+  "closed_reason": "Completed: a daily digest, so a loop failing every night reaches a person before someone happens to look. Built on what already existed rather than a second mechanism — acy's supervisor query and uls's durable fault record — and it stays silent when there is nothing to say, rather than sending an all-clear people learn to ignore. This is Phase 2's hardest lesson one level up: there a supervisor could not report its own death, here a loop could fail nightly because nothing was asking."
 }
