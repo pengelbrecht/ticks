@@ -119,6 +119,17 @@ declare namespace Cloudflare {
      */
     TICK_WRITER?: import("./tracker-write").TrackerWriter;
     /**
+     * What the CI-failure flake gate asks GitHub: a check's conclusions on a
+     * ref, and a request to run it again (tick meo).
+     *
+     * Unset on a deployment, which reads GitHub's check-runs API directly. A
+     * seam for the same reason `ISSUE_LABELS` is one — the cases the gate
+     * exists for are exactly the ones real GitHub cannot be made to stage: a
+     * check that passed once and failed once on identical code, a base branch
+     * already red, a re-run GitHub declines.
+     */
+    CHECK_HISTORY?: import("./ci-remediation").CheckHistoryReader;
+    /**
      * Where the RunRoom forwards a run's `run_event` stream (tick bne).
      *
      * Unset on a deployment that reports to a board, which posts to

@@ -66,6 +66,7 @@
  */
 
 import { getEnrolledProject } from "./db";
+import { CHECK_RUN_EVENT, checkRunWebhookRoute } from "./ci-webhook";
 import { announceDraft } from "./drafts";
 import { GITHUB_API_BASE_URL } from "./progress";
 import { submitSignal, type Signal, type SignalOutcome } from "./signal-inbox";
@@ -761,6 +762,13 @@ export async function githubWebhookRoute(request: Request, env: Env): Promise<Re
 
   const event = request.headers.get("X-GitHub-Event")?.trim() ?? "";
   if (event === "ping") return json({ ok: true, event: "ping" }, 200);
+  // `check_run` is CI-failure remediation's delivery (UC4, tick meo). It comes
+  // through THIS door because GitHub sends every event for a repository to one
+  // webhook URL, and the signature it was just checked against is the same
+  // one. The handoff is a delegation and nothing else: the ownership test, the
+  // flake gate and the strike budget all live in `ci-remediation.ts`, so this
+  // module keeps knowing only about issues.
+  if (event === CHECK_RUN_EVENT) return checkRunWebhookRoute(env, raw);
   if (event !== "issues") {
     return json(
       { ok: true, ingested: false, reason: "unsupported_event", detail: `this door reads \`issues\`, not \`${event}\`` },

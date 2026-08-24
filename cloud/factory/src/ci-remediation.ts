@@ -1,0 +1,984 @@
+/**
+ * CI-failure remediation: the loop with teeth (UC4, D10, tick meo).
+ *
+ * CI goes red on a branch the factory pushed; the factory dispatches a run to
+ * drive it back to green. It is the loop that makes this a factory rather than
+ * a launcher — the output feeds back in as the input — and for exactly that
+ * reason it is the most dangerous thing in the bundle. Every other path spends
+ * money once per human decision. This one spends money in response to its own
+ * previous spend, so a wrong answer does not cost a run, it costs every run
+ * until somebody notices.
+ *
+ * Three rules hold it, and all three are enforced HERE, in the dispatcher,
+ * rather than asked of the agent's prompt. `.tick/learnings.md`, tick dxk: a
+ * boundary the substrate can enforce must not rest on instruction-following —
+ * compliance is a property of the model, not of the system. Phase 3 proved it
+ * the expensive way, with a worker that committed tracker state its prompt
+ * forbade in as many words.
+ *
+ * ## 1. Ownership is structural, and the type system carries it
+ *
+ * The factory may drive its OWN branches to green. It may never push to a
+ * branch a person owns — that is UC5's problem (review it, do not touch it).
+ *
+ * "Owns" is a branch-name namespace ({@link FACTORY_BRANCH_NAMESPACES}), and
+ * the check is not a condition somebody remembers to write at each call site.
+ * {@link factoryOwnedBranch} is the ONLY constructor of
+ * {@link FactoryOwnedBranch}, a branded string; {@link CheckFailureFacts}
+ * carries that type and nothing else; {@link dispatchRemediation} accepts only
+ * those facts. A remediation targeting `main` is therefore not a bug somebody
+ * could write and a reviewer could miss — it does not typecheck.
+ *
+ * A brand is a compile-time argument, so the runtime keeps its own: the
+ * dispatch site re-derives ownership from the branch string it was handed and
+ * throws if it is not factory-owned. That assertion is unreachable through
+ * this module's own doors. It exists for the caller who reaches for a cast,
+ * and it is pinned by a test that performs exactly that cast.
+ *
+ * The namespace list is a compile-time constant and deliberately NOT
+ * configurable. A repository-supplied ownership rule is a repository-supplied
+ * way to widen what the factory may push to, and `worktree_branch_prefix` in
+ * the Go herd config is a different question with a different blast radius:
+ * that one names where a LOCAL orchestrator puts its work; this one is the
+ * list of branches a cloud run may be pointed at without a person asking.
+ *
+ * ## 2. The flake gate: reproduce before you pay
+ *
+ * A test that fails intermittently must not be "fixed" over and over at cost.
+ * This is not a theoretical risk in this repository: tick vy2 covers
+ * load-dependent flakes here, Phase 2 lost time to a `TestSmokeGolden` flake
+ * that a bisect finally settled, and tick vuz had to make one of 8sm's own
+ * tests deterministic. The gate will meet real flakes.
+ *
+ * {@link flakeGate} answers with evidence, in this order:
+ *
+ *  - **A redelivery is not a second failure.** Every outcome is recorded under
+ *    the check run's node id, which is UNIQUE in D1. GitHub redelivers freely,
+ *    and a gate that counted deliveries would let GitHub's retry machinery
+ *    manufacture the very reproduction the gate exists to demand.
+ *  - **Both answers on one commit means flaky.** A success recorded for this
+ *    check on this exact SHA — in the factory's own observations or in
+ *    GitHub's history for the SHA — settles it. Same code, both outcomes.
+ *  - **Red on the base branch is not ours.** If the check is already failing
+ *    on the branch this one forked from, the branch did not break it, and a
+ *    run sent to fix it would be sent to fix something it did not cause.
+ *  - **One failure is a report; two are a reproduction.** A first failure
+ *    records the observation, asks GitHub to re-run that check, and dispatches
+ *    NOTHING. The re-run's own delivery is the second observation, and only
+ *    then does a run start.
+ *
+ * When GitHub cannot be asked, the gate reaches NO verdict and records
+ * nothing decisive — the door answers 503 and the delivery comes back. Tick
+ * t2x's rule in a different system: "could not ask GitHub" must never resolve
+ * to "assume the answer I wanted".
+ *
+ * ## 3. The strike budget: bounded attempts, then a person
+ *
+ * {@link STRIKE_BUDGET} remediation runs per branch per
+ * {@link STRIKE_WINDOW_MS}. The budget counts DISPATCHES, not
+ * failures-to-converge, because Phase 2 measured what a non-converging agent
+ * costs — 100% of its tokens for 0% of the work; deepseek-v4-flash finished
+ * one of three real ticks while spending the full budget on all three — and an
+ * attempt whose outcome is still unknown has already spent the money. A fix
+ * that works ends the loop by itself: the branch stops failing, so no further
+ * signal arrives. Nothing has to notice that it worked.
+ *
+ * Past the budget the branch is ESCALATED, not retried: a durable row, one
+ * message to the operator channel, and every later failure on that branch
+ * refused in silence. The row is written before the message because the row is
+ * the escalation and the message is only its delivery — a Telegram outage must
+ * not be able to make a struck-out branch look un-escalated to the next
+ * delivery and drop the loop back into dispatching.
+ *
+ * ## The order of the governors, which is itself a decision
+ *
+ * Strike budget BEFORE flake gate. The gate's unconfirmed branch asks GitHub
+ * to re-run a check, which spends CI minutes and produces another delivery; a
+ * branch that has already exhausted its budget must not be able to keep
+ * ordering re-runs. Cheapest, most final answer first.
+ */
+
+import { credentialGrade, type RunCredentialGrade } from "./credentials";
+import {
+  getEnrolledProject,
+  insertDispatchLog,
+  type DispatchReason,
+} from "./db";
+import { GITHUB_API_BASE_URL } from "./progress";
+import { sendTelegramReport } from "./telegram";
+import { newTraceID } from "./trace";
+import { sanitizeUntrustedLine } from "./untrusted-text";
+import { newRunID, submitRun, type RunSubmission } from "./runs";
+
+import type { Env } from "./index";
+
+// ------------------------------------------------------------- ownership ---
+
+/**
+ * The branch namespaces the factory owns, and the whole of the ownership test.
+ *
+ * `tick/` and `tick-run/` are what the design doc names for UC4; `epic/` is
+ * what this repository's own integration branches use (`epic/szp`). A branch
+ * outside these prefixes belongs to a person, whoever pushed it and whatever
+ * it contains.
+ *
+ * Frozen at compile time on purpose — see the module note. Widening this list
+ * is a code change with a review, which is the correct weight for "the set of
+ * branches an autonomous loop may push to".
+ */
+export const FACTORY_BRANCH_NAMESPACES = ["tick/", "tick-run/", "epic/"] as const;
+
+/** Who a branch belongs to. There is no third answer and no "probably". */
+export type BranchOwner = "factory" | "human";
+
+/**
+ * What a git branch name may look like before this module will read it at all.
+ *
+ * Deliberately narrower than git's own rules. Everything outside
+ * `[A-Za-z0-9._/-]` — whitespace, control characters, the Unicode homoglyphs
+ * that make `tісk/x` (Cyrillic і) render as `tick/x` — is not a branch this
+ * factory has an opinion about, it is a branch this factory refuses. A
+ * character class is a thing a reader can check; "looks like ours" is not.
+ */
+const BRANCH_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$/;
+
+/** Sequences git itself refuses, and the ones a path-traversal reflex reaches for. */
+const BRANCH_FORBIDDEN = ["..", "//", "@{", "\\", ".lock/"];
+
+/**
+ * `branch` if the factory owns it, `null` otherwise. The only way to obtain a
+ * {@link FactoryOwnedBranch}, and therefore the only way anything downstream
+ * can name a push target.
+ *
+ * Fails CLOSED at every step: a value that is not a string, not shaped like a
+ * branch, or shaped like a branch but outside the namespaces is `null`. The
+ * comparison is case-sensitive because git refs are; `Tick/x` is a different
+ * branch from `tick/x` and this factory owns exactly one of them.
+ *
+ * The value is NOT trimmed first, deliberately. Git branch names contain no
+ * whitespace, so `"tick/meo\n"` is not a branch this factory owns with a
+ * newline attached — it is a value that did not come from a branch, and
+ * trimming it would be this function inventing the input it wanted.
+ */
+export function factoryOwnedBranch(branch: unknown): FactoryOwnedBranch | null {
+  if (typeof branch !== "string") return null;
+  const name = branch;
+  if (!BRANCH_PATTERN.test(name)) return null;
+  if (name.endsWith("/") || name.endsWith(".lock")) return null;
+  for (const forbidden of BRANCH_FORBIDDEN) {
+    if (name.includes(forbidden)) return null;
+  }
+  for (const namespace of FACTORY_BRANCH_NAMESPACES) {
+    // The remainder must be non-empty: `tick/` names no branch, and a bare
+    // prefix must never satisfy a prefix test.
+    if (name.startsWith(namespace) && name.length > namespace.length) {
+      return name as FactoryOwnedBranch;
+    }
+  }
+  return null;
+}
+
+/** {@link factoryOwnedBranch} as a plain verdict, for logs and refusal messages. */
+export function branchOwner(branch: unknown): BranchOwner {
+  return factoryOwnedBranch(branch) === null ? "human" : "factory";
+}
+
+declare const FACTORY_OWNED_BRAND: unique symbol;
+
+/**
+ * A branch this factory owns, proven by construction.
+ *
+ * A branded string: assignable TO `string` everywhere, and constructible only
+ * by {@link factoryOwnedBranch}. That asymmetry is the point — a function that
+ * demands one cannot be handed `"main"`, and no amount of plumbing in between
+ * can launder a human-owned name into one without an explicit cast that a
+ * reviewer sees.
+ */
+export type FactoryOwnedBranch = string & { readonly [FACTORY_OWNED_BRAND]: true };
+
+/**
+ * The epic a factory-owned branch belongs to: the first segment after the
+ * namespace.
+ *
+ * `tick/<epic>/<tick>` (what `cloud/sandbox/worker.sh` pushes) and `tick/<id>`
+ * (what the local herd pushes) both answer with their first segment, and both
+ * answers are the right one. No GitHub round trip: a remediation run must be
+ * decidable from the delivery, because the alternative is a network call in
+ * the middle of a decision about whether to make network calls.
+ */
+export function epicOfBranch(branch: FactoryOwnedBranch): string {
+  const rest = FACTORY_BRANCH_NAMESPACES.reduce(
+    (name, namespace) => (name.startsWith(namespace) ? name.slice(namespace.length) : name),
+    branch as string
+  );
+  const [first] = rest.split("/");
+  return first ?? rest;
+}
+
+// -------------------------------------------------------------- the facts ---
+
+/** The conclusions this module distinguishes. Everything else is `other`. */
+export const CHECK_CONCLUSIONS = ["success", "failure", "other"] as const;
+export type CheckConclusion = (typeof CHECK_CONCLUSIONS)[number];
+
+/** GitHub conclusions that mean the check ran and did not pass. */
+const FAILING_CONCLUSIONS = new Set(["failure", "timed_out", "action_required"]);
+/** GitHub conclusions that mean the check ran and passed. */
+const PASSING_CONCLUSIONS = new Set(["success"]);
+
+/**
+ * Normalises GitHub's conclusion vocabulary onto three answers.
+ *
+ * `cancelled`, `skipped`, `stale` and `neutral` fold to `other` and are
+ * evidence of nothing: a cancelled check did not fail, and counting it as a
+ * failure would let a person clicking Cancel twice buy a dispatched run.
+ */
+export function checkConclusion(raw: unknown): CheckConclusion {
+  if (typeof raw !== "string") return "other";
+  const value = raw.trim().toLowerCase();
+  if (PASSING_CONCLUSIONS.has(value)) return "success";
+  if (FAILING_CONCLUSIONS.has(value)) return "failure";
+  return "other";
+}
+
+const SHA_PATTERN = /^[0-9a-f]{7,64}$/;
+const PROJECT_PATTERN = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/;
+const NODE_ID_PATTERN = /^[A-Za-z0-9_=-]{1,255}$/;
+/** A check name is repository-authored text; it is shown to a human, never obeyed. */
+export const MAX_CHECK_NAME_CHARS = 200;
+
+/**
+ * One check-run delivery, once the payload's structural fields have been read.
+ *
+ * Every field comes from a payload field GitHub controls. Nothing here is read
+ * out of a check name, a workflow title or a commit message: those are strings
+ * a contributor writes, and the only place one of them reaches is a message a
+ * human reads, sanitised on the way.
+ */
+export type CheckFailureFacts = {
+  project: string;
+  /** Proven factory-owned by construction. See {@link FactoryOwnedBranch}. */
+  branch: FactoryOwnedBranch;
+  head_sha: string;
+  /** The branch this one is measured against — red here means "not ours". */
+  base_branch: string;
+  check_name: string;
+  /** The check run's numeric id, which is what a re-run request needs. */
+  check_run_id: number;
+  /** The check run's node id: the dedup key, stable across redelivery. */
+  external_ref: string;
+  conclusion: CheckConclusion;
+  details_url: string | null;
+};
+
+export type CheckClassification =
+  | { state: "failure"; facts: CheckFailureFacts }
+  /** A non-failing outcome on a branch we own: evidence for the gate, not work. */
+  | { state: "outcome"; facts: CheckFailureFacts }
+  | { state: "refused"; reason: "human_owned_branch"; detail: string; branch: string }
+  | { state: "ignored"; reason: string; detail: string };
+
+function str(value: unknown): string {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+function record(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+/**
+ * Reads a `check_run` delivery into facts, or says why it is not work.
+ *
+ * This function is the ownership door. It is the only producer of
+ * {@link CheckFailureFacts}, and it produces none for a branch outside
+ * {@link FACTORY_BRANCH_NAMESPACES} — so "the factory dispatched against a
+ * human's branch" is not a path with a missing guard on it, it is a path with
+ * no values to travel down.
+ */
+export function classifyCheckEvent(payload: unknown): CheckClassification {
+  const body = record(payload);
+  if (body === null) {
+    return { state: "ignored", reason: "invalid_payload", detail: "the payload is not an object" };
+  }
+
+  const action = str(body.action);
+  if (action !== "completed") {
+    return {
+      state: "ignored",
+      reason: "action_not_completed",
+      detail: `a check run only settles anything when it completes, not on \`${action || "?"}\``,
+    };
+  }
+
+  const checkRun = record(body.check_run);
+  if (checkRun === null) {
+    return { state: "ignored", reason: "invalid_payload", detail: "the payload carries no check_run" };
+  }
+
+  const repository = record(body.repository);
+  const project = str(repository?.full_name).replace(/\.git$/, "");
+  if (!PROJECT_PATTERN.test(project)) {
+    return {
+      state: "ignored",
+      reason: "invalid_payload",
+      detail: "the payload names no repository this factory can read",
+    };
+  }
+
+  const suite = record(checkRun.check_suite);
+  // Read RAW, not trimmed: the ownership test is the one place in this bundle
+  // where normalising the input before checking it would be normalising away
+  // the reason to refuse it.
+  const branchName =
+    typeof checkRun.head_branch === "string" && checkRun.head_branch !== ""
+      ? checkRun.head_branch
+      : typeof suite?.head_branch === "string"
+        ? suite.head_branch
+        : "";
+  if (branchName === "") {
+    return {
+      state: "ignored",
+      reason: "invalid_payload",
+      detail: "the check run names no head branch",
+    };
+  }
+
+  const branch = factoryOwnedBranch(branchName);
+  if (branch === null) {
+    // The one refusal that is a security boundary rather than a policy: this
+    // is where a human's branch stops. Named separately from `ignored` so the
+    // dispatch log can say which of the two happened.
+    return {
+      state: "refused",
+      reason: "human_owned_branch",
+      branch: sanitizeUntrustedLine(branchName, MAX_CHECK_NAME_CHARS),
+      detail:
+        `${sanitizeUntrustedLine(branchName, MAX_CHECK_NAME_CHARS)} is outside ` +
+        `${FACTORY_BRANCH_NAMESPACES.join(", ")}, so the factory does not own it and will ` +
+        "never push to it; a pull request from it is a review, not a remediation",
+    };
+  }
+
+  const headSha = str(checkRun.head_sha).toLowerCase() || str(suite?.head_sha).toLowerCase();
+  if (!SHA_PATTERN.test(headSha)) {
+    return { state: "ignored", reason: "invalid_payload", detail: "the check run names no head sha" };
+  }
+
+  const externalRef = str(checkRun.node_id);
+  if (!NODE_ID_PATTERN.test(externalRef)) {
+    // Without a stable dedup key the gate cannot tell a redelivery from a
+    // re-run, and a gate that cannot tell them apart is not a gate.
+    return {
+      state: "ignored",
+      reason: "invalid_payload",
+      detail: "the check run carries no node id, so its outcome cannot be deduplicated",
+    };
+  }
+
+  const checkName = sanitizeUntrustedLine(checkRun.name, MAX_CHECK_NAME_CHARS);
+  if (checkName === "") {
+    return { state: "ignored", reason: "invalid_payload", detail: "the check run has no name" };
+  }
+
+  const pulls = Array.isArray(checkRun.pull_requests) ? checkRun.pull_requests : [];
+  const firstPull = record(pulls[0]);
+  const baseBranch =
+    str(record(firstPull?.base)?.ref) || str(repository?.default_branch) || "main";
+
+  const detailsURL = str(checkRun.details_url);
+  const facts: CheckFailureFacts = {
+    project,
+    branch,
+    head_sha: headSha,
+    base_branch: baseBranch,
+    check_name: checkName,
+    check_run_id: typeof checkRun.id === "number" && Number.isSafeInteger(checkRun.id) ? checkRun.id : 0,
+    external_ref: externalRef,
+    conclusion: checkConclusion(checkRun.conclusion),
+    details_url: detailsURL.startsWith("https://") ? detailsURL : null,
+  };
+
+  return facts.conclusion === "failure"
+    ? { state: "failure", facts }
+    : { state: "outcome", facts };
+}
+
+// --------------------------------------------------------- the GitHub port ---
+
+/**
+ * What the gate needs from GitHub, and nothing else.
+ *
+ * A seam for the same reason `ISSUE_LABELS` and `TICK_TRACKER` are seams: the
+ * cases worth testing — a check that passed once and failed once on identical
+ * code, a base branch that is already red, a re-run request GitHub refuses —
+ * cannot be staged against real GitHub, and a gate whose decisive branches are
+ * untestable is a gate nobody can trust.
+ */
+export interface CheckHistoryReader {
+  /**
+   * Every conclusion GitHub records for `check_name` at `ref` (a SHA or a
+   * branch name), newest first. `null` means "this factory cannot see it" —
+   * an ANSWER, distinct from throwing, which means "could not ask".
+   */
+  conclusions(project: string, ref: string, checkName: string): Promise<CheckConclusion[] | null>;
+  /** Asks GitHub to run this check again. `false` means GitHub declined. */
+  rerun(project: string, checkRunID: number): Promise<boolean>;
+}
+
+const CHECK_PAGE_SIZE = 100;
+
+/**
+ * The real reader: GitHub's check-runs-for-ref listing and its rerequest
+ * endpoint, with the same headers every other GitHub read in this bundle uses.
+ */
+export function githubCheckHistory(env: Env): CheckHistoryReader {
+  const base = (env.GITHUB_API_BASE_URL ?? GITHUB_API_BASE_URL).replace(/\/+$/, "");
+  const headers: Record<string, string> = {
+    accept: "application/vnd.github+json",
+    // GitHub rejects an API request with no user agent outright.
+    "user-agent": "ticks-factory",
+  };
+  const token = env.GITHUB_TOKEN;
+  if (typeof token === "string" && token.trim() !== "") {
+    headers.authorization = `Bearer ${token.trim()}`;
+  }
+
+  return {
+    async conclusions(project, ref, checkName) {
+      const url =
+        `${base}/repos/${project}/commits/${encodeURIComponent(ref)}/check-runs` +
+        `?per_page=${CHECK_PAGE_SIZE}&check_name=${encodeURIComponent(checkName)}`;
+      const response = await fetch(url, { headers });
+      // 404 and 422 are answers: this factory cannot see that ref's checks.
+      if (response.status === 404 || response.status === 422) return null;
+      if (!response.ok) {
+        throw new Error(
+          `GitHub answered HTTP ${response.status} reading check runs for ${project}@${ref}`
+        );
+      }
+      const body = (await response.json()) as unknown;
+      const runs = record(body)?.check_runs;
+      if (!Array.isArray(runs)) {
+        throw new Error(`GitHub returned no check_runs list for ${project}@${ref}`);
+      }
+      return runs.map((entry) => checkConclusion(record(entry)?.conclusion));
+    },
+
+    async rerun(project, checkRunID) {
+      if (checkRunID <= 0) return false;
+      const response = await fetch(
+        `${base}/repos/${project}/check-runs/${checkRunID}/rerequest`,
+        { method: "POST", headers }
+      );
+      return response.ok || response.status === 201 || response.status === 202;
+    },
+  };
+}
+
+/** The reader in use: the injected seam when there is one, GitHub otherwise. */
+export function checkHistory(env: Env): CheckHistoryReader {
+  const injected = env.CHECK_HISTORY;
+  return injected === undefined || injected === null ? githubCheckHistory(env) : injected;
+}
+
+// --------------------------------------------------------- the flake gate ---
+
+/**
+ * Failing observations of one check on one commit before a run is worth
+ * paying for.
+ *
+ * Two, and two is the smallest number that can mean anything: one failure is a
+ * report, two independent runs of identical code failing the same way is a
+ * reproduction. Raising it buys more certainty at the price of a slower loop;
+ * lowering it to one deletes the gate.
+ */
+export const FLAKE_GATE_CONFIRMATIONS = 2;
+
+export type FlakeVerdict =
+  /** Two distinct failing runs of this check on this commit. Pay for a fix. */
+  | { state: "reproduced"; failures: number }
+  /** First failure recorded, a re-run asked for. Nothing dispatched. */
+  | { state: "unconfirmed"; failures: number; rerun_requested: boolean }
+  /** The same check both passed and failed on this commit. */
+  | { state: "flaky"; detail: string }
+  /** Already red on the base branch: this branch did not break it. */
+  | { state: "red_on_base"; detail: string }
+  /** This exact check run has already been counted. GitHub redelivered. */
+  | { state: "duplicate_delivery"; detail: string }
+  /** No verdict and nothing decided: GitHub could not be asked. */
+  | { state: "deferred"; detail: string };
+
+/**
+ * Records one outcome, returning whether it was new.
+ *
+ * `INSERT OR IGNORE` on a UNIQUE `external_ref`: the redelivery loses the race
+ * with itself rather than being counted twice. This is the single most
+ * load-bearing line in the gate — see the migration's note on why a gate that
+ * counts deliveries counts GitHub's retry policy.
+ */
+async function recordObservation(env: Env, facts: CheckFailureFacts): Promise<boolean> {
+  const result = await env.DB.prepare(
+    `INSERT OR IGNORE INTO ci_check_observation
+       (external_ref, project, branch, head_sha, check_name, conclusion, observed_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  )
+    .bind(
+      facts.external_ref,
+      facts.project,
+      facts.branch,
+      facts.head_sha,
+      facts.check_name,
+      facts.conclusion,
+      new Date().toISOString()
+    )
+    .run();
+  return (result.meta.changes ?? 0) > 0;
+}
+
+async function observedConclusions(
+  env: Env,
+  facts: CheckFailureFacts
+): Promise<{ failures: number; successes: number }> {
+  const rows = await env.DB.prepare(
+    `SELECT conclusion, COUNT(*) AS n
+       FROM ci_check_observation
+      WHERE project = ? AND head_sha = ? AND check_name = ?
+      GROUP BY conclusion`
+  )
+    .bind(facts.project, facts.head_sha, facts.check_name)
+    .all<{ conclusion: string; n: number }>();
+
+  let failures = 0;
+  let successes = 0;
+  for (const row of rows.results ?? []) {
+    if (row.conclusion === "failure") failures += Number(row.n);
+    if (row.conclusion === "success") successes += Number(row.n);
+  }
+  return { failures, successes };
+}
+
+/**
+ * Is this failure worth a run?
+ *
+ * Assumes the observation has already been recorded — the caller records
+ * first, because evidence is written whatever the verdict turns out to be.
+ */
+export async function flakeGate(
+  env: Env,
+  facts: CheckFailureFacts,
+  reader: CheckHistoryReader
+): Promise<FlakeVerdict> {
+  const observed = await observedConclusions(env, facts);
+
+  // Both answers on one commit. The factory's own observations settle this
+  // without asking anyone, so it is checked first and for free.
+  if (observed.successes > 0) {
+    return {
+      state: "flaky",
+      detail:
+        `${facts.check_name} has both passed and failed on ${facts.head_sha} — identical code, ` +
+        "two answers; a fix for that is a guess, so nothing is dispatched",
+    };
+  }
+
+  // GitHub's own history for this exact SHA, which sees runs that predate this
+  // factory's interest in the branch.
+  let headHistory: CheckConclusion[] | null;
+  try {
+    headHistory = await reader.conclusions(facts.project, facts.head_sha, facts.check_name);
+  } catch (error) {
+    return {
+      state: "deferred",
+      detail: `could not read ${facts.check_name}'s history on ${facts.head_sha}: ${String(error)}`,
+    };
+  }
+  if (headHistory !== null && headHistory.includes("success")) {
+    return {
+      state: "flaky",
+      detail:
+        `GitHub records a passing ${facts.check_name} on ${facts.head_sha} as well as this ` +
+        "failure; identical code with two answers is a flake, not a bug to buy a fix for",
+    };
+  }
+
+  // Red on the base branch: the branch did not break this, so driving the
+  // branch to green cannot fix it. Park it; do not burn compute.
+  let baseHistory: CheckConclusion[] | null;
+  try {
+    baseHistory = await reader.conclusions(facts.project, facts.base_branch, facts.check_name);
+  } catch (error) {
+    return {
+      state: "deferred",
+      detail: `could not read ${facts.check_name}'s history on ${facts.base_branch}: ${String(error)}`,
+    };
+  }
+  if (baseHistory !== null && baseHistory[0] === "failure") {
+    return {
+      state: "red_on_base",
+      detail:
+        `${facts.check_name} is already failing on ${facts.base_branch}, so ${facts.branch} did ` +
+        "not break it and a run sent to fix it would be sent to fix somebody else's failure",
+    };
+  }
+
+  if (observed.failures >= FLAKE_GATE_CONFIRMATIONS) {
+    return { state: "reproduced", failures: observed.failures };
+  }
+
+  // One failure. Ask for the re-run whose delivery becomes the second
+  // observation, and dispatch nothing. A re-run GitHub declines is not fatal:
+  // the next natural failure on this SHA still confirms it.
+  let requested = false;
+  try {
+    requested = await reader.rerun(facts.project, facts.check_run_id);
+  } catch (error) {
+    console.error(
+      `factory ci: could not ask GitHub to re-run check ${facts.check_run_id} on ` +
+        `${facts.project}: ${String(error)}`
+    );
+  }
+  return { state: "unconfirmed", failures: observed.failures, rerun_requested: requested };
+}
+
+// ------------------------------------------------------- the strike budget ---
+
+/** Remediation runs one branch may buy inside {@link STRIKE_WINDOW_MS}. */
+export const STRIKE_BUDGET = 3;
+
+/** The rolling window the budget is counted over: one day, as the design doc says. */
+export const STRIKE_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+export type RemediationAttempt = {
+  run_id: string;
+  head_sha: string;
+  check_name: string;
+  dispatched_at: string;
+};
+
+export type StrikeVerdict =
+  | { state: "within_budget"; strikes: number; remaining: number }
+  | { state: "struck_out"; strikes: number; history: RemediationAttempt[] };
+
+/**
+ * How much of this branch's budget is left.
+ *
+ * Counted over (project, branch) rather than (project, branch, check): three
+ * runs that each fixed one check and broke the next are three runs, and the
+ * money is spent per run. Counting per check would let a branch with five
+ * failing checks buy fifteen.
+ */
+export async function strikeBudget(
+  env: Env,
+  facts: CheckFailureFacts,
+  now = new Date()
+): Promise<StrikeVerdict> {
+  const since = new Date(now.getTime() - STRIKE_WINDOW_MS).toISOString();
+  const rows = await env.DB.prepare(
+    `SELECT run_id, head_sha, check_name, dispatched_at
+       FROM ci_remediation_attempt
+      WHERE project = ? AND branch = ? AND dispatched_at >= ?
+      ORDER BY dispatched_at ASC`
+  )
+    .bind(facts.project, facts.branch, since)
+    .all<RemediationAttempt>();
+
+  const history = rows.results ?? [];
+  if (history.length >= STRIKE_BUDGET) {
+    return { state: "struck_out", strikes: history.length, history };
+  }
+  return {
+    state: "within_budget",
+    strikes: history.length,
+    remaining: STRIKE_BUDGET - history.length,
+  };
+}
+
+/**
+ * Hands the branch to a person: a durable row first, one message second.
+ *
+ * Returns whether THIS call opened the escalation. Every later failure on a
+ * struck-out branch gets `false` and stays silent — replacing an unbounded
+ * spend loop with an unbounded notification loop is not a fix.
+ */
+export async function escalate(
+  env: Env,
+  facts: CheckFailureFacts,
+  verdict: { strikes: number; history: RemediationAttempt[] }
+): Promise<boolean> {
+  const opened = await env.DB.prepare(
+    `INSERT OR IGNORE INTO ci_escalation
+       (project, branch, head_sha, check_name, strikes, opened_at, notified_at)
+     VALUES (?, ?, ?, ?, ?, ?, NULL)`
+  )
+    .bind(
+      facts.project,
+      facts.branch,
+      facts.head_sha,
+      facts.check_name,
+      verdict.strikes,
+      new Date().toISOString()
+    )
+    .run();
+  if ((opened.meta.changes ?? 0) === 0) return false;
+
+  // The message is best effort and says so in the code: the row above IS the
+  // escalation. A deployment with no Telegram configured escalates exactly as
+  // durably; it just has nowhere to shout.
+  try {
+    await sendTelegramReport(env, escalationReport(facts, verdict));
+    await env.DB.prepare(
+      `UPDATE ci_escalation SET notified_at = ? WHERE project = ? AND branch = ?`
+    )
+      .bind(new Date().toISOString(), facts.project, facts.branch)
+      .run();
+  } catch (error) {
+    console.error(
+      `factory ci: escalation for ${facts.project} ${facts.branch} was recorded but could not ` +
+        `be delivered: ${String(error)}`
+    );
+  }
+  return true;
+}
+
+/**
+ * The escalation's text: what was tried, on what, and what the person's three
+ * choices are.
+ *
+ * `sendTelegramReport` HTML-escapes this, and the one repository-authored
+ * string in it — the check name — was sanitised at classification. The failure
+ * history is here rather than in a link because the point of an escalation is
+ * that nobody was watching: it has to be readable without opening anything.
+ */
+export function escalationReport(
+  facts: CheckFailureFacts,
+  verdict: { strikes: number; history: RemediationAttempt[] }
+): string {
+  const attempts = verdict.history
+    .map((a, i) => `  ${i + 1}. run ${a.run_id} on ${a.head_sha.slice(0, 12)} at ${a.dispatched_at}`)
+    .join("\n");
+  return (
+    `CI remediation struck out on ${facts.project} ${facts.branch}.\n` +
+    `${facts.check_name} is still failing on ${facts.head_sha.slice(0, 12)} after ` +
+    `${verdict.strikes} of ${STRIKE_BUDGET} attempts in the last 24h:\n` +
+    `${attempts || "  (no attempts recorded)"}\n` +
+    "The factory has stopped dispatching against this branch and is waiting for you: " +
+    "keep trying (raise the budget), take it over yourself, or close the branch."
+  );
+}
+
+// ------------------------------------------------------------ the dispatch ---
+
+export type RemediationDecision =
+  | { state: "dispatched"; run_id: string; trace_id: string; strikes: number }
+  | { state: "escalated"; strikes: number; opened: boolean; detail: string }
+  | { state: "refused"; code: string; detail: string }
+  /** Nothing decided, nothing recorded: the delivery should come back. */
+  | { state: "deferred"; code: string; detail: string };
+
+/** The grade a remediation run is issued, and where it comes from. */
+export const REMEDIATION_CREDENTIAL_GRADE: RunCredentialGrade = credentialGrade("write");
+
+/**
+ * The single site that turns a failure into a run. There is no other.
+ *
+ * The first statement is a runtime re-derivation of ownership from the branch
+ * string itself, and it throws rather than returning: reaching it means a
+ * caller cast its way past {@link FactoryOwnedBranch}, which is a bug in the
+ * caller and not a condition to report politely to GitHub. Between the type
+ * and this line there is no route from a human-owned branch to `submitRun`.
+ *
+ * The credential grade is DERIVED here from the same fact, never passed in.
+ * `write` is what a remediation needs — it pushes a fix — and the only reason
+ * this call may ask for it is that the branch it will push to is one the
+ * factory made. A read-only remediation would be a run that cannot do its job;
+ * a write run on a human's branch is the thing this module exists to prevent.
+ */
+export async function dispatchRemediation(
+  env: Env,
+  facts: CheckFailureFacts,
+  verdict: { strikes: number }
+): Promise<RemediationDecision> {
+  if (branchOwner(facts.branch) !== "factory") {
+    throw new Error(
+      `factory ci: refusing to dispatch against ${String(facts.branch)}, which is not a ` +
+        "factory-owned branch; this is unreachable through classifyCheckEvent and means a caller " +
+        "cast past FactoryOwnedBranch"
+    );
+  }
+
+  const runID = newRunID();
+  const traceID = newTraceID();
+  const submission: RunSubmission = {
+    project: facts.project,
+    epic: epicOfBranch(facts.branch),
+    // The failing commit itself: a fix for a failure you cannot reproduce is a
+    // guess, so the run starts from the exact tree that went red.
+    base_sha: facts.head_sha,
+    requested_by: REMEDIATION_ACTOR,
+    trace_id: traceID,
+    queue: false,
+    credential_grade: REMEDIATION_CREDENTIAL_GRADE,
+  };
+
+  const result = await submitRun(env, submission);
+  if (result.outcome !== "started") {
+    const detail =
+      "detail" in result ? result.detail : `the submission came back ${result.outcome}`;
+    return { state: "refused", code: `submission_${result.outcome}`, detail };
+  }
+
+  // Recorded AFTER the run exists, so a strike is only ever charged for a run
+  // that actually started. The other order would let a failed ignition spend
+  // the budget it never used.
+  await env.DB.prepare(
+    `INSERT INTO ci_remediation_attempt
+       (run_id, project, branch, head_sha, check_name, trace_id, dispatched_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`
+  )
+    .bind(
+      result.started.run.run_id,
+      facts.project,
+      facts.branch,
+      facts.head_sha,
+      facts.check_name,
+      traceID,
+      new Date().toISOString()
+    )
+    .run();
+
+  return {
+    state: "dispatched",
+    run_id: result.started.run.run_id,
+    trace_id: traceID,
+    strikes: verdict.strikes + 1,
+  };
+}
+
+/** Who a remediation run is requested by. A machine actor, never a person's name. */
+export const REMEDIATION_ACTOR = "ci-remediation";
+
+async function logCIDispatch(
+  env: Env,
+  entry: { epic: string; decision: string; reason: DispatchReason | null }
+): Promise<void> {
+  await insertDispatchLog(env.DB, {
+    // A refusal has no run behind it, so the decision gets its own id — the
+    // shape `submitRun` already uses when it refuses before igniting.
+    run_id: newRunID(),
+    tick_id: entry.epic,
+    decision: entry.decision,
+    reason: entry.reason,
+    at: new Date().toISOString(),
+  });
+}
+
+/**
+ * A `check_run` delivery, all the way to a run or to a reason there is none.
+ *
+ * The order is ownership, evidence, budget, gate, dispatch — cheapest and most
+ * final first. Every outcome except `deferred` is settled and written down:
+ * `tk factory trace` answers "why did this not run" from D1, never from
+ * Workers logs.
+ */
+export async function remediateCheckFailure(
+  env: Env,
+  payload: unknown,
+  reader?: CheckHistoryReader
+): Promise<RemediationDecision> {
+  const classified = classifyCheckEvent(payload);
+
+  if (classified.state === "refused") {
+    // The security refusal, and the only one worth a durable row of its own:
+    // it says a human's branch reached the door and was turned away.
+    await logCIDispatch(env, {
+      epic: classified.branch,
+      decision: `refused:human_owned_branch:${classified.branch}`,
+      reason: "awaiting_approval",
+    });
+    return { state: "refused", code: "human_owned_branch", detail: classified.detail };
+  }
+  if (classified.state === "ignored") {
+    return { state: "refused", code: classified.reason, detail: classified.detail };
+  }
+
+  const facts = classified.facts;
+
+  // Enrolment before anything durable or billable. The webhook secret proves
+  // the delivery is GitHub's; it does not say the operator pointed this
+  // factory at this repository (migrations/0003).
+  if ((await getEnrolledProject(env.DB, facts.project)) === null) {
+    return {
+      state: "refused",
+      code: "not_enrolled",
+      detail: `${facts.project} is not enrolled with this factory`,
+    };
+  }
+
+  // Evidence is recorded whatever the verdict — including for a success, which
+  // is the gate's best flake detector.
+  const fresh = await recordObservation(env, facts);
+  if (classified.state === "outcome") {
+    return {
+      state: "refused",
+      code: "not_a_failure",
+      detail: `${facts.check_name} concluded \`${facts.conclusion}\`; recorded as evidence, no work`,
+    };
+  }
+  if (!fresh) {
+    return {
+      state: "refused",
+      code: "duplicate_delivery",
+      detail:
+        `check run ${facts.external_ref} has already been counted; a redelivery is not a ` +
+        "second failure",
+    };
+  }
+
+  // The budget first: a struck-out branch must not even be able to order the
+  // re-runs the gate's unconfirmed branch asks for.
+  const budget = await strikeBudget(env, facts);
+  if (budget.state === "struck_out") {
+    const opened = await escalate(env, facts, budget);
+    if (opened) {
+      await logCIDispatch(env, {
+        epic: epicOfBranch(facts.branch),
+        decision: `refused:strike_out:${facts.branch}`,
+        reason: "strike_out",
+      });
+    }
+    return {
+      state: "escalated",
+      strikes: budget.strikes,
+      opened,
+      detail:
+        `${facts.branch} has spent its ${STRIKE_BUDGET} remediation attempts in the last 24h; ` +
+        "a person now owns it",
+    };
+  }
+
+  const gate = await flakeGate(env, facts, reader ?? checkHistory(env));
+  if (gate.state === "deferred") {
+    return { state: "deferred", code: "check_history_unavailable", detail: gate.detail };
+  }
+  if (gate.state !== "reproduced") {
+    await logCIDispatch(env, {
+      epic: epicOfBranch(facts.branch),
+      decision: `refused:${gate.state}:${facts.check_name}`,
+      reason: "flake_gate",
+    });
+    return {
+      state: "refused",
+      code: gate.state,
+      detail:
+        gate.state === "unconfirmed"
+          ? `${facts.check_name} has failed once on ${facts.head_sha}; ` +
+            `${FLAKE_GATE_CONFIRMATIONS} failing runs are needed before a fix is paid for` +
+            (gate.rerun_requested ? " (a re-run was requested)" : "")
+          : gate.detail,
+    };
+  }
+
+  return dispatchRemediation(env, facts, budget);
+}
