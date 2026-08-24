@@ -215,6 +215,86 @@ did not tick this repository when you approved the App" and "this PAT does not
 list the repository under Repository access" are the same 404 and completely
 different remedies.
 
+## The two credential grades
+
+Every run the factory booted before this section held the same credential: the
+GitHub token above, in the sandbox's environment as `GITHUB_TOKEN`, with a
+`credential.helper` in the container answering it for any host. That is right
+for a run whose job is to push work. It is wrong for a run whose job is to read
+— a PR review run reads a diff and posts a comment, and giving it write access
+to the branch it is reviewing is the kind of blast radius that is obvious in
+hindsight.
+
+So a run declares a **grade** at submission, and the control plane mints the
+matching credential:
+
+| grade | what the container holds | what its remote is |
+|---|---|---|
+| `write` (the default) | the operator's GitHub token | `https://github.com/<owner>/<repo>.git` |
+| `read_only` | the run's own `tkr_` token | this factory's `/api/git/<owner>/<repo>.git` |
+
+```bash
+curl -X POST "$FACTORY/api/runs" -H "Authorization: Bearer $TICKS_FACTORY_TOKEN" \
+  -d '{"project":"<owner>/<repo>","epic":"szp","base_sha":"<40-hex>",
+       "requested_by":"you","credential_grade":"read_only"}'
+```
+
+The grade is a column on the **run record** (`runs.credential_grade`,
+migrations/0009), not a line in a prompt. A container cannot set it, cannot
+widen it, and does not need to read it: whether it holds a credential that can
+push was settled before it booted. An unstated grade is `write` — which is what
+every run meant before the column existed — and a grade the factory does not
+recognise is a 400 at submission rather than a silent fallback.
+
+### Where read-only is enforced, and why it is not in the token
+
+Not in the token, and this is the constraint the shipped rung imposes. A
+user-to-server token's permissions are a property of the **App installation** —
+Contents: read and write, Pull requests: read and write, over the repositories
+you picked at approval. They are not a property of a run, and nothing in the
+shipped rung can narrow them per run. `tk` cannot ship the private key that
+would mint a per-run installation token (see the table above), so "read-only"
+is not expressible in the credential itself.
+
+The enforcement point is therefore **the factory**, and it takes the strongest
+available form: a read-only run is never given the operator's GitHub credential
+at all. It gets its own run token — the same `tkr_` credential that already
+carries its model traffic and its wave requests — and a remote pointing at the
+factory Worker's `/api/git` door. The Worker holds the operator's token, and
+that door forwards git's read half only: `git-upload-pack` (fetch and clone) is
+proxied, `git-receive-pack` — which is what `git push` speaks — is refused with
+`403 git_write_refused` and never reaches GitHub.
+
+### What stops a read-only run calling GitHub directly
+
+Nothing stops it *reaching* github.com; a container has a network. What stops it
+*doing* anything there is that it holds no credential GitHub will accept. The
+operator's token stays in the Worker. The only secret in a read-only sandbox is
+a `tkr_` token, which github.com has never heard of, so a direct call is an
+anonymous call: it can read a public repository — a capability every host on the
+internet already has — and it can write nothing, anywhere. A `git push` to
+github.com fails at GitHub's 401; a `git push` to the factory's door fails at
+the door. There is no third route, because there is no third credential.
+
+Two things this deliberately does **not** claim:
+
+- It does not narrow a `write` run. That run still holds the full
+  user-to-server token and can reach every repository the installation covers.
+  Narrowing *that* needs the private-key rung — your own App, minting an
+  installation token scoped to one repository per run — which is the upgrade
+  described above and cannot ship with `tk`.
+- It does not hide a public repository from a read-only run. Public is public.
+
+Two properties come free from reusing the run token: revoking a run's
+credential (`tk cloud stop <run>`, or any budget trip) stops its repository
+reads in the same instant it stops its model spend, and a leaked read-only
+sandbox leaks a run-scoped, revocable credential rather than a GitHub one.
+
+A deployment that cannot serve a read-only run — no `FACTORY_BASE_URL`, so
+there is no door to point the remote at — **refuses the run** rather than
+falling back to the write token. The failure mode of a credential grade must
+never be "the run got more than it asked for".
+
 ## The model-access rung
 
 All cloud model traffic goes through **one AI Gateway in your own Cloudflare

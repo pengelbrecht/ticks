@@ -53,6 +53,7 @@ import {
   removeEnrolledProject,
   type EnrolledProject,
 } from "./db";
+import { proxyGitRequest } from "./credentials";
 import { proxyModelRequest } from "./gateway";
 import { handleDraftPress, parseDraftCallback } from "./drafts";
 import { GITHUB_WEBHOOK_PATH, githubWebhookRoute } from "./github-issues";
@@ -1148,6 +1149,15 @@ export default {
     // the control plane (D17).
     if (segments[0] === "api" && segments[1] === "gateway") {
       return await proxyModelRequest(env, request, segments.slice(2));
+    }
+
+    // A read-only run's repository path (D11, tick pzf). Authenticated by the
+    // run's own token like the model path above — git presents it as Basic
+    // auth, which is what a `credential.helper` in the container produces —
+    // and it forwards git's read half only. This is where a read-only run's
+    // `git push` stops: at the credential, not at an instruction.
+    if (segments[0] === "api" && segments[1] === "git") {
+      return await proxyGitRequest(env, request, segments.slice(2));
     }
 
     // One read that draws a board frame for `tk factory dashboard` (tick t9s).

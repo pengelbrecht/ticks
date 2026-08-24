@@ -64,6 +64,7 @@ import {
   type RunEventMessage,
   type RunEventSource,
 } from "./run-events";
+import { isRunCredentialGrade, type RunCredentialGrade } from "./credentials";
 import { MAX_QUEUE_TTL_MS, MIN_QUEUE_TTL_MS, startRun } from "./runs";
 
 /**
@@ -191,6 +192,13 @@ export type QueuedSubmission = {
    */
   max_cost_usd?: number;
   max_wall_clock_ms?: number;
+  /**
+   * The credential grade the submission asked for (D11, tick pzf). Parked for
+   * the same reason the budget above is, and with a sharper edge: a queued
+   * read-only submission that ignited as `write` would hand a run exactly the
+   * push access its submitter withheld from it.
+   */
+  credential_grade?: RunCredentialGrade;
   /** The run holding the lease when this parked — why it is waiting. */
   blocked_by: string;
   queued_at: string;
@@ -207,6 +215,7 @@ export type QueueSubmissionRequest = {
   notify?: string;
   max_cost_usd?: number;
   max_wall_clock_ms?: number;
+  credential_grade?: RunCredentialGrade;
   blocked_by: string;
   ttl_ms?: number;
 };
@@ -416,6 +425,7 @@ type QueuedRecord = {
   notify: string | null;
   max_cost_usd: number | null;
   max_wall_clock_ms: number | null;
+  credential_grade: string | null;
   blocked_by: string;
   queued_at: number;
   expires_at: number;
@@ -569,7 +579,8 @@ export class RunRoom extends DurableObject<Env> {
         blocked_by TEXT NOT NULL,
         queued_at INTEGER NOT NULL,
         expires_at INTEGER NOT NULL,
-        trace_id TEXT
+        trace_id TEXT,
+        credential_grade TEXT
       );
       CREATE INDEX IF NOT EXISTS queued_submission_by_age ON queued_submission (queued_at);
       CREATE TABLE IF NOT EXISTS run_stop (
@@ -595,7 +606,12 @@ export class RunRoom extends DurableObject<Env> {
     // a column added after a room's first request would never appear in it —
     // and every project this factory has ever run has such a room. The add is
     // attempted and its "duplicate column name" is the expected answer.
-    for (const column of ["max_cost_usd REAL", "max_wall_clock_ms INTEGER", "trace_id TEXT"]) {
+    for (const column of [
+      "max_cost_usd REAL",
+      "max_wall_clock_ms INTEGER",
+      "trace_id TEXT",
+      "credential_grade TEXT",
+    ]) {
       try {
         ctx.storage.sql.exec(`ALTER TABLE queued_submission ADD COLUMN ${column}`);
       } catch {
@@ -836,6 +852,7 @@ export class RunRoom extends DurableObject<Env> {
       notify: request.notify ?? null,
       max_cost_usd: request.max_cost_usd ?? null,
       max_wall_clock_ms: request.max_wall_clock_ms ?? null,
+      credential_grade: request.credential_grade ?? null,
       blocked_by: request.blocked_by,
       queued_at: now,
       // The window is policy and the caller states it (src/runs.ts resolves the
@@ -846,8 +863,8 @@ export class RunRoom extends DurableObject<Env> {
     this.ctx.storage.sql.exec(
       `INSERT INTO queued_submission
          (run_id, project, epic, base_sha, requested_by, notify, max_cost_usd,
-          max_wall_clock_ms, blocked_by, queued_at, expires_at, trace_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          max_wall_clock_ms, blocked_by, queued_at, expires_at, trace_id, credential_grade)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       record.run_id,
       record.project,
       record.epic,
@@ -859,7 +876,8 @@ export class RunRoom extends DurableObject<Env> {
       record.blocked_by,
       record.queued_at,
       record.expires_at,
-      record.trace_id
+      record.trace_id,
+      record.credential_grade
     );
     await this.#armAlarm();
     return { ok: true, queued: this.#queuedView(record) };
@@ -1422,6 +1440,14 @@ export class RunRoom extends DurableObject<Env> {
         ...(next.max_wall_clock_ms === null
           ? {}
           : { max_wall_clock_ms: next.max_wall_clock_ms }),
+        // A grade this bundle does not recognise is dropped rather than
+        // passed on, which lands the run on `write` — the same value the row
+        // would have had before the column existed. It is unreachable in
+        // practice: `parseSubmission` refuses an unknown grade at the door, so
+        // nothing valid can be parked with one.
+        ...(isRunCredentialGrade(next.credential_grade)
+          ? { credential_grade: next.credential_grade }
+          : {}),
         lease_token: token,
       });
     } catch (error) {
@@ -1457,6 +1483,9 @@ export class RunRoom extends DurableObject<Env> {
       ...(record.max_wall_clock_ms === null
         ? {}
         : { max_wall_clock_ms: record.max_wall_clock_ms }),
+      ...(isRunCredentialGrade(record.credential_grade)
+        ? { credential_grade: record.credential_grade }
+        : {}),
       blocked_by: record.blocked_by,
       queued_at: stamp(record.queued_at),
       expires_at: stamp(record.expires_at),

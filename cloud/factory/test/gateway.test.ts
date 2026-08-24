@@ -87,6 +87,7 @@ async function liveRun(state = "running"): Promise<Run> {
     ended_at: null,
     cost_usd: 0,
     trace_id: `tr_${String(counter).padStart(32, "0")}`,
+    credential_grade: "write",
   };
   await insertRun(env.DB, run);
   return run;
@@ -170,6 +171,7 @@ describe("a run cannot start without a configured gateway", () => {
         base_sha: "c".repeat(40),
         requested_by: "operator",
         trace_id: "tr_0123456789abcdef0123456789abcdef",
+        credential_grade: "write",
         queue: false,
       });
       expect(result.outcome).toBe("unavailable");

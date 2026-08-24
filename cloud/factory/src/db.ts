@@ -44,6 +44,22 @@ export interface Run {
    * belonged to no traced chain must not be made to look as though it did.
    */
   trace_id: string | null;
+  /**
+   * Which credential this run is issued (D11, tick pzf) — `write` or
+   * `read_only`, from `src/credentials.ts`'s closed vocabulary.
+   *
+   * Typed as a plain string here for the same reason `state` is: this is the
+   * shape D1 returns, and narrowing it belongs where the value is interpreted
+   * (`credentialGrade`), which is also where an unrecognised one fails closed.
+   *
+   * Decided at submission and never by the run. A container has no route to
+   * this column: it cannot set it, and reading it would buy it nothing —
+   * whether it holds a credential that can push was settled before it booted.
+   *
+   * Rows written before migrations/0009 carry the column's `write` default,
+   * which is the truth about them: they really did hold a write credential.
+   */
+  credential_grade: string;
 }
 
 /**
@@ -80,8 +96,9 @@ export async function insertRun(db: D1Database, run: Run): Promise<void> {
   await db
     .prepare(
       `INSERT INTO runs
-        (run_id, project, epic, base_sha, requested_by, state, started_at, ended_at, cost_usd, trace_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        (run_id, project, epic, base_sha, requested_by, state, started_at, ended_at, cost_usd,
+         trace_id, credential_grade)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .bind(
       run.run_id,
@@ -93,7 +110,8 @@ export async function insertRun(db: D1Database, run: Run): Promise<void> {
       run.started_at,
       run.ended_at,
       run.cost_usd,
-      run.trace_id
+      run.trace_id,
+      run.credential_grade
     )
     .run();
 }
@@ -195,7 +213,7 @@ export async function getRun(db: D1Database, runId: string): Promise<Run | null>
   return db
     .prepare(
       `SELECT run_id, project, epic, base_sha, requested_by, state,
-              started_at, ended_at, cost_usd, trace_id
+              started_at, ended_at, cost_usd, trace_id, credential_grade
        FROM runs
        WHERE run_id = ?`
     )
@@ -221,7 +239,7 @@ export async function updateRunCost(
        SET cost_usd = ?
        WHERE run_id = ?
        RETURNING run_id, project, epic, base_sha, requested_by, state,
-                 started_at, ended_at, cost_usd, trace_id`
+                 started_at, ended_at, cost_usd, trace_id, credential_grade`
     )
     .bind(costUsd, runId)
     .first<Run>();
@@ -442,7 +460,7 @@ export async function listRuns(
   const result = await db
     .prepare(
       `SELECT run_id, project, epic, base_sha, requested_by, state,
-              started_at, ended_at, cost_usd, trace_id
+              started_at, ended_at, cost_usd, trace_id, credential_grade
        FROM runs${where}
        ORDER BY started_at DESC, run_id DESC
        LIMIT ?`
@@ -472,7 +490,7 @@ export async function updateRunState(
        SET state = ?, ended_at = COALESCE(?, ended_at)
        WHERE run_id = ?
        RETURNING run_id, project, epic, base_sha, requested_by, state,
-                 started_at, ended_at, cost_usd, trace_id`
+                 started_at, ended_at, cost_usd, trace_id, credential_grade`
     )
     .bind(state, endedAt, runId)
     .first<Run>();

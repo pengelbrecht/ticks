@@ -131,6 +131,20 @@ export const GATEWAY_PREFIX = "/api/gateway";
  */
 export const WAVE_PATH = "/api/wave";
 
+/**
+ * The read-only git door (D11, tick pzf), exempt for the same reason as the
+ * two above: its caller is a sandbox holding a run token, never the operator's.
+ *
+ * It is what a READ-ONLY run's remote points at. The operator's GitHub
+ * credential stays in this Worker, so a run that must not push is not carrying
+ * anything it could push with — and this door forwards git's read half only.
+ *
+ * Declared here rather than imported from src/credentials.ts because this
+ * module deliberately imports nothing (see {@link isAuthExempt}); the two
+ * spellings are pinned together by a test.
+ */
+export const GIT_PREFIX = "/api/git";
+
 /** The slice of the environment this module reads. */
 export interface FactoryAuthEnv {
   /** Worker secret: the derived hash of the current factory token. */
@@ -306,6 +320,7 @@ export function isAuthExempt(pathname: string): boolean {
   if (pathname === TELEGRAM_WEBHOOK_PATH) return true;
   if (pathname === GATEWAY_PREFIX || pathname.startsWith(`${GATEWAY_PREFIX}/`)) return true;
   if (pathname === WAVE_PATH) return true;
+  if (pathname === GIT_PREFIX || pathname.startsWith(`${GIT_PREFIX}/`)) return true;
   return pathname === WEBHOOK_PREFIX || pathname.startsWith(`${WEBHOOK_PREFIX}/`);
 }
 

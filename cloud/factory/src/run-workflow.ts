@@ -69,6 +69,12 @@ import {
 } from "./artifacts";
 import { getRun, recordRunProgress, updateRunState } from "./db";
 import {
+  containerGitToken,
+  credentialGrade,
+  planSandboxGit,
+  type SandboxGitPlan,
+} from "./credentials";
+import {
   factoryBaseURL,
   issueRunToken,
   modelRoutingComplaint,
@@ -669,7 +675,25 @@ export function leaseLostTrip(renewal: { lost: LeaseLostReason; holder: string |
 // ----------------------------------------------------------- the context ---
 
 export type RunContext = {
+  /**
+   * The remote this run's containers clone.
+   *
+   * github.com for a `write` run, exactly as before tick pzf; this factory's
+   * own read-only git door for a `read_only` one. Which of the two, and which
+   * credential goes with it, is {@link git}'s answer — resolved once, here,
+   * from the grade on the run record.
+   */
   repo_url: string;
+  /**
+   * How this run reaches its repository and where its GitHub credential comes
+   * from (D11, tick pzf).
+   *
+   * Resolved before any container exists, for the same reason `sandbox_image`
+   * is: a grade this deployment cannot serve is a configuration verdict, and
+   * the only alternative to refusing the run would be booting it with a
+   * credential stronger than it asked for.
+   */
+  git: SandboxGitPlan;
   /**
    * The gateway endpoint the sandbox is pointed at: this factory's own
    * `/api/gateway` prefix, which exchanges the run's token for the operator's
@@ -910,8 +934,23 @@ export async function acquireContext(
     });
   }
 
+  // Which credential this run's containers hold (D11, tick pzf), from the
+  // grade on the RUN RECORD — never from the params blob, which a resumed
+  // instance could be older than, and never from anything a container said.
+  // An unservable grade stops the run here, before a sandbox exists: the only
+  // other move would be to boot it with a credential it did not ask for.
+  const git = planSandboxGit({
+    grade: credentialGrade(run.credential_grade),
+    project: params.project,
+    operator_token: env.GITHUB_TOKEN,
+    factory_url: factoryBaseURL(env),
+    direct_repo_url: repoURL(params.project),
+  });
+  if (!git.ok) return { ok: false, detail: git.detail };
+
   const context: RunContext = {
-    repo_url: repoURL(params.project),
+    repo_url: git.plan.repo_url,
+    git: git.plan,
     gateway_base_url: runGatewayEndpoint(factoryBaseURL(env)!),
     started_at_ms: Date.now(),
     config,
@@ -1398,7 +1437,11 @@ async function supervisePass(
           // replacement is the same causal chain as the sandbox it succeeds.
           ...(params.trace_id === undefined ? {} : { trace_id: params.trace_id }),
           ...(options.stop_reason === undefined ? {} : { stop_reason: options.stop_reason }),
-          ...(env.GITHUB_TOKEN === undefined ? {} : { github_token: env.GITHUB_TOKEN }),
+          // The grade's teeth (tick pzf): `operator` hands over the token
+          // that can push, `run` hands over this run's own `tkr_` credential,
+          // which github.com will not accept and this factory's git door will
+          // not forward a push for.
+          github_token: containerGitToken(context.git, env.GITHUB_TOKEN, credential.token),
           ...(context.config.harness === null ? {} : { harness: context.config.harness }),
           ...(context.config.model === null ? {} : { model: context.config.model }),
           sandbox_image: image,
@@ -2287,7 +2330,10 @@ async function runWaveBatch(
             // worker, and giving it their model was never the question.
             harness: workerHarness(context.config.harness, context.config.worker_harness),
             model: workerModel(context.config.model, context.config.worker_model),
-            ...(env.GITHUB_TOKEN === undefined ? {} : { github_token: env.GITHUB_TOKEN }),
+            // Per-tick containers inherit the run's grade, because the grade
+            // is the RUN's (tick pzf): a wave cannot contain a worker with
+            // more access than the run that dispatched it.
+            github_token: containerGitToken(context.git, env.GITHUB_TOKEN, input.token),
             sandbox_image: context.sandbox_image,
             harness_budget_ms: waveBudget.harness_budget_ms,
             // Into the container, so everything it prints and every `tk` it

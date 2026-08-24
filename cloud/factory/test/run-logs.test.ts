@@ -56,6 +56,7 @@ async function recordedRun(runID: string): Promise<void> {
     ended_at: null,
     cost_usd: 0,
     trace_id: null,
+    credential_grade: "write",
   });
 }
 
@@ -137,6 +138,7 @@ describe("GET /api/runs/:id/logs", () => {
       ended_at: null,
       cost_usd: 0,
       trace_id: TRACE_ID,
+      credential_grade: "write",
     });
     await writeHarnessSegment(env.ARTIFACTS, PROJECT, traced, 1, 1, "booting\n");
     await expect((await get(`/api/runs/${traced}/logs`)).json()).resolves.toMatchObject({

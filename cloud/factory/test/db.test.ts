@@ -51,6 +51,7 @@ describe("factory D1 query layer", () => {
       ended_at: null,
       cost_usd: 1.25,
       trace_id: "tr_0123456789abcdef0123456789abcdef",
+      credential_grade: "write",
     };
 
     await insertRun(env.DB, run);
@@ -110,6 +111,7 @@ describe("factory D1 query layer", () => {
       ended_at: null,
       cost_usd: 0,
       trace_id: null,
+      credential_grade: "write",
     };
     await insertRun(env.DB, run);
 
