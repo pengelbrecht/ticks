@@ -6,9 +6,13 @@
   "priority": 1,
   "type": "task",
   "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "5qj",
+    "iu9"
+  ],
   "parent": "72y",
   "acceptance_criteria": "A worker that merges the integration branch after the orchestrator has committed tracker state collects clean; a worker that actually edits .tick/ still fails closed. Both pinned by tests.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-22T10:38:12.899587Z",
-  "updated_at": "2026-08-22T10:38:12.899587Z"
+  "updated_at": "2026-08-25T12:19:44.917368Z"
 }

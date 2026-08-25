@@ -6,9 +6,13 @@
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "5qj",
+    "iu9"
+  ],
   "parent": "72y",
   "acceptance_criteria": "No run sits in a non-terminal state when its Workflow instance is absent or errored; tk cloud status shows a dead supervisor as dead. Existing stuck rows are drained.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-23T06:22:36.124333Z",
-  "updated_at": "2026-08-23T06:22:36.124333Z"
+  "updated_at": "2026-08-25T12:19:45.002579Z"
 }
