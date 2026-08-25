@@ -128,7 +128,7 @@ func runHerdCleanup(cmd *cobra.Command, args []string) error {
 		paths[f.manifest.Tick] = f.path
 	}
 
-	herd, err := herdConnect(ctx, herdCleanupSocket)
+	herd, err := herdConnect(ctx, herdCleanupSocket, cmd.ErrOrStderr())
 	if err != nil {
 		return err
 	}

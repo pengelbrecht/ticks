@@ -38,12 +38,16 @@
 // step. [EventStream.Err] distinguishes the two endings: nil when the caller
 // stopped it, non-nil when it broke.
 //
-// # Protocol pinning
+// # Protocol compatibility
 //
-// [ProtocolVersion] pins the protocol this package was written against. [New]
-// performs a ping handshake and fails closed with a [ProtocolMismatchError] if
-// the server reports anything else — a drifted server is a stop, never a
-// best-effort continue.
+// [ProtocolVersion] is the protocol this package was written against. [New]
+// performs a ping handshake and accepts a supported RANGE rather than an exact
+// pin: anything at or above [MinProtocolVersion] is accepted, anything newer
+// than [ProtocolWarnVersion] warns (through [Options.ProtocolWarning]) because
+// a forward-compatible upgrade should degrade, not stop every run. Only a
+// server BELOW the minimum fails closed with a [ProtocolMismatchError] — its
+// response shapes are older than anything this package has decoded, so a
+// best-effort continue would be a guess.
 //
 // # Socket path
 //

@@ -37,8 +37,8 @@ func TestNewPerformsHandshake(t *testing.T) {
 	}
 }
 
-func TestNewFailsClosedOnProtocolMismatch(t *testing.T) {
-	for _, protocol := range []int{19, 21} {
+func TestNewFailsClosedBelowMinProtocol(t *testing.T) {
+	for _, protocol := range []int{0, 19} {
 		srv := newFakeServer(t, func(t *testing.T, req fakeRequest, w *fakeConnWriter) error {
 			return respond(w, req.ID, pongResultProtocol(protocol))
 		})
@@ -55,7 +55,7 @@ func TestNewFailsClosedOnProtocolMismatch(t *testing.T) {
 		if !errors.As(err, &mismatch) {
 			t.Fatalf("protocol %d: error is %T (%v), want *ProtocolMismatchError", protocol, err, err)
 		}
-		if mismatch.Actual != uint32(protocol) || mismatch.Expected != ProtocolVersion {
+		if mismatch.Actual != uint32(protocol) || mismatch.Min != MinProtocolVersion {
 			t.Errorf("mismatch = %+v", mismatch)
 		}
 		if !strings.Contains(mismatch.Error(), srv.Path()) {
@@ -64,6 +64,33 @@ func TestNewFailsClosedOnProtocolMismatch(t *testing.T) {
 		if !strings.Contains(mismatch.Error(), "refusing to continue") {
 			t.Errorf("error message is not fail-closed: %s", mismatch.Error())
 		}
+	}
+}
+
+// TestNewAcceptsForwardCompatibleProtocol pins the range policy: a server
+// NEWER than the pin is assumed forward-compatible and must succeed (degrading
+// to a warning), while a server BELOW the minimum still hard-stops above.
+func TestNewAcceptsForwardCompatibleProtocol(t *testing.T) {
+	srv := newFakeServer(t, func(t *testing.T, req fakeRequest, w *fakeConnWriter) error {
+		return respond(w, req.ID, pongResultProtocol(21))
+	})
+
+	var warning strings.Builder
+	c, err := New(t.Context(), Options{SocketPath: srv.Path(), ProtocolWarning: &warning})
+	if err != nil {
+		t.Fatalf("protocol 21: New returned %v, want success with a warning", err)
+	}
+	if c == nil {
+		t.Fatal("protocol 21: New returned no client")
+	}
+	if got := c.ServerInfo().Protocol; got != 21 {
+		t.Errorf("ServerInfo().Protocol = %d, want 21", got)
+	}
+	if warning.Len() == 0 {
+		t.Error("protocol 21: no warning emitted, want a forward-compatibility warning")
+	}
+	if !strings.Contains(warning.String(), "newer than protocol 20") {
+		t.Errorf("warning = %q, want it to name the newer protocol", warning.String())
 	}
 }
 
