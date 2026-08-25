@@ -53,6 +53,11 @@
 // that makes any of this repeatable, so a failed workspace removal must leave
 // it on disk: a half-cleaned tick has to stay visible to the next reconcile.
 //
+// A workspace herdr no longer has is NOT such a failure — it is the state the
+// step exists to reach, and it finishes the plan with a note, exactly as an
+// already-deleted branch does. Read as an error it stranded the manifest
+// forever, and every later cleanup refused the same tick again.
+//
 // # Out of scope, on purpose
 //
 // The run's own checkout workspace — opened when a worktree is created against

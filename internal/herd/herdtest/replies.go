@@ -219,6 +219,7 @@ func (s *Server) handleWorktreeRemove(_ *testing.T, req Request, w *ConnWriter) 
 
 	s.mu.Lock()
 	removeErr := s.removeErr
+	removeErrCode := s.removeErrCode
 	if removeErr == "" {
 		s.removed = append(s.removed, p.WorkspaceID)
 		// herdr moves focus to a neighbour when a workspace goes away.
@@ -229,7 +230,10 @@ func (s *Server) handleWorktreeRemove(_ *testing.T, req Request, w *ConnWriter) 
 	s.mu.Unlock()
 
 	if removeErr != "" {
-		return RespondErr(w, req.ID, CodeWorkspaceNotFound, removeErr)
+		if removeErrCode == "" {
+			removeErrCode = CodeInvalidRequest
+		}
+		return RespondErr(w, req.ID, removeErrCode, removeErr)
 	}
 	return RespondJSON(w, req.ID, map[string]any{
 		"type": "worktree_removed", "workspace_id": p.WorkspaceID,
