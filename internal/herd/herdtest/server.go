@@ -199,6 +199,7 @@ type Server struct {
 	focused               string
 	focusSteal            string
 	removeErr             string
+	removeErrCode         string
 	removed               []string
 	focusCalls            []string
 	paneTexts             []string
@@ -431,6 +432,19 @@ func (s *Server) SetRemoveError(msg string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.removeErr = msg
+	s.removeErrCode = CodeInvalidRequest
+}
+
+// SetRemoveErrorCode makes every worktree.remove fail with the given code and
+// message. Prefer it over [Server.SetRemoveError] whenever the CODE is what
+// the test is about: cleanup reads workspace_not_found as "already gone" and
+// every other code as a real failure, so a double that answers one code for
+// every refusal cannot tell those two apart.
+func (s *Server) SetRemoveErrorCode(code, msg string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.removeErr = msg
+	s.removeErrCode = code
 }
 
 // Removed lists the workspace ids worktree.remove accepted, in order.

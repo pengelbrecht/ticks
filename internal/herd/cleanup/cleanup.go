@@ -356,6 +356,18 @@ func apply(ctx context.Context, h Herd, p *Plan) {
 			// is dirty.
 			consumeOwnResultFile(p)
 			_, err = h.WorktreeRemove(ctx, client.WorktreeRemoveParams{WorkspaceID: s.Target})
+			// A workspace that herdr no longer has is the state this step
+			// exists to reach, not a failure to reach it. Treated as an error
+			// it strands the manifest — which is removed LAST — so the tick
+			// can never be cleaned and every later run refuses it again. This
+			// is the same reading the planner already gives a branch that is
+			// already gone; it cannot give it at plan time because the plan
+			// does not list workspaces, so the verdict lands here instead.
+			if err != nil && client.IsCode(err, client.CodeWorkspaceNotFound) {
+				p.Notes = append(p.Notes,
+					"workspace "+s.Target+" is already gone")
+				err = nil
+			}
 		case DeleteBranch:
 			// -d, never -D: git itself is the last guard.
 			_, err = gitcmd.Run(p.repoRoot, "branch", "-d", s.Target)

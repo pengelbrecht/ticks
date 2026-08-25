@@ -181,7 +181,9 @@ func TestApplyRemovesManifestLast(t *testing.T) {
 	workerBranch(t, repo, "tick/nhk", base, true)
 	m, path := manifestOnDisk(t, repo, newManifest("nhk", "tick/nhk"))
 	srv := newFakeHerd(t)
-	srv.SetRemoveError("no such workspace")
+	// A REAL failure, not workspace_not_found: an absent workspace is the end
+	// state this step wants, so it no longer strands the manifest.
+	srv.SetRemoveError("worktree has uncommitted changes")
 
 	plans, err := Run(t.Context(), srv.Client(t), opts(repo, m, path, true))
 	if err != nil {
@@ -199,6 +201,46 @@ func TestApplyRemovesManifestLast(t *testing.T) {
 	}
 	if !branchExists(repo, "tick/nhk") {
 		t.Error("apply continued past a failed step and deleted the branch")
+	}
+}
+
+// TestApplyTreatsMissingWorkspaceAsDone pins that a workspace herdr no longer
+// has finishes the teardown instead of stranding it. The manifest is removed
+// LAST, so reading "already gone" as a failure left it on disk forever and
+// every later cleanup refused the same tick again — the exact state seven
+// canonify manifests were found in.
+func TestApplyTreatsMissingWorkspaceAsDone(t *testing.T) {
+	repo, base := newRepo(t)
+	workerBranch(t, repo, "tick/nhk", base, true)
+	m, path := manifestOnDisk(t, repo, newManifest("nhk", "tick/nhk"))
+	srv := newFakeHerd(t)
+	srv.SetRemoveErrorCode("workspace_not_found", "workspace w7 not found")
+
+	plans, err := Run(t.Context(), srv.Client(t), opts(repo, m, path, true))
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	p := plans[0]
+	if !p.Applied || !p.OK() {
+		t.Errorf("plan = %+v, want a completed apply", p)
+	}
+	if p.Steps[0].Error != "" {
+		t.Errorf("the already-gone workspace still carries an error: %s", p.Steps[0].Error)
+	}
+	var noted bool
+	for _, n := range p.Notes {
+		if strings.Contains(n, "already gone") {
+			noted = true
+		}
+	}
+	if !noted {
+		t.Errorf("notes = %v, want one saying the workspace was already gone", p.Notes)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Errorf("the manifest survived a completed teardown: %v", err)
+	}
+	if branchExists(repo, "tick/nhk") {
+		t.Error("the branch survived a completed teardown")
 	}
 }
 
