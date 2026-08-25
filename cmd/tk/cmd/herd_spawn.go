@@ -248,7 +248,7 @@ func runHerdSpawn(cmd *cobra.Command, args []string) error {
 	agentName := spawn.AgentName(t.ID)
 
 	// 5. herdr.
-	herd, err := herdConnect(ctx, herdSpawnSocket)
+	herd, err := herdConnect(ctx, herdSpawnSocket, errOut)
 	if err != nil {
 		return err
 	}

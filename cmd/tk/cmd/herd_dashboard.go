@@ -85,7 +85,7 @@ func runHerdDashboard(cmd *cobra.Command, args []string) error {
 	// A dashboard without herdr is still worth showing (manifests and ticks
 	// render; statuses read "unknown"), but a herdr that IS reachable is the
 	// whole point, so a dial failure is reported rather than swallowed.
-	herd, err := herdConnect(ctx, herdDashboardSocket)
+	herd, err := herdConnect(ctx, herdDashboardSocket, cmd.ErrOrStderr())
 	if err != nil {
 		return err
 	}

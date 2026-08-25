@@ -72,9 +72,10 @@ func Regex(value string) OutputMatch {
 
 // ServerInfo is the ping handshake result: what herdr is on the other end.
 type ServerInfo struct {
-	// Version is the herdr binary version, e.g. "0.8.0".
+	// Version is the herdr binary version, e.g. "0.8.2".
 	Version string `json:"version"`
-	// Protocol is the API protocol version, compared against [ProtocolVersion].
+	// Protocol is the API protocol version, checked against the supported
+	// range ([MinProtocolVersion]..[ProtocolWarnVersion]) by [New].
 	Protocol uint32 `json:"protocol"`
 	// Capabilities are optional server feature flags.
 	Capabilities *ServerCapabilities `json:"capabilities,omitempty"`

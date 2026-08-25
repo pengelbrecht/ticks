@@ -103,7 +103,7 @@ func runHerdReconcile(cmd *cobra.Command, args []string) error {
 		return ExitError{Code: ExitGeneric, Message: err.Error()}
 	}
 
-	herd, err := herdConnect(ctx, herdReconcileSocket)
+	herd, err := herdConnect(ctx, herdReconcileSocket, cmd.ErrOrStderr())
 	if err != nil {
 		return err
 	}

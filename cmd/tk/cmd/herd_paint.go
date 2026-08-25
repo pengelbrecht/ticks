@@ -124,7 +124,7 @@ func runHerdPaint(cmd *cobra.Command, args []string) error {
 		manifests = append(manifests, f.manifest)
 	}
 
-	herd, err := herdConnect(ctx, herdPaintSocket)
+	herd, err := herdConnect(ctx, herdPaintSocket, cmd.ErrOrStderr())
 	if err != nil {
 		return err
 	}

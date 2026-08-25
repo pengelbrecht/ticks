@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -35,6 +36,12 @@ type Options struct {
 	// deadline never lengthens the client's own bound. Zero means
 	// [DefaultCallTimeout]; negative means no client-imposed timeout.
 	CallTimeout time.Duration
+	// ProtocolWarning, when non-nil, receives a warning line for a server
+	// newer than [ProtocolWarnVersion]. [New] still succeeds in that case: a
+	// forward-compatible upgrade degrades to a warning, never a refusal. If
+	// nil the warning is discarded. The client treats the writer as
+	// append-only and never closes it.
+	ProtocolWarning io.Writer
 	// EventBuffer sizes the channel of an [EventStream]. Zero means
 	// [DefaultEventBuffer]; negative means unbuffered. The buffer absorbs
 	// bursts; past it the stream applies backpressure to the socket and
@@ -53,9 +60,16 @@ type Client struct {
 	seq         atomic.Uint64
 }
 
-// New resolves the socket path, performs the ping handshake and pins the
-// protocol version. It returns a [ProtocolMismatchError] — and no usable
-// client — when the server speaks a protocol other than [ProtocolVersion].
+// New resolves the socket path, performs the ping handshake and checks the
+// server's protocol against the supported range
+// ([MinProtocolVersion]..[ProtocolWarnVersion]).
+//
+// A server below [MinProtocolVersion] is a hard stop: [New] returns a
+// [ProtocolMismatchError] and no client, because its response shapes are older
+// than anything this package has decoded. A server at or above the minimum is
+// accepted — a server newer than [ProtocolWarnVersion] is assumed
+// forward-compatible and continues, emitting a warning through
+// [Options.ProtocolWarning] when that writer is set.
 func New(ctx context.Context, opts Options) (*Client, error) {
 	transport := opts.Transport
 	socketPath := opts.SocketPath
@@ -94,13 +108,19 @@ func New(ctx context.Context, opts Options) (*Client, error) {
 	if err != nil {
 		return nil, err
 	}
-	if info.Protocol != ProtocolVersion {
+	if info.Protocol < MinProtocolVersion {
 		return nil, &ProtocolMismatchError{
 			Endpoint:      transport.Endpoint(),
-			Expected:      ProtocolVersion,
+			Min:           MinProtocolVersion,
 			Actual:        info.Protocol,
 			ServerVersion: info.Version,
 		}
+	}
+	if info.Protocol > ProtocolWarnVersion && opts.ProtocolWarning != nil {
+		fmt.Fprintf(opts.ProtocolWarning,
+			"warning: herdr at %s reports protocol %d (herdr %s), newer than protocol %d this client was verified against — continuing, but update tk when convenient\n",
+			transport.Endpoint(), info.Protocol, info.Version, ProtocolVersion,
+		)
 	}
 	c.server = info
 	return c, nil

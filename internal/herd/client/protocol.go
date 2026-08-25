@@ -7,14 +7,35 @@ import (
 )
 
 // ProtocolVersion is the herdr API protocol this package is written against
-// (herdr 0.8.2). [New] fails closed when the server reports anything else.
+// (herdr 0.8.2). [New] accepts it and anything newer; see [MinProtocolVersion]
+// for the hard floor and [ProtocolWarnVersion] for the warning threshold.
 //
-// Bumped 19 -> 20 for herdr 0.8.2. The pin is deliberately exact rather than a
-// floor: this client reads response shapes field by field, so "newer than
-// tested" is not a safe default. Re-verified live against 0.8.2 — the full
-// helper call set (worktree.create, agent.start/prompt/list, pane.read,
-// events.subscribe, session.snapshot) answers unchanged on 20.
+// Bumped 19 -> 20 for herdr 0.8.2. The testdata/ fixtures are still the
+// 0.8.0-era captures (their provenance headers say so); whether the 19 -> 20
+// bump changed any response shape, and re-capturing against a live 0.8.2
+// server, were not possible in this environment — open work (RESULT-3nh.md).
 const ProtocolVersion uint32 = 20
+
+// MinProtocolVersion is the lowest protocol [New] will talk to. A server below
+// it is a hard stop: its response shapes are older than anything this client
+// has ever decoded, so continuing is a guess. This is the documented minimum
+// of the supported range, not the current pin — it changes only when support
+// for an old protocol is dropped.
+//
+// Today it equals [ProtocolVersion]: the pinned protocol is also the floor of
+// the supported range.
+const MinProtocolVersion uint32 = 20
+
+// ProtocolWarnVersion is the highest protocol [New] accepts without a warning.
+// A server newer than this is assumed forward-compatible — it can only have
+// added shapes this client does not ask for — and [New] proceeds, routing the
+// warning to [Options.ProtocolWarning] when the caller supplied one. There is
+// no hard upper bound: an incompatible protocol is expected to arrive as a
+// bumped minimum, not a break announced under the same version.
+//
+// Today it equals [ProtocolVersion] and [MinProtocolVersion]: only the pinned
+// protocol is silent, anything newer warns.
+const ProtocolWarnVersion uint32 = 20
 
 // Method names, exactly as herdr spells them.
 const (
@@ -165,14 +186,16 @@ func IsCode(err error, code string) bool {
 	return ok && apiErr.Code == code
 }
 
-// ProtocolMismatchError is returned by [New] when the server's protocol
-// version differs from [ProtocolVersion]. The client fails closed: no call is
-// attempted against a server whose wire format it does not know.
+// ProtocolMismatchError is returned by [New] when the server's protocol is
+// below [MinProtocolVersion]. The client fails closed: no call is attempted
+// against a server whose wire format it cannot know. The supported range is
+// [MinProtocolVersion]..[ProtocolWarnVersion]; the error text names the
+// minimum, which is what the server failed to meet.
 type ProtocolMismatchError struct {
 	// Endpoint is the socket path that was dialled.
 	Endpoint string
-	// Expected is [ProtocolVersion].
-	Expected uint32
+	// Min is [MinProtocolVersion], the bottom of the supported range.
+	Min uint32
 	// Actual is the protocol the server reported.
 	Actual uint32
 	// ServerVersion is the herdr version string the server reported.
@@ -182,8 +205,8 @@ type ProtocolMismatchError struct {
 // Error implements error.
 func (e *ProtocolMismatchError) Error() string {
 	return fmt.Sprintf(
-		"herd/client: herdr protocol mismatch at %s: server reports protocol %d (herdr %s), this client is pinned to protocol %d — refusing to continue",
-		e.Endpoint, e.Actual, e.ServerVersion, e.Expected,
+		"herd/client: herdr protocol mismatch at %s: server reports protocol %d (herdr %s), this client requires at least protocol %d — refusing to continue",
+		e.Endpoint, e.Actual, e.ServerVersion, e.Min,
 	)
 }
 

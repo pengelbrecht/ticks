@@ -11,5 +11,8 @@
 # arrived immediately — the property Client.EventsSubscribe documents.
 # The read.text body (unrelated pane content) was replaced by its matched line;
 # every key set and every other value is verbatim.
+# NOT yet re-captured against herdr 0.8.2 (protocol 20): the bytes above are
+# the 0.8.0-era capture. Whether the 19 -> 20 bump changed any shape this
+# package decodes is unverified here; re-capture is open work (RESULT-3nh.md).
 {"data":{"agent":"claude","agent_status":"idle","pane_id":"w3S:p1","workspace_id":"w3S"},"event":"pane.agent_status_changed"}
 {"data":{"matched_line":"  Two facts about PUT to know before we build on it:","pane_id":"w3S:p1","read":{"format":"text","pane_id":"w3S:p1","revision":0,"source":"recent_unwrapped","tab_id":"w3S:t1","text":"  Two facts about PUT to know before we build on it:\n","truncated":true,"workspace_id":"w3S"}},"event":"pane.output_matched"}

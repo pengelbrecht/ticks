@@ -5,9 +5,11 @@ import (
 	"testing"
 )
 
-// defaultProtocol is the herdr API protocol the captured fixtures were taken
-// from (herdr 0.8.2). It matches client.ProtocolVersion; a mismatch is what
-// the client's fail-closed handshake test drives deliberately.
+// defaultProtocol is the protocol the fake advertises in its ping reply. It
+// matches client.ProtocolVersion (20, the herdr 0.8.2 pin); a below-minimum
+// value is what the client's fail-closed handshake tests drive deliberately.
+// The 0.8.2 pin is forward-looking: the captured fixtures are still 0.8.0-era
+// (see their provenance headers), pending a live 0.8.2 re-capture.
 const defaultProtocol = 20
 
 // Respond writes a success envelope wrapping the given result JSON.
@@ -36,7 +38,9 @@ func RespondErr(w *ConnWriter, id, code, message string) error {
 	return w.WriteLine(string(body))
 }
 
-// PongResult is the captured protocol-20 ping reply, capabilities included.
+// PongResult is the ping reply the fake serves by default: protocol 20,
+// binary "0.8.2" with the capabilities herdr reports. It is derived from the
+// 0.8.2 bump, not a live capture — re-capture pending (see RESULT-3nh.md).
 const PongResult = `{"type":"pong","version":"0.8.2","protocol":20,"capabilities":{"live_handoff":true,"detached_server_daemon":true}}`
 
 // PongResultProtocol builds a ping reply advertising an arbitrary protocol —

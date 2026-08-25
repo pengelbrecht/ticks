@@ -3,5 +3,8 @@
 # Session-wide subscriptions deliver the underscored `event` schema envelope,
 # whose data carries its own "type" discriminator. Paths anonymised; shapes
 # and key sets are verbatim. Lines beginning with # are fixture comments.
+# NOT yet re-captured against herdr 0.8.2 (protocol 20): the bytes above are
+# the 0.8.0-era capture. Whether the 19 -> 20 bump changed any shape this
+# package decodes is unverified here; re-capture is open work (RESULT-3nh.md).
 {"data":{"pane":{"agent_status":"unknown","cwd":"/repo","focused":true,"foreground_cwd":"/repo","pane_id":"w4A:p1","revision":2,"scroll":{"max_offset_from_bottom":0,"offset_from_bottom":0,"viewport_rows":53},"tab_id":"w4A:t1","terminal_id":"term_658bf9b6279db6","terminal_title":"repo","terminal_title_stripped":"repo","workspace_id":"w4A"},"type":"pane_updated"},"event":"pane_updated"}
 {"data":{"layout":{"area":{"height":53,"width":152,"x":35,"y":1},"focused_pane_id":"w4A:p1","panes":[{"focused":true,"pane_id":"w4A:p1","rect":{"height":53,"width":152,"x":35,"y":1}}],"splits":[],"tab_id":"w4A:t1","workspace_id":"w4A","zoomed":false},"type":"layout_updated"},"event":"layout_updated"}
