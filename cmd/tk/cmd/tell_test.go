@@ -11,6 +11,10 @@ import (
 
 func TestTellConfiguredEscapesPlainTextOnce(t *testing.T) {
 	channelTestHome(t)
+	// In a checkout, an announcement names the project it is about (tick spq):
+	// one bot serves every checkout on the machine. setupTestRepo's origin
+	// makes that name deterministic.
+	channelTestRepo(t)
 	bot := fakebot.New()
 	defer bot.Close()
 
@@ -29,11 +33,99 @@ func TestTellConfiguredEscapesPlainTextOnce(t *testing.T) {
 	if len(sent) != 1 {
 		t.Fatalf("sent %d messages, want 1 (calls: %v)", len(sent), bot.Calls())
 	}
-	if sent[0].Text != "5 &lt; 7 &amp; 8 &gt; 3" {
-		t.Errorf("sent text = %q, want exactly-once HTML escaping", sent[0].Text)
+	if want := "<b>test/repo</b>\n5 &lt; 7 &amp; 8 &gt; 3"; sent[0].Text != want {
+		t.Errorf("sent text = %q, want %q (project label + exactly-once HTML escaping)", sent[0].Text, want)
 	}
 	if sent[0].ParseMode != "HTML" {
 		t.Errorf("parse mode = %q, want HTML", sent[0].ParseMode)
+	}
+}
+
+// TestTellAboutNamesEpicAndTick is the completion half of the legibility
+// requirement: a report in a chat several projects report into has to say what
+// completed, not only that something did.
+func TestTellAboutNamesEpicAndTick(t *testing.T) {
+	channelTestHome(t)
+	_, store := setupTestRepoWithConfig(t)
+	epic := makeTestEpic("ep1")
+	if err := store.Write(epic); err != nil {
+		t.Fatalf("write epic: %v", err)
+	}
+	child := runCreateJSON(t, "a child tick", "--parent", "ep1")
+
+	bot := fakebot.New()
+	defer bot.Close()
+	writeChannelConfig(t, operator.ChannelConfig{
+		Token:   bot.Token,
+		ChatID:  "919191",
+		APIBase: bot.URL(),
+	})
+	out := captureChannelIO(t, "")
+
+	if err := ExecuteArgs([]string{"tell", "--about", child.ID, "worker landed"}); err != nil {
+		t.Fatalf("tell --about: %v\n%s", err, out.String())
+	}
+	sent := bot.Sent()
+	if len(sent) != 1 {
+		t.Fatalf("sent %d messages, want 1 (calls: %v)", len(sent), bot.Calls())
+	}
+	for _, want := range []string{"test/repo", "epic ep1", "tick " + child.ID, "worker landed"} {
+		if !strings.Contains(sent[0].Text, want) {
+			t.Errorf("announcement %q does not name %q", sent[0].Text, want)
+		}
+	}
+}
+
+// An epic names itself as the epic and carries no tick: "epic X · tick X"
+// reads as two facts where there is one.
+func TestTellAboutAnEpicNamesItOnce(t *testing.T) {
+	channelTestHome(t)
+	_, store := setupTestRepoWithConfig(t)
+	if err := store.Write(makeTestEpic("ep1")); err != nil {
+		t.Fatalf("write epic: %v", err)
+	}
+
+	bot := fakebot.New()
+	defer bot.Close()
+	writeChannelConfig(t, operator.ChannelConfig{
+		Token:   bot.Token,
+		ChatID:  "919191",
+		APIBase: bot.URL(),
+	})
+	out := captureChannelIO(t, "")
+
+	if err := ExecuteArgs([]string{"tell", "--about", "ep1", "epic done"}); err != nil {
+		t.Fatalf("tell --about epic: %v\n%s", err, out.String())
+	}
+	text := bot.Sent()[0].Text
+	if !strings.Contains(text, "epic ep1") {
+		t.Errorf("announcement %q does not name the epic", text)
+	}
+	if strings.Contains(text, "tick ep1") {
+		t.Errorf("announcement %q names the epic twice", text)
+	}
+}
+
+// A tick id that no longer resolves costs the message its epic, never the
+// announcement: tk tell is the one command a prompt calls unconditionally.
+func TestTellAboutAnUnknownTickStillSends(t *testing.T) {
+	channelTestHome(t)
+	setupTestRepoWithConfig(t)
+	bot := fakebot.New()
+	defer bot.Close()
+	writeChannelConfig(t, operator.ChannelConfig{
+		Token:   bot.Token,
+		ChatID:  "919191",
+		APIBase: bot.URL(),
+	})
+	out := captureChannelIO(t, "")
+
+	if err := ExecuteArgs([]string{"tell", "--about", "nope", "still sent"}); err != nil {
+		t.Fatalf("tell --about an unknown tick: %v\n%s", err, out.String())
+	}
+	text := bot.Sent()[0].Text
+	if !strings.Contains(text, "still sent") || !strings.Contains(text, "tick nope") {
+		t.Errorf("announcement %q lost its text or its tick", text)
 	}
 }
 
@@ -90,6 +182,7 @@ func TestTellDeliveryFailureIsNonzeroAndNamesChannel(t *testing.T) {
 
 func TestTellReadsStdinWhenTextIsOmitted(t *testing.T) {
 	channelTestHome(t)
+	channelTestRepo(t)
 	bot := fakebot.New()
 	defer bot.Close()
 	writeChannelConfig(t, operator.ChannelConfig{
@@ -107,8 +200,8 @@ func TestTellReadsStdinWhenTextIsOmitted(t *testing.T) {
 	if len(sent) != 1 {
 		t.Fatalf("sent %d messages, want 1 (calls: %v)", len(sent), bot.Calls())
 	}
-	if sent[0].Text != "report &lt;&amp;&gt;" {
-		t.Errorf("stdin text = %q, want newline-stripped plain text escaped once", sent[0].Text)
+	if want := "<b>test/repo</b>\nreport &lt;&amp;&gt;"; sent[0].Text != want {
+		t.Errorf("stdin text = %q, want %q", sent[0].Text, want)
 	}
 }
 

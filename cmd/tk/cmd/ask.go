@@ -413,6 +413,7 @@ func askFlow(ctx context.Context, opts askOptions) (askResult, error) {
 	if channel == nil {
 		return registered, askParkedError(pending)
 	}
+	labelChannel(channel, tickMessageContext(engine.Ticks(), pending.TickID))
 
 	return askSettleFlow(ctx, engine, channel, channelConfig, pending, opts)
 }
@@ -433,6 +434,7 @@ func askFlow(ctx context.Context, opts askOptions) (askResult, error) {
 // ask would leave them, and the run exits 4.
 func askPhotoFlow(ctx context.Context, engine *operator.Engine, registration operator.Registration, opts askOptions) (askResult, error) {
 	channel, channelConfig, err := askChannel()
+	labelChannel(channel, tickMessageContext(engine.Ticks(), registration.TickID))
 	if err != nil || channel == nil {
 		pending, regErr := engine.Register(registration)
 		if regErr != nil {
@@ -800,6 +802,10 @@ func askCollectFlow(ctx context.Context, opts askCollectOptions) error {
 	if err != nil {
 		return err
 	}
+	// A collect drains every settled question in the repository, so there is no
+	// one tick to name — but the project still is one, and with a bot shared by
+	// every checkout it is the half that matters.
+	labelChannel(channel, operator.MessageContext{Project: messageProject()})
 
 	runCtx, cancel := context.WithTimeout(ctx, opts.Timeout)
 	defer cancel()

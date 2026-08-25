@@ -1,0 +1,17 @@
+{
+  "id": "t2x",
+  "title": "GitHub consent-label check is a captured snapshot, so a reordered delivery can ingest after withdrawal",
+  "description": "LOW from the Phase 3 final review (tick csr), confirmed, and deliberately NOT bundled with the other four because the fix is a design choice rather than a correction.\n\ncloud/factory/src/github-issues.ts:263-365. Consent is judged from each delivery's own captured label snapshot, never a live re-check. GitHub webhooks are not ordered and are retried after outages, so if a maintainer applies then quickly removes the tk label and the 'labeled' delivery arrives after the 'unlabeled' one was processed, the late payload still shows the label present at capture time and ingests.\n\nBounded by design: this can only ever produce a DRAFT. Nothing is filed and no run starts until a human presses Create or Dispatch, so it does not violate 'nothing runs without a human'. It does violate 'removing the label stops all future ingestion' read literally.\n\nThe fix is a fresh read of the issue's current labels at ingestion time, which trades a GitHub API call per delivery for correctness under reordering — worth deciding deliberately rather than doing reflexively. The same fresh-read question applies to the generic webhook-sources path when a source declaration changes mid-flight, and is untested there too.\n\nBoth paths currently test only same-order sequential deliveries.",
+  "notes": "2026-08-23 19:22 - runner-state: substrate=herdr kind=claude branch=tick/t2x worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-t2x workspace=wFK base=9d9b4098654589d98e791c7e743a3727a4e5769d agent=tick-t2x pane=wFK:p1 session=8f31ff62-81ec-4c99-b5f0-55eacfc8a9a4\n2026-08-23 19:48 - runner-state: runner=herdr branch=tick/t2x merged gate=green (factory vitest 933)",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "hdt",
+  "acceptance_criteria": "Either a delivery is judged against a fresh read of current consent, or the snapshot behaviour is documented as deliberate with the human gate named as what bounds it — and reordered-delivery tests exist for the GitHub path and the config-changed-mid-flight case for generic sources.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-23T16:46:27.063454Z",
+  "updated_at": "2026-08-23T17:48:07.83612Z",
+  "closed_at": "2026-08-23T17:48:07.83612Z",
+  "closed_reason": "Completed: consent is re-read live from GitHub at ingestion; the delivery's own label snapshot is now only a filter that decides order. The generic webhook-sources path already fresh-read and is now tested for a declaration changing mid-flight. The residual read-to-write window is documented as narrowed, not closed, with the human gate named as what bounds it — an honest narrowing rather than a claim to have shut it."
+}

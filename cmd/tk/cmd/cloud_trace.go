@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -58,6 +59,10 @@ A truncated run id — "run_62c289d1" — is resolved against the runs the
 factory knows about and the resolution is reported, or it is refused for
 being a prefix. It is never answered with "no calls are stamped with that
 run", which is true of every prefix and false of the run it names.
+
+The run's trace id is reported when its calls carry one: the gateway stamps
+it on every proxied request out of the run's own row, so a model call is
+joinable to the message that caused the run (D20).
 
 Use 'tk cloud logs' for the other half — what the container printed.`,
 	Args:         cobra.ExactArgs(1),
@@ -208,6 +213,7 @@ func cloudTraceConversation(
 func cloudTraceSummary(out io.Writer, runID string, calls []gatewaytrace.Call) {
 	totals := gatewaytrace.Sum(calls)
 	fmt.Fprintf(out, "Cloud run %s — %s\n", runID, plural(totals.Calls, "model call", "model calls"))
+	cloudTraceIDLine(out, calls)
 	fmt.Fprintf(out, "  tokens: %s in / %s out / %s cached (%s of input)\n",
 		humanInt(totals.TokensIn), humanInt(totals.TokensOut), humanInt(totals.CachedTokens),
 		rateText(totals.CacheRate()))
@@ -319,6 +325,9 @@ func cloudTraceOneCall(cmd *cobra.Command, client *gatewaytrace.Client, runID st
 	if call.TickID != "" {
 		fmt.Fprintf(out, "  tick: %s\n", call.TickID)
 	}
+	if call.TraceID != "" {
+		fmt.Fprintf(out, "  trace: %s\n", call.TraceID)
+	}
 	fmt.Fprintf(out, "  tokens: %s in / %s out / %s cached (%s)\n",
 		humanInt(call.TokensIn), humanInt(call.TokensOut), humanInt(call.CachedTokens),
 		rateText(call.CacheRate()))
@@ -355,6 +364,38 @@ func cloudTraceOneCall(cmd *cobra.Command, client *gatewaytrace.Client, runID st
 	fmt.Fprintln(out, "Response body (streamed: choices carry no content — the model's turn is in the NEXT call's request)")
 	fmt.Fprintln(out, indent(prettyJSON(response), "  "))
 	return nil
+}
+
+// cloudTraceIDLine states the chain this run's model traffic belongs to.
+//
+// Read off the CALLS rather than asked of the factory, because this command
+// deliberately talks to the operator's own AI Gateway and to nothing else —
+// the whole reason it can answer for a run whose control plane is unreachable.
+// The gateway stamps the trace id on every proxied request out of the run row
+// (cloud/factory/src/gateway.ts), so the calls carry it.
+//
+// Disagreement is REPORTED, never averaged away: two trace ids on one run id
+// means something stamped the wrong chain, and quietly showing the first would
+// hide the one bug this identifier exists to make impossible.
+func cloudTraceIDLine(out io.Writer, calls []gatewaytrace.Call) {
+	seen := make([]string, 0, 2)
+	for _, call := range calls {
+		if call.TraceID == "" || slices.Contains(seen, call.TraceID) {
+			continue
+		}
+		seen = append(seen, call.TraceID)
+	}
+	switch len(seen) {
+	case 0:
+		// Nothing rather than "trace: none": every run before tick hyi has no
+		// chain, and a line that always prints is a line that never answers.
+	case 1:
+		fmt.Fprintf(out, "  trace: %s\n", seen[0])
+	default:
+		sort.Strings(seen)
+		fmt.Fprintf(out, "  trace: %s — MORE THAN ONE CHAIN is stamped on this run's calls; "+
+			"one run is one chain, so this is a bug in what stamped them\n", strings.Join(seen, ", "))
+	}
 }
 
 func cloudTraceJSONRows(out io.Writer, runID string, calls []gatewaytrace.Call) error {

@@ -342,3 +342,45 @@ func TestFilterVocabularyMatchesTheWorkersOwn(t *testing.T) {
 		t.Errorf("MaxPages %d no longer matches MAX_LOG_PAGES in cloud/factory/src/gateway.ts", MaxPages)
 	}
 }
+
+// The trace id rides on the same metadata the run id does (D20, tick hyi), so
+// `tk cloud trace` can say which chain a run's model traffic belongs to
+// without asking the control plane anything — which is the whole reason this
+// command can still answer for a run whose factory is unreachable.
+func TestCallsReadTheTraceIDFromMetadata(t *testing.T) {
+	client, _ := fakeGateway(t, func(gatewayRequest) (int, any) {
+		row := logRowJSON("a", "2026-08-20T10:00:00Z", 1000, 0, 10, 0.01)
+		row["metadata"] = map[string]string{
+			"run_id":   "run_1",
+			"tick_id":  "abc",
+			"trace_id": "tr_0123456789abcdef0123456789abcdef",
+		}
+		return http.StatusOK, map[string]any{"success": true, "result": []any{row}}
+	})
+	calls, err := client.Calls(context.Background(), "run_1")
+	if err != nil {
+		t.Fatalf("Calls: %v", err)
+	}
+	if calls[0].TraceID != "tr_0123456789abcdef0123456789abcdef" {
+		t.Fatalf("trace id = %q, want the stamped one", calls[0].TraceID)
+	}
+}
+
+// A run made before trace ids existed reports an EMPTY chain, not a
+// placeholder: "this run had no chain" and "this call belongs to chain X" have
+// to stay different answers, or every pre-hyi run reads as one shared chain.
+func TestCallsLeaveTheTraceIDEmptyWhenNothingStampedOne(t *testing.T) {
+	client, _ := fakeGateway(t, func(gatewayRequest) (int, any) {
+		return http.StatusOK, map[string]any{
+			"success": true,
+			"result":  []any{logRowJSON("a", "2026-08-20T10:00:00Z", 1000, 0, 10, 0.01)},
+		}
+	})
+	calls, err := client.Calls(context.Background(), "run_1")
+	if err != nil {
+		t.Fatalf("Calls: %v", err)
+	}
+	if calls[0].TraceID != "" {
+		t.Fatalf("trace id = %q, want empty for an untraced run", calls[0].TraceID)
+	}
+}

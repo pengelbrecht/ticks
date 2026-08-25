@@ -16,9 +16,16 @@ import (
 // ---------------------------------------------------------------------------
 
 // tellTestBot is a configured telegram channel pointed at a fake Bot API.
+// tellLabel is the project header every announcement from a checkout carries
+// (tick spq): one bot serves many projects, so a message that does not name
+// its own is unreadable in a shared chat. setupTestRepo's origin makes it
+// deterministic here.
+const tellLabel = "<b>test/repo</b>\n"
+
 func tellTestBot(t *testing.T) *fakebot.Bot {
 	t.Helper()
 	channelTestHome(t)
+	channelTestRepo(t)
 	bot := fakebot.New()
 	t.Cleanup(bot.Close)
 	writeChannelConfig(t, operator.ChannelConfig{
@@ -82,7 +89,7 @@ func TestTellFormatSendsRenderedMarkup(t *testing.T) {
 	if len(sent) != 1 {
 		t.Fatalf("sent %d messages, want 1 (calls: %v)", len(sent), bot.Calls())
 	}
-	want := "<b>Deploy done</b> — see <code>tk list</code>"
+	want := tellLabel + "<b>Deploy done</b> — see <code>tk list</code>"
 	if sent[0].Text != want {
 		t.Errorf("sent text = %q, want %q", sent[0].Text, want)
 	}
@@ -101,7 +108,7 @@ func TestTellFormatReadsStdin(t *testing.T) {
 		t.Fatalf("tell --format from stdin: %v\n%s", err, out.String())
 	}
 	sent := bot.Sent()
-	if len(sent) != 1 || sent[0].Text != "<b>done</b>" {
+	if len(sent) != 1 || sent[0].Text != tellLabel+"<b>done</b>" {
 		t.Fatalf("sent = %+v, want one rendered message", sent)
 	}
 }
@@ -121,7 +128,7 @@ func TestTellPlainPathIsByteIdenticalWithMarkupInIt(t *testing.T) {
 	if len(sent) != 1 {
 		t.Fatalf("sent %d messages, want 1", len(sent))
 	}
-	want := "**not bold** 5 &lt; 7 &amp; `not code`"
+	want := tellLabel + "**not bold** 5 &lt; 7 &amp; `not code`"
 	if sent[0].Text != want {
 		t.Errorf("plain tell text = %q, want %q", sent[0].Text, want)
 	}
@@ -221,8 +228,8 @@ func TestTellFileRoutesByKind(t *testing.T) {
 			if string(files[0].Content) != "file body" {
 				t.Errorf("uploaded content = %q, want the file's bytes", files[0].Content)
 			}
-			if files[0].Caption != "the nightly board" {
-				t.Errorf("caption = %q, want the --caption text", files[0].Caption)
+			if files[0].Caption != tellLabel+"the nightly board" {
+				t.Errorf("caption = %q, want the labelled --caption text", files[0].Caption)
 			}
 			if sent := bot.Sent(); len(sent) != 0 {
 				t.Errorf("tell --file also sent a text message: %+v", sent)
@@ -373,7 +380,7 @@ func TestTellRichFlagsResetBetweenExecutions(t *testing.T) {
 	if len(sent) != 1 {
 		t.Fatalf("sent %d text messages, want 1 (files: %d)", len(sent), len(bot.Files()))
 	}
-	if sent[0].Text != "**plain**" {
+	if sent[0].Text != tellLabel+"**plain**" {
 		t.Errorf("second tell text = %q — did --format leak in?", sent[0].Text)
 	}
 	if files := bot.Files(); len(files) != 1 {

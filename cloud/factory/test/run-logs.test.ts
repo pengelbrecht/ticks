@@ -1,7 +1,12 @@
 import { env, SELF } from "cloudflare:test";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { HARNESS_TAIL_MAX_BYTES, readHarnessTail, writeHarnessSegment } from "../src/artifacts";
+import {
+  HARNESS_TAIL_MAX_BYTES,
+  readHarnessTail,
+  writeHarnessSegment,
+  writeWorkerLogSegment,
+} from "../src/artifacts";
 import { deriveTokenHash, mintFactoryToken } from "../src/auth";
 import { insertRun } from "../src/db";
 
@@ -20,6 +25,8 @@ import { insertRun } from "../src/db";
 
 const BASE = "https://factory.example.com";
 const PROJECT = "example-org/example-repo";
+/** A well-formed trace id, of the shape cloud/factory/src/trace.ts mints. */
+const TRACE_ID = "tr_0123456789abcdef0123456789abcdef";
 
 let token: string;
 const originalHash = env.FACTORY_TOKEN_HASH;
@@ -48,6 +55,7 @@ async function recordedRun(runID: string): Promise<void> {
     started_at: new Date(0).toISOString(),
     ended_at: null,
     cost_usd: 0,
+    trace_id: null,
   });
 }
 
@@ -96,6 +104,9 @@ describe("GET /api/runs/:id/logs", () => {
       run_id: runID,
       project: PROJECT,
       state: "running",
+      // Null here because `recordedRun` records a run with no chain; the
+      // trace-id read is asserted on its own below.
+      trace_id: null,
       text: "booting orchestrator\n",
       bytes: 21,
       total_bytes: 21,
@@ -103,6 +114,48 @@ describe("GET /api/runs/:id/logs", () => {
       // Which worker containers left a stream of their own (tick 0fg). Empty
       // here: this run dispatched none.
       streams: [],
+    });
+  });
+
+  // The trace id is served from the run's INDEX ROW, not scraped out of the
+  // log text (tick hyi). The stream carries a banner of its own, but a read is
+  // bounded from the END — so on the long-running container an operator most
+  // wants the id for, the banner is the first thing to fall off the budget.
+  // The row answers whatever the tail happens to contain, which is what makes
+  // "recover the trace id from the worker's logs" one query rather than a
+  // grep that sometimes works.
+  it("states the run's trace id on every read, and null when the run has no chain", async () => {
+    const traced = "run_logs_traced";
+    await insertRun(env.DB, {
+      run_id: traced,
+      project: PROJECT,
+      epic: "l4l",
+      base_sha: "b".repeat(40),
+      requested_by: "operator@example.com",
+      state: "running",
+      started_at: new Date(0).toISOString(),
+      ended_at: null,
+      cost_usd: 0,
+      trace_id: TRACE_ID,
+    });
+    await writeHarnessSegment(env.ARTIFACTS, PROJECT, traced, 1, 1, "booting\n");
+    await expect((await get(`/api/runs/${traced}/logs`)).json()).resolves.toMatchObject({
+      trace_id: TRACE_ID,
+    });
+    // A per-tick read answers with the same id: the operator reading one
+    // container's output is the one who needs it most.
+    await writeWorkerLogSegment(env.ARTIFACTS, PROJECT, traced, "tap", 1, 1, "worker\n");
+    await expect((await get(`/api/runs/${traced}/logs?tick=tap`)).json()).resolves.toMatchObject({
+      trace_id: TRACE_ID,
+      tick_id: "tap",
+    });
+
+    // Null, never a placeholder: a run started before trace ids existed
+    // belongs to no chain, and "" would be a chain nobody can find.
+    await recordedRun("run_logs_untraced");
+    await writeHarnessSegment(env.ARTIFACTS, PROJECT, "run_logs_untraced", 1, 1, "booting\n");
+    await expect((await get("/api/runs/run_logs_untraced/logs")).json()).resolves.toMatchObject({
+      trace_id: null,
     });
   });
 

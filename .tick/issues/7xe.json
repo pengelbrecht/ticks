@@ -1,0 +1,17 @@
+{
+  "id": "7xe",
+  "title": "Close out Phase 4: retro + plan the next epic",
+  "description": "Retro, fold learnings into .tick/learnings.md inside the 150-line cap (compact, do not append — Phases 2 and 3 both had to drop entries to pay for new ones), verify the epic outside-in against its definition of done with a REAL unattended loop, then plan the next feasible epic.\n\nThe verification bar for an autonomy epic is higher than for the ones before it: a loop that works when you are watching is not the thing being built. Prove one ran, did the right thing, and reported it, with nobody in the loop.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "xjc"
+  ],
+  "parent": "szp",
+  "role": "closeout",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-23T18:05:00.184811Z",
+  "updated_at": "2026-08-23T18:05:00.184811Z"
+}

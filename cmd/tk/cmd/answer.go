@@ -142,6 +142,7 @@ func runAnswer(cmd *cobra.Command, args []string) error {
 	// first-wins arbitration.
 	if !agentRelay {
 		channel, _, channelErr := askChannel()
+		labelChannel(channel, tickMessageContext(engine.Ticks(), tickID))
 		if channelErr == nil {
 			if remote, ok := isFactoryChannel(channel); ok {
 				return answerRemoteEntry(cmd, remote, pending, tickID, outcome)
@@ -173,6 +174,7 @@ func runAnswer(cmd *cobra.Command, args []string) error {
 	// The channel message is edited on the same terms as a phone answer. A
 	// missing channel is not a failure: the answer is already in tick state.
 	channel, _, channelErr := askChannel()
+	labelChannel(channel, tickMessageContext(engine.Ticks(), tickID))
 	if channelErr == nil {
 		askSettle(commandContext(cmd), channel, applied, cmd.ErrOrStderr())
 	} else {

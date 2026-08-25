@@ -51,6 +51,19 @@ type BotUser struct {
 	IsBot     bool   `json:"is_bot"`
 	FirstName string `json:"first_name"`
 	Username  string `json:"username"`
+	// CanReadAllGroupMessages is Telegram's name for privacy mode being OFF.
+	// A fake bot has it off, like a freshly created real one.
+	CanReadAllGroupMessages bool `json:"can_read_all_group_messages"`
+}
+
+// Webhook is the fake's view of a registered webhook: what setWebhook was
+// asked for, and what getWebhookInfo therefore reports.
+type Webhook struct {
+	URL                string   `json:"url"`
+	SecretToken        string   `json:"-"`
+	AllowedUpdates     []string `json:"allowed_updates,omitempty"`
+	PendingUpdateCount int      `json:"pending_update_count"`
+	DropPendingUpdates bool     `json:"-"`
 }
 
 // SentMessage is one captured sendMessage call, plus the message id the fake
@@ -130,6 +143,7 @@ type Bot struct {
 	offsets        []int64
 	allowedUpdates []string
 	calls          []string
+	webhook        *Webhook
 	sent           []SentMessage
 	files          []SentFile
 	edits          []Edit
@@ -319,6 +333,25 @@ func (b *Bot) MarkupEdits() []Edit {
 	return append([]Edit(nil), b.markupEdits...)
 }
 
+// Webhook returns the registered webhook, nil when the bot is in polling mode.
+func (b *Bot) Webhook() *Webhook {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if b.webhook == nil {
+		return nil
+	}
+	hook := *b.webhook
+	return &hook
+}
+
+// SetWebhook registers a webhook without going through the API, so a test can
+// set up the state a long poll is supposed to refuse to run against.
+func (b *Bot) SetWebhook(hook Webhook) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.webhook = &hook
+}
+
 // Answers returns the captured answerCallbackQuery calls, in order.
 func (b *Bot) Answers() []Answer {
 	b.mu.Lock()
@@ -380,6 +413,12 @@ func (b *Bot) handle(w http.ResponseWriter, r *http.Request) {
 		b.answerCallbackQuery(w, body)
 	case "getUpdates":
 		b.getUpdates(w, r, body)
+	case "setWebhook":
+		b.setWebhook(w, body)
+	case "deleteWebhook":
+		b.deleteWebhook(w)
+	case "getWebhookInfo":
+		b.getWebhookInfo(w)
 	default:
 		writeError(w, http.StatusNotFound, "Not Found: method not found")
 	}
@@ -629,7 +668,77 @@ func (b *Bot) answerCallbackQuery(w http.ResponseWriter, body []byte) {
 	writeResult(w, true)
 }
 
+type setWebhookRequest struct {
+	URL                string   `json:"url"`
+	SecretToken        string   `json:"secret_token"`
+	AllowedUpdates     []string `json:"allowed_updates"`
+	DropPendingUpdates bool     `json:"drop_pending_updates"`
+}
+
+func (b *Bot) setWebhook(w http.ResponseWriter, body []byte) {
+	var req setWebhookRequest
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeError(w, http.StatusBadRequest, "Bad Request: "+err.Error())
+		return
+	}
+	if strings.TrimSpace(req.URL) == "" {
+		writeError(w, http.StatusBadRequest, "Bad Request: bad webhook: URL must be an HTTPS URL")
+		return
+	}
+	b.mu.Lock()
+	if req.DropPendingUpdates {
+		b.queue = nil
+	}
+	b.webhook = &Webhook{
+		URL:                req.URL,
+		SecretToken:        req.SecretToken,
+		AllowedUpdates:     req.AllowedUpdates,
+		PendingUpdateCount: len(b.queue),
+		DropPendingUpdates: req.DropPendingUpdates,
+	}
+	b.mu.Unlock()
+	writeResult(w, true)
+}
+
+func (b *Bot) deleteWebhook(w http.ResponseWriter) {
+	b.mu.Lock()
+	b.webhook = nil
+	b.mu.Unlock()
+	writeResult(w, true)
+}
+
+func (b *Bot) getWebhookInfo(w http.ResponseWriter) {
+	b.mu.Lock()
+	hook := b.webhook
+	pending := len(b.queue)
+	b.mu.Unlock()
+	if hook == nil {
+		writeResult(w, map[string]any{"url": "", "pending_update_count": pending})
+		return
+	}
+	writeResult(w, map[string]any{
+		"url":                  hook.URL,
+		"pending_update_count": pending,
+		"allowed_updates":      hook.AllowedUpdates,
+	})
+}
+
+// getUpdates long-polls the queue.
+//
+// The real Bot API answers 409 while a webhook is registered: one update
+// consumer per token, and the webhook is it. The fake models that, because the
+// flows that have to notice — pairing, above all — are exactly the ones that
+// would otherwise hang until their deadline with no explanation.
 func (b *Bot) getUpdates(w http.ResponseWriter, r *http.Request, body []byte) {
+	b.mu.Lock()
+	registered := b.webhook != nil
+	b.mu.Unlock()
+	if registered {
+		writeError(w, http.StatusConflict,
+			"Conflict: can't use getUpdates method while webhook is active; use deleteWebhook to delete the webhook first")
+		return
+	}
+
 	var req struct {
 		Offset         int64    `json:"offset"`
 		Timeout        int      `json:"timeout"`

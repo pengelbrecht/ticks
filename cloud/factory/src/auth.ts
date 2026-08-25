@@ -83,6 +83,25 @@ export const HEALTH_PATH = "/health";
  * optional Telegram secret header rather than the factory bearer token.
  */
 export const WEBHOOK_PREFIX = "/api/hooks";
+
+/**
+ * Telegram's update path, declared HERE and nowhere else.
+ *
+ * Two modules have to agree on it and they decide opposite things with it:
+ * this one decides the request skips the bearer check, and `index.ts`
+ * dispatches the update. It was written out twice — once here, once in
+ * `telegram.ts` — and `.tick/learnings.md` records what a duplicated constant
+ * across two readers costs. Drift here fails closed (the route would demand a
+ * token Telegram cannot send, and the bot goes quiet), which makes it a
+ * maintenance hazard rather than a hole; one declaration removes both.
+ *
+ * It lives in `auth.ts` because this module already owns the path registry
+ * ({@link HEALTH_PATH}, {@link WEBHOOK_PREFIX}, {@link GATEWAY_PREFIX},
+ * {@link WAVE_PATH}) and — deliberately — imports nothing, so every other
+ * module can read a path from it without dragging a dependency along.
+ * `telegram.ts` re-exports this binding, so registration still names the
+ * constant from the module that registers.
+ */
 export const TELEGRAM_WEBHOOK_PATH = "/api/channels/telegram/webhook";
 
 /**

@@ -2,7 +2,8 @@
   "id": "vuz",
   "title": "GitHub issue ingestion, behind the tk label consent boundary",
   "description": "Ingest GitHub issues as signals, but only issues that carry the agreed consent label. The label IS the boundary: an issue without it is not a signal, however it is worded, and the factory must never act on a repository's issues wholesale.\n\nReasons this matters beyond politeness: a public repo's issue tracker is an untrusted input written by strangers, and the funnel's output is a tick that a human can then Dispatch into a paid run. The label is the point where a maintainer says 'this one is for the machine'.\n\nTreat issue bodies as untrusted content throughout — never as instructions to the ingesting code, and make sure the draft-triage presentation cannot be spoofed by issue text that imitates the channel's own formatting.\n\nDedup by (github, issue node id) via the funnel's external_ref, so an edited or reopened issue does not create a second tick.",
-  "status": "open",
+  "notes": "2026-08-23 15:58 - runner-state: substrate=herdr kind=claude branch=tick/vuz worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-vuz workspace=wFC base=4313e547bb2105d728942ddbab49dce9c29398ca agent=tick-vuz pane=wFC:p1 session=f923c1e4-41a5-473b-b5b5-732e44cab68b\n2026-08-23 16:31 - runner-state: runner=herdr branch=tick/vuz merged=f85f183d gate=green (go build, public-repo guard, tsc, factory vitest 728).\n\nOrchestrator decisions on the two things the report flagged:\n1. KEEPING commit 723e6b30, the test-only fix to 8sm's signal-inbox flake. The worker reproduced the flake with its own file excluded, so it is real and pre-existing, and a suite that fails half the time is worse than the tick boundary being slightly untidy. Noted here so the provenance is not lost.\n2. type='bug' hardcoded for ingested issues STAYS for now. It follows UC3, and la9 puts a human in front of the draft before anything is created, so a wrong default costs one edit rather than a wrong tick. Told la9 to let the human change type on the draft.",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -13,5 +14,7 @@
   "acceptance_criteria": "A labelled issue becomes a draft tick; an unlabelled one is ignored; removing the label stops future ingestion; a re-delivered or edited issue creates no duplicate; issue text cannot forge channel formatting.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-23T04:53:43.278338Z",
-  "updated_at": "2026-08-23T04:53:43.278338Z"
+  "updated_at": "2026-08-23T14:31:34.913689Z",
+  "closed_at": "2026-08-23T14:31:34.913689Z",
+  "closed_reason": "Completed: GitHub issue ingestion behind the tk consent label. POST /api/hooks/github, HMAC-SHA-256 over the RAW body verified before parsing, 503-and-ingest-nothing when unconfigured; 2xx for every settled outcome including refusals so an unlabelled issue cannot become a redelivery loop. Consent is the boundary: unlabelled ignored however worded, label removal stops future ingestion. Issue bodies treated as hostile — folded line endings, C0/C1 and bidi/invisible characters stripped, HTML-escaped, bounded, and unconditionally quoted so every factory-written line starts at column 0 and every reporter line with '\u003e ', which is asserted directly against a pixel-perfect forgery of the draft message. Dedup on the issue's stable node id. 27 tests, failing-without shown by mutation."
 }

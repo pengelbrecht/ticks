@@ -1,0 +1,21 @@
+{
+  "id": "xjc",
+  "title": "Final review of the Phase 4 diff",
+  "description": "Review the epic diff outside-in. Weight it toward what a green suite cannot see — Phase 2 found twelve boundary defects by running, Phase 3 found five by reviewing against Phase 2's list, and this epic adds autonomy, which removes the human who would otherwise notice.\n\nNamed passes this epic earns:\n- CREDENTIAL GRADE. Can a read-only run push by any route — including calling GitHub directly rather than through the factory? Is the grade enforced where it is claimed to be?\n- BRANCH OWNERSHIP. Can CI remediation reach a branch a human owns, through any path including a mis-parsed branch name?\n- LOOP TERMINATION. Flake gate and strike budget: find the input that makes either loop forever or spend without converging.\n- UNATTENDED FAILURE. Everything here runs with nobody watching. For each loop, what does it do when it fails at 3am, and is that visible the next morning?",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "pzf",
+    "v7g",
+    "meo",
+    "hye",
+    "acy"
+  ],
+  "parent": "szp",
+  "role": "review",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-23T18:05:00.045149Z",
+  "updated_at": "2026-08-23T18:05:00.162687Z"
+}

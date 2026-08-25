@@ -904,3 +904,39 @@ func TestWorkerCancelledBeforeItStartsNeverRunsTheHarness(t *testing.T) {
 	}
 	mustContain(t, report, WorkerCancelReportMarker, "the report saying the run stopped this")
 }
+
+// The container states the chain its work belongs to, in its very first line
+// (D20, tick hyi).
+//
+// This is corroboration, not the record: the control plane heads the same
+// container's R2 stream with the same id BEFORE the container is addressed,
+// precisely because a container that dies in its image pull never prints
+// anything at all. But when a container does get this far, an operator reading
+// its output should not need a second lookup to know which message caused it.
+func TestWorkerNamesItsTraceIDInTheBootBanner(t *testing.T) {
+	f := newWorkerFixture(t)
+	f.env[EnvTraceID] = "tr_0123456789abcdef0123456789abcdef"
+	out, code := f.run()
+	if code != 0 {
+		t.Fatalf("the worker failed (exit %d):\n%s", code, out)
+	}
+	mustContain(t, out, "tr_0123456789abcdef0123456789abcdef", "the container's trace id")
+	// Under the marker the control plane's own banner uses, so one grep finds
+	// the chain in either half of the stream.
+	mustContain(t, out, "ticks-trace:", "the trace banner marker")
+}
+
+// A container booted with no trace id says NOTHING about one, rather than
+// "trace: none". Every run before this tick has no chain, and a line that
+// always prints is a line that never answers — an operator grepping a log for
+// a trace id would match it on every container in the factory.
+func TestWorkerSaysNothingAboutATraceItWasNotGiven(t *testing.T) {
+	f := newWorkerFixture(t)
+	out, code := f.run()
+	if code != 0 {
+		t.Fatalf("the worker failed (exit %d):\n%s", code, out)
+	}
+	if strings.Contains(out, "ticks-trace:") {
+		t.Fatalf("a container with no trace id printed a trace banner anyway:\n%s", out)
+	}
+}

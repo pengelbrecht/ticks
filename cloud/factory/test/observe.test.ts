@@ -91,6 +91,7 @@ async function recordedRun(runID: string, state = "running", project = PROJECT):
     started_at: new Date(0).toISOString(),
     ended_at: null,
     cost_usd: 0,
+    trace_id: null,
   });
 }
 

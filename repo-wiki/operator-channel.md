@@ -221,3 +221,133 @@ CLI: `tk tell --format|--file|--caption|--as`, `tk ask --photo --gate approve`. 
 signed off live by the operator over the channel itself. Gotchas documented: Telegram's
 text-file preview mojibakes BOM-less UTF-8 (display AND copy path; bytes intact);
 snake_case italics footgun (`_` has no word boundary — backtick identifiers).
+
+## Epic hdt tick spq (2026-08-23): webhook mode, and project legibility in every message
+
+Two things that had to land together because both rewrite message composition.
+
+- **The Worker's webhook route existed since the cloud operator bridge; nothing had ever
+  called `setWebhook`.** That was the whole gap. `POST /api/channels/telegram/webhook/registration`
+  (authenticated — a SIBLING path, because `isAuthExempt` exempts the update path by exact match
+  only) derives the URL from `FACTORY_BASE_URL` or the request's own origin, narrows
+  `allowed_updates` to `message`+`callback_query`, sends `TELEGRAM_WEBHOOK_SECRET` as
+  `secret_token`, and drops the pending backlog. `tk factory webhook [--status|--delete]` drives it.
+- **Privacy mode is checkable but not settable.** `getMe` returns `can_read_all_group_messages`,
+  which is privacy mode INVERTED; there is no API to change it (@BotFather `/setprivacy`). So
+  registration reads it and refuses (409 `telegram_privacy_mode_off`) rather than widening the
+  bot's reach silently. Consequence, and the seam tick yu8 builds on: **reply-to is the entire
+  correlation key for free text** — `parseTelegramAnswer` matches `reply_to_message.message_id`
+  against the entry's `ref.message_id`, and explicitly drops a "reply" carrying
+  `forum_topic_created` (a forum threads a topic's first message onto its own service message).
+- **setWebhook and getUpdates are mutually exclusive per token**, so pairing had to learn about it:
+  `tk channel setup telegram` now calls `getWebhookInfo` first and REFUSES with the registered URL
+  rather than spending its 5-minute window on 409s and reporting a timeout. `--reclaim` deletes the
+  webhook and tells the operator to register it again. `fakebot` models the 409 for the same reason.
+- **Legibility is a TEXT problem, not a routing problem.** Routing was already unambiguous (RunRoom
+  per project, unique question ids, callback data carries the id). Nothing composed the project INTO
+  the message, so two repos produced identical questions. Now every gate/report/completion carries
+  `owner/repo · epic <id> · tick <id>`.
+- **Two composers, one shared fixture.** `internal/operator/context.go` (`MessageContext`) and
+  `cloud/factory/src/message-context.ts` both write into the same chat, and a drift is invisible to
+  both suites — each keeps rendering a readable line. Pinned by
+  `cloud/factory/test/fixtures/message-context.json`, the same pattern as `tracker-layout.json`.
+- **The topic map is a FIELD OF ENROLMENT** (operator instruction, verbatim: not a fourth config
+  surface). `POST /api/projects` takes `telegram_topic_id`; value sets, `null` clears, absent leaves
+  alone (enrolment is re-run for unrelated reasons). Stored in its own table (`migrations/0007`)
+  because SQLite has no `ADD COLUMN IF NOT EXISTS` and this repo's migrations are re-runnable —
+  `db.ts` LEFT JOINs it back so it reads as a field everywhere else. Withdrawing a project drops it.
+- **`pending_question` grew an `epic` column** (additive ALTER in the DO constructor, "duplicate
+  column name" is the expected answer). The project is the room's identity and the tick is on the
+  entry; the epic was the one of the three nothing else could supply.
+- **The LOCAL channel gets legibility but NOT topics**, deliberately: a locally paired bot talks to
+  the operator in a private chat, and topics are a supergroup feature belonging to the factory's
+  shared chat. Giving the local channel its own topic map would have been the fourth config surface.
+- Local labelling is an optional capability (`operator.ContextualChannel`, a setter) rather than an
+  argument on `Send`/`AskDeliver`: the context is a property of the run, not of each message.
+  `tk tell --about <tick-id>` resolves epic+tick from the tracker; an epic names itself as the epic
+  and carries no tick; an unresolvable id costs the labels, never the announcement.
+- Gotcha found while landing it: `tk tell --file` with no `--caption` must stay uncaptioned — a
+  caption that is only a label is chrome under a file that says nothing.
+
+## Epic hdt tick la9 (2026-08-23): the human gate — a signal is a DRAFT until somebody presses
+
+The gate between "something arrived" and "the factory spent money on it". `cloud/factory/src/drafts.ts`
+is the surface; the lifecycle lives in the project's `SignalInbox`.
+
+- **A draft is not a tick with a flag, and that is the whole design.** The rejected shape was
+  `status: "draft"` on a real record: it would sit in `.tick/issues/` in front of `tk next`, `tk ready`
+  and a wave's sweep, and invisibility would be whatever every reader remembered to filter. Instead a
+  pending proposal is a row in the DO — no tick id, no record, no commit — and the ONLY path to the
+  tracker writer is `SignalInbox.decide(draftID, ...)`, reachable only with an id a human pressed.
+  Second lock, in Go: `Tick.Validate` accepts open/in_progress/closed and nothing else, so a
+  draft-flavoured record is not expressible. Pinned both sides by the `human_gate` block in
+  `cloud/factory/test/fixtures/tracker-layout.json`.
+- **`submitSignal` produces a proposal, full stop.** There is deliberately no second front door that
+  commits directly — a gate a source could choose to skip is a convention, not a gate. This matters at
+  merge time: any source built later (tick 0vb's generic webhooks included) inherits the gate by having
+  nowhere else to go.
+- **Discard's dedup row is a feature, not litter.** It is written when the draft is ADMITTED (not after
+  a commit, as tick 8sm's ordering required) and it survives the discard, so a source that redelivers
+  forever gets `duplicate` rather than a fresh proposal each time. The 8sm ordering argument dissolves
+  because admission is now fully synchronous: the dedup read and both writes sit in one DO prefix with
+  no await between them, so a redelivery racing its original is simply the next event.
+- **Admission stopped being the thing that is serialised; PRESSES are.** `#tail` now chains accepts, and
+  `SIGNAL_INBOX_QUEUE_LIMIT` bounds commits in flight. A new `MAX_PENDING_DRAFTS` bounds the pile
+  waiting for a human. A double press is caught by claiming the draft (`state = 'committing'`) in the
+  synchronous prefix before the first await; an unsettled commit puts it back to `pending`, because
+  nothing was written and pressing again must be safe.
+- **Callback data is `d:<draft id>:<verb>`** (and `y:<draft id>:<type>` for the retype row) — a press
+  names one proposal in one project, which is why this surface needs none of yu8's disambiguation. Ids
+  are random hex, not sequential: in a shared chat a guessable id is a button somebody else's press
+  could land on. The namespaces cannot collide with the RunRoom's `q:`/`r:`, so the webhook route
+  offers a press to the draft surface first and hands everything else to the question path.
+- **Routing a press to a project is a scan, not a lookup.** The draft id does not carry the project (it
+  would not fit the 64-byte callback limit reliably), so `findDraft` asks each enrolled project's inbox.
+  Same precedent as the free-text path, and bounded by the enrolment table.
+- **The forgery invariant had to survive framing.** vuz's rule — every factory line at column 0 with
+  `<b>`, every reporter line behind `> ` — is now load-bearing for BUTTONS: a spoofed message is a
+  spoofed button. `drafts.ts` never re-wraps or un-quotes the block the source rendered, and every line
+  it adds starts at column 0 with `<b>`. `telegram.ts` gained `sendTelegramHTML`/`editTelegramHTML`
+  because `sendTelegramReport` escapes what it is given and would have shown `&lt;b&gt;`; the rule that
+  keeps that safe is that only a source-rendered block reaches them.
+- **Dispatch's base sha is the commit that carries the accepted tick** — the first commit in which the
+  tick it was dispatched to work exists. A tick with a parent dispatches as a one-tick wave under that
+  epic; one without a parent IS the epic the run is addressed by. A refused ignition (project busy, no
+  Workflow binding) still leaves the tick filed and says so on the message: accepting and igniting are
+  two acts.
+- **The one affordance: retyping.** `github-issues.ts` hardcodes `type: "bug"` per UC3 and never reads
+  it from the issue; the human retypes before filing rather than fixing a wrong tick afterwards. Only
+  while pending — a filed tick is `tk update`'s business.
+
+## Epic hdt tick t2x (2026-08-23): consent is live, not photographed
+
+Decision on the Phase 3 final review's fifth finding (held back from the other four because it
+was a design choice, not a correction). **Taken: the fresh read.**
+
+- **A webhook payload is a photograph of the labels.** GitHub neither orders deliveries nor
+  bounds how late a retry arrives, so apply-then-remove produces a `labeled` payload that still
+  shows consent and can be processed *after* the `unlabeled` one. `github-issues.ts` now asks
+  GitHub what the issue carries NOW before proposing anything (`ISSUE_LABELS` seam, defaulting
+  to the issue-labels API in `githubRepoRefs`'s shape).
+- **Three answers, kept distinct.** A list decides it; 404/410 is `issue_not_visible` and settles
+  at 2xx (an issue this factory cannot see is not one whose consent it can confirm, and a
+  redelivery would 404 forever); a throw is `consent_unverifiable` at **503** so GitHub retries.
+  "Could not ask" never resolves to "trust the snapshot" — `webhook-sources.ts`'s rule for an
+  unreadable declaration, applied to a second system.
+- **The check is one-directional on purpose, and a test pins it.** It can *withdraw* consent the
+  snapshot claims, never *grant* consent the snapshot denies. Withdrawal is the safety property;
+  declining a just-labelled issue costs nothing because applying the label fires its own
+  delivery; and re-reading on the unlabelled path would spend an API call on every issue anyone
+  opens in the repository.
+- **The window is narrowed, not closed, and that is written down.** The label can still be removed
+  between the read and the funnel's D1 write — two systems, no conditional write over label
+  state. Minutes-to-hours becomes milliseconds. **What bounds the remainder is the human gate**:
+  a delivery past this point is a DRAFT, and nothing is filed and no run starts until someone
+  presses Create or Dispatch. A future fix that actually closes it would have to re-read at the
+  moment of the press, not narrow further at ingestion.
+- **The generic path never had the bug.** `webhookSourceRoute` fetches the repository's tracked
+  declaration fresh on every delivery, before it looks at the signature, so a source withdrawn or
+  re-keyed mid-flight takes effect on the next delivery. Now asserted by tests that would catch
+  the property being traded away for a cache.
+- **Operational consequence:** a *private* repository now needs `GITHUB_TOKEN` to ingest at all —
+  unauthenticated label reads 404 there, which reads as `issue_not_visible` and is ignored.

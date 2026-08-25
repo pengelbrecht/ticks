@@ -158,6 +158,10 @@ export interface RunEventMessage {
    * Task ID (if task-level event)
    */
   taskId?: string;
+  /**
+   * Trace id joining this event to the message that caused the run and to the containers working on it (D20). Absent for a run that belongs to no traced chain.
+   */
+  traceId?: string;
   source: RunEventSource;
   event: RunEventData;
   [k: string]: unknown;

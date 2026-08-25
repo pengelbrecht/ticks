@@ -118,6 +118,7 @@ var (
 	channelSetupToken   string
 	channelSetupAPIBase string
 	channelSetupTimeout time.Duration
+	channelSetupReclaim bool
 
 	channelStatusOffline bool
 	channelStatusCheck   bool
@@ -128,6 +129,8 @@ func init() {
 	channelSetupCmd.Flags().StringVar(&channelSetupToken, "token", "", "bot token (prompted for when omitted)")
 	channelSetupCmd.Flags().StringVar(&channelSetupAPIBase, "api-base", "", "override the channel API root (testing)")
 	channelSetupCmd.Flags().DurationVar(&channelSetupTimeout, "pair-timeout", defaultPairTimeout, "how long to wait for the pairing message")
+	channelSetupCmd.Flags().BoolVar(&channelSetupReclaim, "reclaim", false,
+		"withdraw a registered webhook so pairing can long-poll (takes the factory off the air until it is registered again)")
 	_ = channelSetupCmd.Flags().MarkHidden("api-base")
 	_ = channelSetupCmd.Flags().MarkHidden("pair-timeout")
 
@@ -189,6 +192,15 @@ func setupTelegram(cmd *cobra.Command) error {
 		return NewExitError(ExitGeneric, "verifying the bot token: %v", err)
 	}
 
+	// Pairing long-polls for '/start', and the Bot API allows ONE update
+	// consumer per token: while a webhook is registered every getUpdates is a
+	// 409, so the wait below would burn its whole window and report a timeout
+	// for a reason that has nothing to do with the operator's phone. Find out
+	// here, and say what it is.
+	if err := clearWebhookForPairing(cmd, ctx, client); err != nil {
+		return err
+	}
+
 	code, err := pairingCode()
 	if err != nil {
 		return NewExitError(ExitGeneric, "generating a pairing code: %v", err)
@@ -243,6 +255,41 @@ func setupTelegram(cmd *cobra.Command) error {
 	}
 
 	return offerRepoMapping(cmd, in, bot.Username, msg.FromID)
+}
+
+// clearWebhookForPairing makes the token pollable, or refuses and says why.
+//
+// A registered webhook is not a fault: it is a factory in webhook mode owning
+// this bot's updates, which is the intended deployment. Deleting it would take
+// the operator's cloud runs off the air, so it is never done silently —
+// --reclaim is the operator saying they mean it, and even then they are told to
+// register it again afterwards.
+func clearWebhookForPairing(cmd *cobra.Command, ctx context.Context, client *telegram.Client) error {
+	info, err := client.GetWebhookInfo(ctx)
+	if err != nil {
+		// Not fatal on its own: if the token really is unpollable the wait
+		// below reports the 409 itself, with the same explanation.
+		fmt.Fprintf(cmd.ErrOrStderr(), "warning: could not check for a registered webhook: %v\n", err)
+		return nil
+	}
+	if !info.Registered() {
+		return nil
+	}
+	if !channelSetupReclaim {
+		return NewExitError(ExitGeneric,
+			"this bot delivers updates by webhook to %s, and the Bot API allows one update "+
+				"consumer per token — pairing cannot long-poll for '/start' while it is registered.\n"+
+				"Re-run with --reclaim to withdraw the webhook and pair, then register it again "+
+				"(POST /api/channels/telegram/webhook/registration on the factory) so cloud runs "+
+				"can reach you.", info.URL)
+	}
+	if err := client.DeleteWebhook(ctx, false); err != nil {
+		return NewExitError(ExitGeneric, "withdrawing the webhook at %s: %v", info.URL, err)
+	}
+	fmt.Fprintf(cmd.OutOrStdout(),
+		"Withdrew the webhook at %s so this pairing can poll.\nRegister it again when you are done, or the factory stops receiving answers.\n\n",
+		info.URL)
+	return nil
 }
 
 // promptForToken reads the token from the command's input. It is never echoed

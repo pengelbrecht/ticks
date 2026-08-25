@@ -1,0 +1,17 @@
+{
+  "id": "v7g",
+  "title": "Read-only PR review runs",
+  "description": "A run that reads a pull request's diff, reviews it, and posts its findings as a comment — with the read-only credential grade from the previous tick.\n\nThis is the first genuinely useful autonomous loop and the safest one, which is why it comes before CI remediation: the worst outcome is a bad comment, not a bad commit.\n\nScope: trigger from a PR event (the ingestion path from Phase 3 already knows how to receive one), run the review, post the result. Reuse Phase 2's review dispatch rather than a new one.\n\nTreat the diff as untrusted input — Phase 3's rule holds: a PR body and a diff are written by whoever opened the PR, and the review comment is a surface a human reads and acts on.",
+  "status": "open",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "pzf"
+  ],
+  "parent": "szp",
+  "acceptance_criteria": "A PR opened against an enrolled repo gets an automated review comment from a run that provably could not have pushed to it; the diff cannot forge the comment's structure.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-23T18:04:28.842358Z",
+  "updated_at": "2026-08-23T18:04:28.842358Z"
+}

@@ -90,6 +90,7 @@ type Channel struct {
 	chatIDNum int64
 
 	mu      sync.Mutex
+	context operator.MessageContext
 	pending map[int64]*pendingQuestion
 	// prompts maps a force-reply prompt message id to the question message id it
 	// belongs to, so an "Other…" answer resolves the original question.
@@ -136,12 +137,62 @@ func NewChannel(cfg operator.ChannelConfig) (*Channel, error) {
 // (pairing runs getMe and polls before a chat is even known).
 func (ch *Channel) Client() *Client { return ch.client }
 
+// UseMessageContext names the project, epic and tick this channel's messages
+// are about, implementing [operator.ContextualChannel].
+//
+// One personal bot serves every checkout on the machine, so "which repository
+// is this question about?" is a real question with no answer in the message
+// otherwise. Setting it is what puts the answer in the text.
+//
+// It deliberately carries no forum topic. Topics are a supergroup feature and
+// the shared supergroup belongs to the factory, whose per-project topic map
+// lives in the project's ENROLMENT record; a locally paired bot talks to the
+// operator in a private chat, where there are no topics to route into.
+func (ch *Channel) UseMessageContext(c operator.MessageContext) {
+	ch.mu.Lock()
+	defer ch.mu.Unlock()
+	ch.context = c
+}
+
+// messageContext returns the context to compose with.
+func (ch *Channel) messageContext() operator.MessageContext {
+	ch.mu.Lock()
+	defer ch.mu.Unlock()
+	return ch.context
+}
+
+// label renders the context as a bold HTML header above already-rendered HTML
+// body, or returns body unchanged when nothing is known.
+//
+// The line is plain text (see [operator.MessageContext.Line]), so it is escaped
+// here like every other value this transport interpolates.
+func (ch *Channel) label(body string) string {
+	return labelHTML(ch.messageContext(), body)
+}
+
+// labelHTML is [Channel.label] without the lock, for callers that already hold
+// it (Adopt repaints a question's body under ch.mu).
+func labelHTML(c operator.MessageContext, body string) string {
+	line := c.Line()
+	if line == "" {
+		return body
+	}
+	header := "<b>" + html.EscapeString(line) + "</b>"
+	if body == "" {
+		return header
+	}
+	return header + "\n" + body
+}
+
 // Send delivers a one-way message to the paired chat. Per [operator.Channel],
 // text is plain text: this transport posts with parse_mode=HTML, so the text is
 // escaped here — a caller's angle bracket is an angle bracket, not markup, and
 // not a 400 from the Bot API's HTML parser either.
 func (ch *Channel) Send(ctx context.Context, text string) error {
-	_, err := ch.client.SendMessage(ctx, OutgoingMessage{ChatID: ch.chatID, Text: html.EscapeString(text)})
+	_, err := ch.client.SendMessage(ctx, OutgoingMessage{
+		ChatID: ch.chatID,
+		Text:   ch.label(html.EscapeString(text)),
+	})
 	return err
 }
 
@@ -156,7 +207,10 @@ func (ch *Channel) SendFormatted(ctx context.Context, msg operator.FormattedText
 	if msg.Format != operator.FormatMarkdownLite {
 		return fmt.Errorf("telegram: unsupported message format %q, this transport renders %q", msg.Format, operator.FormatMarkdownLite)
 	}
-	_, err := ch.client.SendMessage(ctx, OutgoingMessage{ChatID: ch.chatID, Text: markdownLiteToHTML(msg.Text)})
+	_, err := ch.client.SendMessage(ctx, OutgoingMessage{
+		ChatID: ch.chatID,
+		Text:   ch.label(markdownLiteToHTML(msg.Text)),
+	})
 	return err
 }
 
@@ -175,12 +229,20 @@ func (ch *Channel) SendFormatted(ctx context.Context, msg operator.FormattedText
 // anywhere. The caller registers the gate against that ref; a later process that
 // adopts it ([Channel.Adopt]) can interpret the press just as well.
 func (ch *Channel) SendAttachment(ctx context.Context, a operator.Attachment) (operator.MessageRef, error) {
+	// An uncaptioned upload stays uncaptioned: a caption that is only a label
+	// is a line of chrome under a file that says nothing, and `tk tell --file`
+	// without --caption deliberately sends none.
+	caption := ""
+	if a.Caption != "" {
+		caption = ch.label(html.EscapeString(a.Caption))
+	}
+
 	var gate *pendingQuestion
 	var keyboard [][]Button
 	if a.Gate {
 		gate = &pendingQuestion{
 			question: operator.Question{Options: operator.GateOptions()},
-			body:     html.EscapeString(a.Caption),
+			body:     caption,
 			selected: make(map[int]bool),
 			media:    true,
 		}
@@ -190,7 +252,7 @@ func (ch *Channel) SendAttachment(ctx context.Context, a operator.Attachment) (o
 	messageID, err := ch.client.SendFile(ctx, OutgoingFile{
 		ChatID:   ch.chatID,
 		Path:     a.Path,
-		Caption:  html.EscapeString(a.Caption),
+		Caption:  caption,
 		Photo:    a.ResolvedKind() == operator.KindPhoto,
 		Keyboard: keyboard,
 	})
@@ -212,7 +274,7 @@ func (ch *Channel) SendAttachment(ctx context.Context, a operator.Attachment) (o
 func (ch *Channel) AskDeliver(ctx context.Context, q operator.Question) (operator.MessageRef, error) {
 	pending := &pendingQuestion{
 		question: q,
-		body:     renderQuestion(q),
+		body:     ch.label(renderQuestion(q)),
 		selected: make(map[int]bool),
 	}
 	msg := OutgoingMessage{
@@ -254,7 +316,7 @@ func (ch *Channel) Adopt(ref operator.MessageRef, q operator.Question) error {
 	}
 	ch.pending[messageID] = &pendingQuestion{
 		question: q,
-		body:     renderQuestion(q),
+		body:     labelHTML(ch.context, renderQuestion(q)),
 		selected: make(map[int]bool),
 	}
 	return nil

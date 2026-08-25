@@ -14,16 +14,18 @@ var (
 	factoryDeployBundleDir   string
 	factoryDeploySkipRollout bool
 
-	factorySetupRepo        string
-	factorySetupGitHubToken string
-	factorySetupGitHubAPI   string
-	factorySetupGatewayURL  string
-	factorySetupProvider    string
-	factorySetupProviderKey string
-	factorySetupCFAPIToken  string
-	factorySetupBillingMode string
-	factorySetupCFAPIBase   string
-	factorySetupBundleDir   string
+	factorySetupRepo         string
+	factorySetupGitHubToken  string
+	factorySetupGitHubAPI    string
+	factorySetupGitHubClient string
+	factorySetupGitHubOAuth  string
+	factorySetupGatewayURL   string
+	factorySetupProvider     string
+	factorySetupProviderKey  string
+	factorySetupCFAPIToken   string
+	factorySetupBillingMode  string
+	factorySetupCFAPIBase    string
+	factorySetupBundleDir    string
 
 	factoryStatusOffline   bool
 	factoryStatusCheck     bool
@@ -137,11 +139,16 @@ Setup walks four rungs and proves each one before it stores anything:
 
   1. wrangler, logged in to your Cloudflare account.
   2. a deployment — if none exists, it offers ` + "`tk factory deploy`" + ` right here.
-  3. a GitHub credential — a fine-grained personal access token scoped to the
-     repository the factory works on. It is checked against the GitHub API and
-     against that repository before it is stored. A personal GitHub App, which
-     mints per-run installation tokens, is the documented upgrade path; see
-     docs/factory-credentials.md.
+  3. a GitHub credential — obtained by DEVICE FLOW: setup prints a code, you
+     approve it at github.com/login/device and pick which repositories the
+     ticks GitHub App may use. No access token to create by hand. What comes
+     back is a user-to-server token bounded by exactly those repositories,
+     revoked by uninstalling the App, and renewable without a browser while
+     its refresh token lives. It is still checked against the GitHub API and
+     against the target repository before it is stored. --github-token remains
+     the manual escape hatch, and your OWN GitHub App — which mints per-run
+     installation tokens from a private key ticks cannot ship — is the
+     documented upgrade; see docs/factory-credentials.md.
   4. model access — your own AI Gateway base URL and the provider behind it.
      Workers AI needs no key (inference bills to the same Cloudflare account);
      a BYOK provider's key is verified with a live model-list call through the
@@ -180,9 +187,13 @@ walk scriptable.`,
 			GitHubAPIBase: factorySetupGitHubAPI,
 			Repo:          factorySetupRepo,
 			GitHubToken:   factorySetupGitHubToken,
-			GatewayURL:    factorySetupGatewayURL,
-			Provider:      factorySetupProvider,
-			ProviderKey:   factorySetupProviderKey,
+
+			GitHubClientID:  factorySetupGitHubClient,
+			GitHubOAuthBase: factorySetupGitHubOAuth,
+
+			GatewayURL:  factorySetupGatewayURL,
+			Provider:    factorySetupProvider,
+			ProviderKey: factorySetupProviderKey,
 
 			CloudflareAPIToken:   factorySetupCFAPIToken,
 			CloudflareAPIBase:    factorySetupCFAPIBase,
@@ -250,7 +261,12 @@ func init() {
 	factorySetupCmd.Flags().StringVar(&factorySetupRepo, "repo", "",
 		"owner/name the GitHub credential must reach (default: this checkout's origin remote)")
 	factorySetupCmd.Flags().StringVar(&factorySetupGitHubToken, "github-token", "",
-		"fine-grained GitHub PAT (prompted for when omitted)")
+		"supply a GitHub token directly instead of approving the ticks App by device flow (the manual escape hatch)")
+	factorySetupCmd.Flags().StringVar(&factorySetupGitHubClient, "github-client-id", "",
+		"GitHub App client id the device flow authenticates against (defaults to the one shipped in this build)")
+	factorySetupCmd.Flags().StringVar(&factorySetupGitHubOAuth, "github-oauth-base", "",
+		"override the GitHub OAuth host the device flow runs on (GHES, testing)")
+	_ = factorySetupCmd.Flags().MarkHidden("github-oauth-base")
 	factorySetupCmd.Flags().StringVar(&factorySetupGatewayURL, "gateway-url", "",
 		"AI Gateway base URL (prompted for when omitted)")
 	factorySetupCmd.Flags().StringVar(&factorySetupProvider, "provider", "",

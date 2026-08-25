@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/pengelbrecht/ticks/internal/trace"
 )
 
 // Status values.
@@ -102,17 +104,32 @@ type Tick struct {
 	AcceptanceCriteria string     `json:"acceptance_criteria,omitempty"`
 	DeferUntil         *time.Time `json:"defer_until,omitempty"`
 	ExternalRef        string     `json:"external_ref,omitempty"`
-	Manual             bool       `json:"manual,omitempty"`
-	BaseBranch         string     `json:"base_branch,omitempty"`
-	Requires           *string    `json:"requires,omitempty"`
-	Awaiting           *string    `json:"awaiting,omitempty"`
-	Verdict            *string    `json:"verdict,omitempty"`
-	CreatedBy          string     `json:"created_by"`
-	CreatedAt          time.Time  `json:"created_at"`
-	UpdatedAt          time.Time  `json:"updated_at"`
-	StartedAt          *time.Time `json:"started_at,omitempty"`
-	ClosedAt           *time.Time `json:"closed_at,omitempty"`
-	ClosedReason       string     `json:"closed_reason,omitempty"`
+	// TraceID joins this tick to the message that produced it and to every
+	// run, wave and worker container that acted on it (D20, tick hyi).
+	//
+	// Minted at whichever edge the work entered the factory through and
+	// carried from there — never re-derived, because two ids for one causal
+	// chain is the same missing join with more records in it. Absent (the
+	// common case) means a tick nobody ingested: `tk create` on a laptop is
+	// not a signal arriving at a front door, and inventing an id for it would
+	// claim a chain that does not exist.
+	//
+	// The format is owned by internal/trace and pinned across languages by
+	// cloud/factory/test/fixtures/tracker-layout.json, because the control
+	// plane WRITES this field (cloud/factory/src/tracker-write.ts) into the
+	// record this package reads back.
+	TraceID      string     `json:"trace_id,omitempty"`
+	Manual       bool       `json:"manual,omitempty"`
+	BaseBranch   string     `json:"base_branch,omitempty"`
+	Requires     *string    `json:"requires,omitempty"`
+	Awaiting     *string    `json:"awaiting,omitempty"`
+	Verdict      *string    `json:"verdict,omitempty"`
+	CreatedBy    string     `json:"created_by"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+	StartedAt    *time.Time `json:"started_at,omitempty"`
+	ClosedAt     *time.Time `json:"closed_at,omitempty"`
+	ClosedReason string     `json:"closed_reason,omitempty"`
 }
 
 // Validate checks required fields and enum values.
@@ -164,6 +181,16 @@ func (t Tick) Validate() error {
 	}
 	if t.Role != "" && !isRoleValid(t.Role) {
 		errs = append(errs, fmt.Errorf("invalid role: %s", t.Role))
+	}
+	// A malformed trace id is refused rather than tolerated, for the reason
+	// the field exists: the whole value of a trace id is that ONE spelling
+	// identifies one causal chain. A record carrying "tr_ABC" beside a run
+	// carrying "tr_abc…" would look joined to a human and join to nothing in a
+	// query, which is worse than carrying no id at all. Empty is fine and
+	// common — see the field's own comment.
+	if t.TraceID != "" && !trace.Valid(t.TraceID) {
+		errs = append(errs, fmt.Errorf("invalid trace_id: %s (want %s followed by %d hex characters)",
+			t.TraceID, trace.Prefix, trace.HexLength))
 	}
 
 	return errors.Join(errs...)

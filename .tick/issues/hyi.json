@@ -2,16 +2,23 @@
   "id": "hyi",
   "title": "Trace IDs from the front door",
   "description": "D20 in the design doc. Every signal that enters the factory gets a trace id at the edge, and it travels with the tick, the run, the wave and the worker so one identifier joins 'a message arrived' to 'a container did this'.\n\nPhase 2's retro is the argument for doing this early rather than last: seven runs were misdiagnosed because the record that would have answered the question was not joined to the thing that failed. Ingestion multiplies the number of places a request can come from, so the join has to exist before the sources do, not after.\n\nScope: mint at the edge, persist on the tick record and the run record, include in run events and in each worker's log stream, and surface in tk cloud logs/trace.",
-  "status": "open",
+  "notes": "2026-08-23 15:57 - Re-sequenced by the orchestrator at wave 2: now blocked by spq and vuz rather than running beside them. Two reasons. The seam — trace ids thread through the signal path, the run path and the worker path, which is exactly the set of files a Telegram source and a GitHub source are both editing, so running all three together guarantees merge conflicts in the files that matter most. And the substance — a trace id that has to join 'a message arrived' to 'a container did this' is better threaded through sources that exist than through ones being written beside it.\n2026-08-23 16:47 - Sequenced last in the epic on purpose. Trace ids thread through the signal path, both sources, the run path and the worker path — the union of every other tick's files. Running it last means threading through code that exists rather than code being written beside it, and it is the one tick where a merge conflict would be with everything at once.\n2026-08-23 17:49 - runner-state: substrate=herdr kind=claude branch=tick/hyi worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-hyi workspace=wFG base=cf3b10728229154193507570e919871912b80dfb agent=tick-hyi pane=wFG:p1 session=f0dfd41c-90b8-45fc-ae46-52b90df27a23\n2026-08-23 18:34 - runner-state: runner=herdr branch=tick/hyi merged=fea2baba gate=green (go build, go test ./..., public-repo guard, gofmt, tsc, factory vitest 880)",
+  "status": "closed",
   "priority": 1,
   "type": "task",
   "owner": "noreply@anthropic.com",
   "blocked_by": [
-    "8sm"
+    "8sm",
+    "spq",
+    "vuz",
+    "la9",
+    "0vb"
   ],
   "parent": "hdt",
   "acceptance_criteria": "A signal's trace id is recoverable from the tick it created, the run that implemented it and that run's worker logs, in one query each.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-23T04:52:56.963935Z",
-  "updated_at": "2026-08-23T04:52:56.963935Z"
+  "updated_at": "2026-08-23T16:34:02.770231Z",
+  "closed_at": "2026-08-23T16:34:02.770231Z",
+  "closed_reason": "Completed: one trace id joins 'a message arrived' to 'a container did this'. Minted at the edge in both sources, persisted on the draft, the dedup row and the admission record, carried onto the tick and the run, into run events and each worker's log stream, and surfaced in tk cloud logs/trace. The design is shaped around the discontinuity rather than patched for it: a draft sits for days between arrival and Create/Dispatch, across which there is no process, request or stack — so the id lives in the durable row that spans the gap, never in a request-scoped context."
 }

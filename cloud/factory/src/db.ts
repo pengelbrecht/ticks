@@ -31,6 +31,19 @@ export interface Run {
   started_at: string;
   ended_at: string | null;
   cost_usd: number;
+  /**
+   * The identifier that joins this run to the message that produced it, and to
+   * everything it goes on to do (D20, tick hyi).
+   *
+   * Minted at an edge — an ingested signal, or the submission itself — and
+   * carried here; never minted at this layer, because a run that named its own
+   * chain would be joined to nothing upstream.
+   *
+   * Null for a run recorded before the column existed (migrations/0008). Null
+   * is the honest answer and is deliberately not backfilled: a run that
+   * belonged to no traced chain must not be made to look as though it did.
+   */
+  trace_id: string | null;
 }
 
 /**
@@ -67,8 +80,8 @@ export async function insertRun(db: D1Database, run: Run): Promise<void> {
   await db
     .prepare(
       `INSERT INTO runs
-        (run_id, project, epic, base_sha, requested_by, state, started_at, ended_at, cost_usd)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        (run_id, project, epic, base_sha, requested_by, state, started_at, ended_at, cost_usd, trace_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .bind(
       run.run_id,
@@ -79,7 +92,8 @@ export async function insertRun(db: D1Database, run: Run): Promise<void> {
       run.state,
       run.started_at,
       run.ended_at,
-      run.cost_usd
+      run.cost_usd,
+      run.trace_id
     )
     .run();
 }
@@ -181,7 +195,7 @@ export async function getRun(db: D1Database, runId: string): Promise<Run | null>
   return db
     .prepare(
       `SELECT run_id, project, epic, base_sha, requested_by, state,
-              started_at, ended_at, cost_usd
+              started_at, ended_at, cost_usd, trace_id
        FROM runs
        WHERE run_id = ?`
     )
@@ -207,7 +221,7 @@ export async function updateRunCost(
        SET cost_usd = ?
        WHERE run_id = ?
        RETURNING run_id, project, epic, base_sha, requested_by, state,
-                 started_at, ended_at, cost_usd`
+                 started_at, ended_at, cost_usd, trace_id`
     )
     .bind(costUsd, runId)
     .first<Run>();
@@ -391,6 +405,16 @@ export interface EnrolledProject {
   project: string;
   enrolled_by: string;
   enrolled_at: string;
+  /**
+   * The Telegram forum topic (`message_thread_id`) this project's operator
+   * messages go into, when the operator's chat has Topics on
+   * (see migrations/0007). Absent means "post to the chat itself".
+   *
+   * It lives on the enrolment record on purpose: which topic a project posts
+   * into is part of enrolling that project, not a configuration surface of its
+   * own for an operator to keep in sync with the other three.
+   */
+  telegram_topic_id?: string;
 }
 
 /**
@@ -418,7 +442,7 @@ export async function listRuns(
   const result = await db
     .prepare(
       `SELECT run_id, project, epic, base_sha, requested_by, state,
-              started_at, ended_at, cost_usd
+              started_at, ended_at, cost_usd, trace_id
        FROM runs${where}
        ORDER BY started_at DESC, run_id DESC
        LIMIT ?`
@@ -448,14 +472,50 @@ export async function updateRunState(
        SET state = ?, ended_at = COALESCE(?, ended_at)
        WHERE run_id = ?
        RETURNING run_id, project, epic, base_sha, requested_by, state,
-                 started_at, ended_at, cost_usd`
+                 started_at, ended_at, cost_usd, trace_id`
     )
     .bind(state, endedAt, runId)
     .first<Run>();
 }
 
+/**
+ * How an enrolment call asks for the project's topic to change.
+ *
+ * A string or number SETS it, `null` CLEARS it, and `undefined` — the field
+ * simply absent from the request — leaves whatever is there alone. Enrolment is
+ * re-run for reasons that have nothing to do with the chat, and a re-enrolment
+ * that silently dropped a project out of its topic would be a bad surprise.
+ */
+export type TopicAssignment = string | null | undefined;
+
+/**
+ * The one SELECT every reader of an enrolment record uses.
+ *
+ * The topic lives in its own table (migrations/0007) so the migration stays
+ * re-runnable, but nothing outside this file should have to know that: a
+ * project's topic is a field of its enrolment record everywhere else.
+ */
+const ENROLLED_PROJECT_SELECT = `SELECT e.project        AS project,
+              e.enrolled_by    AS enrolled_by,
+              e.enrolled_at    AS enrolled_at,
+              t.topic_id       AS telegram_topic_id
+       FROM enrolled_project e
+       LEFT JOIN project_topic t ON t.project = e.project`;
+
+/** Drops the SQL null the LEFT JOIN produces for a project with no topic. */
+function enrolledProjectRow(row: EnrolledProject & { telegram_topic_id?: string | null }): EnrolledProject {
+  const { telegram_topic_id: topic, ...rest } = row;
+  return topic === null || topic === undefined || topic === ""
+    ? rest
+    : { ...rest, telegram_topic_id: topic };
+}
+
 /** Enrols a project, or refreshes who enrolled it. Idempotent by design. */
-export async function enrolProject(db: D1Database, project: EnrolledProject): Promise<void> {
+export async function enrolProject(
+  db: D1Database,
+  project: EnrolledProject,
+  topic: TopicAssignment = project.telegram_topic_id
+): Promise<void> {
   await db
     .prepare(
       `INSERT INTO enrolled_project (project, enrolled_by, enrolled_at)
@@ -466,23 +526,39 @@ export async function enrolProject(db: D1Database, project: EnrolledProject): Pr
     )
     .bind(project.project, project.enrolled_by, project.enrolled_at)
     .run();
+  if (topic === undefined) return;
+  if (topic === null) {
+    await db.prepare("DELETE FROM project_topic WHERE project = ?").bind(project.project).run();
+    return;
+  }
+  await db
+    .prepare(
+      `INSERT INTO project_topic (project, topic_id, set_at)
+       VALUES (?, ?, ?)
+       ON CONFLICT(project) DO UPDATE SET
+         topic_id = excluded.topic_id,
+         set_at = excluded.set_at`
+    )
+    .bind(project.project, topic, project.enrolled_at)
+    .run();
 }
 
 export async function getEnrolledProject(
   db: D1Database,
   project: string
 ): Promise<EnrolledProject | null> {
-  return db
-    .prepare("SELECT project, enrolled_by, enrolled_at FROM enrolled_project WHERE project = ?")
+  const row = await db
+    .prepare(`${ENROLLED_PROJECT_SELECT} WHERE e.project = ?`)
     .bind(project)
-    .first<EnrolledProject>();
+    .first<EnrolledProject & { telegram_topic_id?: string | null }>();
+  return row === null ? null : enrolledProjectRow(row);
 }
 
 export async function listEnrolledProjects(db: D1Database): Promise<EnrolledProject[]> {
   const result = await db
-    .prepare("SELECT project, enrolled_by, enrolled_at FROM enrolled_project ORDER BY project")
-    .all<EnrolledProject>();
-  return result.results;
+    .prepare(`${ENROLLED_PROJECT_SELECT} ORDER BY e.project`)
+    .all<EnrolledProject & { telegram_topic_id?: string | null }>();
+  return result.results.map(enrolledProjectRow);
 }
 
 /** Withdraws a project. Returns whether it was enrolled. */
@@ -491,5 +567,8 @@ export async function removeEnrolledProject(db: D1Database, project: string): Pr
     .prepare("DELETE FROM enrolled_project WHERE project = ?")
     .bind(project)
     .run();
+  // The topic map is enrolment state: a withdrawn project keeping a topic
+  // assignment would silently come back with it on the next enrolment.
+  await db.prepare("DELETE FROM project_topic WHERE project = ?").bind(project).run();
   return (result.meta.changes ?? 0) > 0;
 }

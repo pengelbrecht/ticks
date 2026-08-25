@@ -1,0 +1,67 @@
+{
+  "_comment": [
+    "The project/epic/tick line every operator message is prefixed with.",
+    "Two readers compose it: internal/operator/context.go (local Telegram",
+    "channel, tk tell/ask) and cloud/factory/src/message-context.ts (the",
+    "Worker, which composes gate messages and reports for MANY projects into",
+    "ONE chat). A drift between them is invisible to both suites — each would",
+    "keep rendering a line a human can read — while the two halves of the same",
+    "conversation stopped agreeing on how a project is named. Hence the",
+    "fixture, checked from internal/operator/message_context_parity_test.go",
+    "and cloud/factory/test/message-context.test.ts."
+  ],
+  "separator": " · ",
+  "epic_prefix": "epic ",
+  "tick_prefix": "tick ",
+  "cases": [
+    {
+      "name": "project, epic and tick",
+      "context": { "project": "acme/web", "epic": "4f2", "tick": "8sm" },
+      "line": "acme/web · epic 4f2 · tick 8sm"
+    },
+    {
+      "name": "a second project is legible against the first",
+      "context": { "project": "acme/api", "epic": "4f2", "tick": "8sm" },
+      "line": "acme/api · epic 4f2 · tick 8sm"
+    },
+    {
+      "name": "no tick — an epic-level report",
+      "context": { "project": "acme/web", "epic": "4f2", "tick": "" },
+      "line": "acme/web · epic 4f2"
+    },
+    {
+      "name": "no epic — a tick asked outside a run",
+      "context": { "project": "acme/web", "epic": "", "tick": "8sm" },
+      "line": "acme/web · tick 8sm"
+    },
+    {
+      "name": "project only",
+      "context": { "project": "acme/web", "epic": "", "tick": "" },
+      "line": "acme/web"
+    },
+    {
+      "name": "surrounding whitespace is not part of an identifier",
+      "context": { "project": "  acme/web  ", "epic": " 4f2 ", "tick": " 8sm " },
+      "line": "acme/web · epic 4f2 · tick 8sm"
+    },
+    {
+      "name": "nothing known — no prefix at all, never an empty frame",
+      "context": { "project": "", "epic": "", "tick": "" },
+      "line": ""
+    }
+  ],
+  "prefix_examples": [
+    {
+      "name": "the line goes above the message, separated by one newline",
+      "context": { "project": "acme/web", "epic": "4f2", "tick": "8sm" },
+      "body": "Ship it?",
+      "prefixed": "acme/web · epic 4f2 · tick 8sm\nShip it?"
+    },
+    {
+      "name": "an unknown context leaves the message exactly as written",
+      "context": { "project": "", "epic": "", "tick": "" },
+      "body": "Ship it?",
+      "prefixed": "Ship it?"
+    }
+  ]
+}

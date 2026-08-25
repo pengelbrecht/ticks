@@ -10,6 +10,12 @@ declare namespace Cloudflare {
   interface Env {
     /** One RunRoom per project: dispatch lease + pending questions. */
     RUN_ROOMS: DurableObjectNamespace<import("./run-room").RunRoom>;
+    /**
+     * One SignalInbox per project: the funnel a signal becomes a tick through
+     * (tick 8sm). It serialises this control plane's writes to a project's
+     * `.tick/` and dedups redeliveries on `(source, external_ref)`.
+     */
+    SIGNAL_INBOXES: DurableObjectNamespace<import("./signal-inbox").SignalInbox>;
     /** Run artifacts: prompts, events.jsonl, reports, diffs. */
     ARTIFACTS: R2Bucket;
     /** Signals, dispatch log, run index, project enrolment. */
@@ -90,6 +96,28 @@ declare namespace Cloudflare {
      * seam for the same reason `REPO_CONFIG` is one.
      */
     TICK_TRACKER?: import("./tick-membership").TrackerReader;
+    /**
+     * The reader GitHub issue ingestion re-checks consent with at delivery
+     * time: the labels the issue carries NOW, not the ones its webhook payload
+     * photographed (tick t2x).
+     *
+     * Unset on a deployment, which reads GitHub's issue-labels API directly. A
+     * seam for the same reason `TICK_TRACKER` is one — and the only way the
+     * rule worth testing here is exercisable at all: a delivery that arrives
+     * after the label was removed cannot be staged against real GitHub.
+     */
+    ISSUE_LABELS?: import("./github-issues").IssueLabelReader;
+    /**
+     * The writer the SignalInbox commits a signal's tick record with: one
+     * CREATE of `.tick/issues/<id>.json` through GitHub's contents API (tick
+     * 8sm).
+     *
+     * Unset on a deployment, which writes to GitHub directly. A seam for the
+     * same reason `TICK_TRACKER` is one — and the only way the rules worth
+     * testing here (ordering under concurrency, dedup on redelivery, retry
+     * against a run pushing tracker state) are exercisable at all.
+     */
+    TICK_WRITER?: import("./tracker-write").TrackerWriter;
     /**
      * Where the RunRoom forwards a run's `run_event` stream (tick bne).
      *
@@ -194,6 +222,13 @@ declare namespace Cloudflare {
      */
     RUN_QUEUE_TTL_MS?: string;
     /**
+     * How long a signal's commit waits between attempts, in ms (tick 8sm). A
+     * wrangler `[vars]` value: how long to wait out a cloud run pushing
+     * tracker state is a property of how a repository is used. Bounds and the
+     * default live in src/signal-inbox.ts.
+     */
+    SIGNAL_COMMIT_RETRY_MS?: string;
+    /**
      * Worker secret (not a wrangler.toml binding): the salted PBKDF2 record for
      * the current factory token — `pbkdf2-sha256$<iterations>$<salt>$<key>`.
      * Set with `wrangler secret put FACTORY_TOKEN_HASH`; optional in the type
@@ -258,5 +293,42 @@ declare namespace Cloudflare {
     TELEGRAM_WEBHOOK_SECRET?: string;
     /** Test/deployment override; defaults to api.telegram.org. */
     TELEGRAM_API_BASE_URL?: string;
+    /**
+     * The shared secret GitHub signs every webhook delivery with (tick vuz).
+     *
+     * A Worker secret, not a `[vars]` value, and optional in the type for the
+     * same reason every other credential here is: an un-provisioned deployment
+     * must fail closed at the point of use. `src/github-issues.ts` answers 503
+     * and ingests nothing without it — a factory that cannot tell GitHub apart
+     * from anyone else who can POST JSON must accept nothing, not everything.
+     */
+    GITHUB_WEBHOOK_SECRET?: string;
+    /**
+     * The label a maintainer applies to say "this issue is for the machine"
+     * (wrangler `[vars]`, D7). Defaults to `tk` when unset.
+     *
+     * A deployment decision rather than a constant because the word belongs to
+     * the repository's own issue-triage vocabulary, and a repo that already
+     * uses `tk` for something else must be able to name a different one
+     * without a source edit.
+     */
+    GITHUB_CONSENT_LABEL?: string;
+    /**
+     * The shared secrets for the generic webhook sources a repository declares
+     * in its own `.tick/runners.toml` (tick 0vb).
+     *
+     * Worker secrets, one per declared source, named `SIGNAL_SECRET_<SOURCE>`.
+     * They are an index signature rather than named keys because the set is
+     * open: which sources exist is the REPOSITORY's decision, made in a file
+     * this deployment does not own, so no fixed list here could be right.
+     *
+     * The declaration names the binding, never the value — `runners.toml` is
+     * tracked and public, and a secret written into it is a secret published.
+     * `src/webhook-sources.ts` bounds what a repository may nominate to this
+     * prefix so a declaration cannot reach for `GITHUB_TOKEN` or
+     * `FACTORY_TOKEN_HASH`, and answers 503 for a source whose secret this
+     * deployment does not hold.
+     */
+    [signalSecret: `SIGNAL_SECRET_${string}`]: string | undefined;
   }
 }

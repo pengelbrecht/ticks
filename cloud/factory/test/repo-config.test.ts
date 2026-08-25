@@ -2,7 +2,9 @@ import { env } from "cloudflare:test";
 import { describe, expect, it } from "vitest";
 
 import {
+  IMAGE_PATTERN,
   MAX_CONFIG_BYTES,
+  MAX_IMAGE_LENGTH,
   RUNNERS_CONFIG_PATH,
   declaredMaxParallel,
   declaredSandboxImage,
@@ -13,6 +15,7 @@ import {
   type RepoConfigReader,
 } from "../src/repo-config";
 import cases from "./fixtures/sandbox-image-cases.json";
+import contract from "./fixtures/runners-config-contract.json";
 
 /**
  * The control plane's reader of a repository's tracked `[sandbox].image`.
@@ -260,4 +263,89 @@ describe("what an unreadable declaration does", () => {
     expect(declared.image).toBeNull();
     expect(declared.unread).toContain("could not be parsed here");
   });
+});
+
+/**
+ * The rules themselves, pinned to a file Go reads too.
+ *
+ * `sandbox-image-cases.json` above pins what the two IMAGE READERS do with
+ * whole TOML documents. This is the other half, and the one that was missing:
+ * the `[sandbox].image` pattern and bound and the `[orchestration].max_parallel`
+ * minimum are hand-mirrored from `internal/herd/config/load.go`, and until
+ * runners-config-contract.json they were held together by a comment saying so.
+ * internal/herd/config/runners_config_parity_test.go runs the identical
+ * contract through Go's validator, so a rule edited on one side alone fails on
+ * the other.
+ */
+describe("the runners.toml rules this Worker mirrors from Go", () => {
+  // The pattern as written, not merely as behaved. Go's Regexp.String() and
+  // JavaScript's RegExp.source render the same source identically, so a
+  // character changed on one side shows up here rather than only in whichever
+  // reference happens to straddle the difference.
+  it("carries the image pattern and bound the contract states", () => {
+    expect(IMAGE_PATTERN.source).toBe(contract.image.pattern);
+    expect(MAX_IMAGE_LENGTH).toBe(contract.image.max_length);
+  });
+
+  for (const image of contract.image.accepted) {
+    it(`reads ${image} as a well-formed reference`, () => {
+      expect(declaredSandboxImage(`[sandbox]\nimage = ${JSON.stringify(image)}\n`)).toBe(image);
+    });
+  }
+
+  for (const image of contract.image.refused) {
+    it(`refuses ${JSON.stringify(image)}`, () => {
+      expect(() => declaredSandboxImage(`[sandbox]\nimage = ${JSON.stringify(image)}\n`)).toThrow();
+    });
+  }
+
+  // The bound from both sides: a length checked only from outside it would not
+  // catch an off-by-one, and the two readers must count the same characters.
+  it("accepts a reference of exactly the bound and refuses one past it", () => {
+    const at = contract.image.boundary_char.repeat(contract.image.max_length);
+    expect(declaredSandboxImage(`[sandbox]\nimage = ${JSON.stringify(at)}\n`)).toBe(at);
+    const over = at + contract.image.boundary_char;
+    expect(() => declaredSandboxImage(`[sandbox]\nimage = ${JSON.stringify(over)}\n`)).toThrow(
+      new RegExp(String(contract.image.max_length))
+    );
+  });
+
+  // One question, one answer: which of the two enforcers refused must not be
+  // detectable from the sentence a config author reads.
+  it("refuses a malformed reference in the words the contract states", () => {
+    const bad = contract.image.refused[contract.image.refused.length - 1];
+    expect(() => declaredSandboxImage(`[sandbox]\nimage = ${JSON.stringify(bad)}\n`)).toThrow(
+      contract.image.refusal_message
+    );
+  });
+
+  for (const width of contract.max_parallel.accepted) {
+    it(`reads a declared width of ${width}`, () => {
+      expect(declaredMaxParallel(`[orchestration]\nmax_parallel = ${width}\n`)).toBe(width);
+    });
+  }
+
+  for (const width of contract.max_parallel.refused) {
+    it(`refuses a width of ${width}`, () => {
+      expect(() => declaredMaxParallel(`[orchestration]\nmax_parallel = ${width}\n`)).toThrow(
+        contract.max_parallel.refusal_message
+      );
+    });
+  }
+
+  // The minimum is the boundary, so a rule that drifted to `>= 2` would pass
+  // every list above and fail here.
+  it("puts the boundary exactly at the contract's minimum", () => {
+    const min = contract.max_parallel.minimum;
+    expect(declaredMaxParallel(`[orchestration]\nmax_parallel = ${min}\n`)).toBe(min);
+    expect(() => declaredMaxParallel(`[orchestration]\nmax_parallel = ${min - 1}\n`)).toThrow();
+  });
+
+  // A typed value the schema does not allow is a refusal on both sides, never
+  // a coercion — 1.5 is not 1, and "3" is not 3.
+  for (const value of contract.max_parallel.refused_toml_values) {
+    it(`refuses the value ${value}`, () => {
+      expect(() => declaredMaxParallel(`[orchestration]\nmax_parallel = ${value}\n`)).toThrow();
+    });
+  }
 });

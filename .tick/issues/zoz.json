@@ -2,16 +2,21 @@
   "id": "zoz",
   "title": "Close out Phase 3: retro + plan the next epic",
   "description": "Run the epic retro, fold learnings into .tick/learnings.md inside the 150-line cap (compact, do not append — Phase 2's closeout had to drop three entries to pay for five), verify the epic outside-in against its definition of done with a REAL ingested signal end to end, then flesh out the next feasible epic.\n\nPhase 2's closeout learned that the outside-in verification must be a live run, not a test suite, and that an honest 'this clause is not met, and here is the precise reason' is worth more than a green claim.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
   "blocked_by": [
-    "csr"
+    "csr",
+    "duy",
+    "t2x",
+    "h3p"
   ],
   "parent": "hdt",
   "role": "closeout",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-23T04:54:05.070401Z",
-  "updated_at": "2026-08-23T04:54:05.070401Z"
+  "updated_at": "2026-08-23T18:05:21.591949Z",
+  "closed_at": "2026-08-23T18:05:21.591949Z",
+  "closed_reason": "Completed: Phase 3 retro recorded on the epic; three new learnings folded into .tick/learnings.md at exactly the 150-line cap, paid for by compacting nine entries and dropping one; the epic verified outside-in against the deployed factory with a real GitHub webhook and real issues — unlabelled ignored, labelled drafted, nothing filed on arrival, redelivery deduped — with the Telegram half honestly recorded as not live-verified; repo-wiki/signal-ingestion.md written; Phase 4 (szp) planned into 7 ticks with its EPIC-SKELETON and a definition of done."
 }

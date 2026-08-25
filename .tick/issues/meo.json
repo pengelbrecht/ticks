@@ -1,0 +1,17 @@
+{
+  "id": "meo",
+  "title": "CI-failure remediation on factory-owned branches, behind the flake gate and strike budget",
+  "description": "The loop with teeth: CI fails on a branch the factory owns, the factory dispatches a run to fix it.\n\nTWO GOVERNORS, both named in the epic scope and both load-bearing:\n- THE FLAKE GATE. A test that fails intermittently must not spend money being 'fixed' repeatedly. Establish that a failure is reproducible before dispatching. This repo has already been burned by load-dependent flakes (vy2, and a TestSmokeGolden flake during Phase 2 that a bisect settled), so the gate is not theoretical.\n- THE STRIKE BUDGET. A run that fails to fix a failure gets a bounded number of attempts, then escalates to a human instead of looping. Phase 2's cost lesson applies: an agent that does not converge costs 100% of its tokens for 0% of the work.\n\nFACTORY-OWNED BRANCHES ONLY. This must never push to a branch a human owns, and 'owns' has to be structural — a branch-name convention plus the credential grade, not a check the prompt is asked to respect.",
+  "status": "open",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "pzf"
+  ],
+  "parent": "szp",
+  "acceptance_criteria": "A reproducible CI failure on a factory-owned branch gets a fix attempt; a flaky failure does not; a run that strikes out escalates rather than retrying; nothing can dispatch against a human-owned branch.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-23T18:04:28.872916Z",
+  "updated_at": "2026-08-23T18:04:28.872916Z"
+}

@@ -983,7 +983,7 @@ main() {
 		exit $?
 	fi
 
-	say "worker ${run_id}: tick ${tick_id:-<unset>} of epic ${epic} at ${base_sha} (harness ${harness})"
+	say "worker ${run_id}: tick ${tick_id:-<unset>} of epic ${epic} at ${base_sha} (harness ${harness})$(trace_note)"
 	require_inputs
 	result_path="RESULT-${tick_id}.md"
 	require_gateway

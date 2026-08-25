@@ -439,6 +439,17 @@ export function gatewayMetadata(token: RunGatewayToken, run: Run): GatewayMetada
     project: run.project,
     epic: run.epic,
     attempt: String(token.attempt),
+    // Stamped on every proposed request so `tk cloud trace` can go from a
+    // trace id to what the model was asked and what it spent — the fourth
+    // record in the chain, after the tick, the run and the container's log
+    // (tick hyi). Taken from the RUN ROW rather than from anything the caller
+    // sent, exactly as the affinity key is: a metadata value an agent could
+    // choose would let one run's spend be filed under another's chain.
+    //
+    // Empty for a run that predates trace ids. Empty rather than a
+    // placeholder, because a filter for "" and a filter for a real id are then
+    // honestly different queries.
+    trace_id: run.trace_id ?? "",
   };
 }
 
@@ -451,7 +462,14 @@ export function gatewayMetadata(token: RunGatewayToken, run: Run): GatewayMetada
  * match nothing at all — indistinguishable, to a budget, from a run that spent
  * nothing.
  */
-export const GATEWAY_METADATA_KEYS = ["run_id", "tick_id", "project", "epic", "attempt"] as const;
+export const GATEWAY_METADATA_KEYS = [
+  "run_id",
+  "tick_id",
+  "project",
+  "epic",
+  "attempt",
+  "trace_id",
+] as const;
 
 export type GatewayMetadataKey = (typeof GATEWAY_METADATA_KEYS)[number];
 

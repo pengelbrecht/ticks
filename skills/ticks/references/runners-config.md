@@ -55,6 +55,9 @@ version = 2                 # optional; 1 or 2 — 2 once any command table is p
 
 [sandbox]                   # optional — the sandbox this repo's runs get
                             #            image / toolchain / setup
+
+[signals.sources.<name>]    # optional — a webhook sender this repo accepts
+                            #            signals from; scheme + payload mapping
 ```
 
 ### `version`, and what an older reader does with a newer file
@@ -324,6 +327,64 @@ The control plane reads this file at the **submitted SHA** — never from the su
 The container is the backstop, and it is the reader that cannot be skipped: the entrypoint compares this file's declaration — read by `tk`, in the checkout — against the image it was told it got (`TICKS_SANDBOX_IMAGE`) and refuses the boot with exit 6 when they differ. So a control plane that could not read this file (a GitHub outage; `[[sandbox.setup]]` array-of-tables syntax, which its reader refuses) boots the deployment's own image and the container ends the run legibly, rather than a wave provisioning and spending in an image the repository did not ask for.
 
 `toolchain` and `setup` are honoured on both substrates.
+
+## The signal sources a repo accepts
+
+`[signals.sources.<name>]` declares a webhook sender whose deliveries become **draft ticks** in this repository. It is the general case behind the two built-in sources: GitHub issues behind a maintainer's consent label, and Telegram. Absent — the 99% path — means the repository accepts no generic webhooks.
+
+```toml
+# fragment
+[signals.sources.sentry]
+secret = "SIGNAL_SECRET_SENTRY"     # the NAME of a Worker secret, never a secret
+header = "sentry-hook-signature"
+algorithm = "hmac-sha256"           # optional; the default
+encoding = "hex"                    # optional; the default
+prefix = ""                         # optional; the default (e.g. "sha256=", "v1=")
+external_ref = "data.issue.id"      # a PAYLOAD PATH — the dedup key
+title = "data.issue.title"          # a PAYLOAD PATH
+description = "data.issue.culprit"  # a PAYLOAD PATH, optional
+type = "bug"                        # a CONSTANT, optional
+priority = 1                        # a CONSTANT, optional
+labels = ["sentry"]                 # CONSTANTS, optional
+```
+
+The factory then serves `POST /api/hooks/source/<owner>/<repo>/sentry`, verifies the declared scheme over the raw body, maps the payload, and hands the result to the same funnel every other source uses. **Draft is literal:** a delivery becomes a proposal in the operator channel, and a human pressing Create is what puts a tick in `.tick/`. A declaration here is consent to *propose*, never consent to file.
+
+### Paths and constants, fixed per key
+
+`external_ref`, `title` and `description` are **paths into the payload** and never literal text. `type`, `priority` and `labels` are **constants** and never paths. Which is which is fixed per key, so no value is ever ambiguous — and prose written where a path was expected (`title = "A new Sentry alert"`) is refused by the loader at author time rather than resolving to nothing at delivery time.
+
+Nothing structural is read from the payload. A payload that says `"priority": 0` or `"parent": "hdt"` files a tick at the declared priority with no parent, those lines quoted and inert in the description. The sender's prose reaches exactly one destination — the tick description — and gets there sanitised and quoted behind `> `, because it is text a stranger wrote reaching a surface a human then acts on with a button.
+
+### `secret` is a name, never a secret
+
+This file is tracked and, for most repositories, public. A shared secret written into it is a shared secret published. So `secret` names a Worker secret binding — `SIGNAL_SECRET_<SOURCE>` — whose value the operator sets on the deployment (`wrangler secret put SIGNAL_SECRET_SENTRY`). A declared source whose secret the deployment does not hold gets **503 and ingests nothing**, rather than a door that accepts anything.
+
+The `SIGNAL_SECRET_` prefix is enforced, not a convention: without it a repository could nominate the factory's GitHub token as an HMAC key.
+
+### Registering the source is the consent
+
+GitHub issue ingestion has a per-item consent boundary because GitHub has a permission model behind labelling. A generic webhook sender has none, so there is nothing per-item to consent to. The boundary here is **the shared secret plus this declaration**: the act of registering the source, in a tracked file the repository reviews, is the consent, and it is given once for the source rather than once per delivery. The repository must also be **enrolled** with the factory — a repository's own declaration is not consent for a factory the operator never pointed at it.
+
+Registering a chatty sender is therefore a decision about volume, made in a pull request. Every delivery still lands as a tick a human has to dispatch.
+
+### Dedup is the funnel's
+
+`external_ref` is a path to the sender's **own stable id for the subject** — an issue id, an incident id — not a delivery id, which changes on every retry. It becomes half of `(source, external_ref)`, the key the signal funnel already dedups on. A redelivery comes back as a duplicate naming the original proposal and proposes nothing new — **whatever the human did with it, including discarding it**, which is what stops a chatty sender re-proposing something a human already declined. There is no second dedup, and a source must not be named `github` or `telegram`: it would share a built-in source's key space.
+
+### Rules the loader enforces
+
+| Declaration | Why it fails |
+|---|---|
+| any key the schema does not name | **Fail closed by key.** A typo'd `header` silently ignored is an unauthenticated door. |
+| `secret = "s3cr3t"` | `secret` is the NAME of a Worker secret. A value here is a value published. |
+| `secret = "GITHUB_TOKEN"` | Outside the `SIGNAL_SECRET_` prefix: a declaration must not nominate an unrelated credential. |
+| `[signals.sources.github]` | Shares a built-in source's dedup key space. |
+| `title = "A new alert"` | A mapping key is a payload path, never literal text. |
+| a missing `secret`, `header`, `external_ref` or `title` | An unsigned door is not a door, and a signal that cannot be deduped files a tick per retry. |
+| `algorithm = "md5"`, `encoding = "rot13"`, `type = "incident"`, `priority = 9` | Closed enums and bounds; an unknown value never falls back to a default. |
+
+Two readers hold this table, and they must agree: `tk` validates it at author time (so a wrong declaration fails at the CLI, not at a delivery three weeks later), and the factory Worker acts on it. The golden cases both run live in `cloud/factory/test/fixtures/signal-source-cases.json`.
 
 ## The deprecated markdown path
 

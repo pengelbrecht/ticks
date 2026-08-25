@@ -80,6 +80,10 @@
         "type": { "const": "run_event" },
         "epicId": { "type": "string", "description": "Epic being worked on" },
         "taskId": { "type": "string", "description": "Task ID (if task-level event)" },
+        "traceId": {
+          "type": "string",
+          "description": "Trace id joining this event to the message that caused the run and to the containers working on it (D20). Absent for a run that belongs to no traced chain."
+        },
         "source": { "$ref": "#/$defs/RunEventSource" },
         "event": { "$ref": "#/$defs/RunEventData" }
       }

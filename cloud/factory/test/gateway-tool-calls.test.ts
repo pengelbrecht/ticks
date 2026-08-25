@@ -80,6 +80,7 @@ async function liveToken(): Promise<string> {
     started_at: new Date().toISOString(),
     ended_at: null,
     cost_usd: 0,
+    trace_id: null,
   };
   await insertRun(env.DB, run);
   const { token } = await issueRunToken(env, { run_id: run.run_id, tick_id: "xrz", attempt: 1 });

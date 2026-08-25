@@ -29,9 +29,11 @@ import (
 //  0. wrangler, logged in — the precondition everything else needs.
 //  1. a deployment — offered, never assumed (D16: the factory runs in the
 //     operator's own account or not at all).
-//  2. a GitHub credential — a fine-grained repo-scoped PAT is the first rung
-//     (D11); a personal GitHub App with per-run installation tokens is the
-//     documented upgrade path, not a first-run ask.
+//  2. a GitHub credential — the DEVICE FLOW against the ticks GitHub App is
+//     the shipped rung (D11): a code, one browser approval, and the operator
+//     picks the repositories right there. --github-token stays the manual
+//     escape hatch, and an operator who registers their OWN App gets the
+//     private-key rung and its per-run installation tokens as the upgrade.
 //  3. model access — the operator's own AI Gateway (D17) plus the provider
 //     behind it. Workers AI is the rung with no key at all: inference bills to
 //     the same Cloudflare account through the Worker's own binding.
@@ -180,6 +182,16 @@ type SetupOptions struct {
 	// (tests).
 	CloudflareAPIBase string
 
+	// GitHubClientID names the GitHub App the device flow authenticates
+	// against. Empty falls back to the environment and then to the client id
+	// shipped in this build (githubapp.go); still empty means this build ships
+	// no App, and the walk asks for a token by hand instead of offering a flow
+	// that cannot work.
+	GitHubClientID string
+	// GitHubOAuthBase overrides https://github.com — the host the device flow
+	// runs on, which is NOT the REST API host (GHES, tests).
+	GitHubOAuthBase string
+
 	// Answers supplied up front instead of prompted for.
 	GitHubToken string
 	GatewayURL  string
@@ -204,6 +216,25 @@ type SetupOptions struct {
 
 	// deployFn overrides the deploy invoked from the deployment rung (tests).
 	deployFn func(context.Context, Options) (*Result, error)
+
+	// deviceFlowNow and deviceFlowSleep are the device flow's clock. Tests
+	// replace them so a poll cadence measured in seconds is asserted on rather
+	// than waited out.
+	deviceFlowNow   func() time.Time
+	deviceFlowSleep func(context.Context, time.Duration) error
+}
+
+// deviceFlow builds the device-flow configuration this walk runs with. A zero
+// ClientID is the supported "this build ships no App" state, not an error.
+func (o SetupOptions) deviceFlow(out io.Writer) DeviceFlowOptions {
+	return DeviceFlowOptions{
+		ClientID:   ResolveGitHubAppClientID(o.GitHubClientID),
+		OAuthBase:  o.GitHubOAuthBase,
+		HTTPClient: o.HTTPClient,
+		Out:        out,
+		now:        o.deviceFlowNow,
+		sleep:      o.deviceFlowSleep,
+	}
 }
 
 // SetupResult is what the walk settled.
@@ -219,6 +250,15 @@ type SetupResult struct {
 	// GitHubRepoChecked reports whether the repo-scope probe ran; false means
 	// no repository could be resolved to check against.
 	GitHubRepoChecked bool
+	// GitHubAuth is how the credential was obtained: AuthDeviceFlow or AuthPAT.
+	GitHubAuth string
+	// GitHubTokenExpiresAt is when the credential stops working. Zero means it
+	// does not expire, which is what a GitHub App registered with user-token
+	// expiration turned off issues.
+	GitHubTokenExpiresAt time.Time
+	// GitHubRefreshed reports that this walk RENEWED a stored credential
+	// instead of minting a new one — no browser was involved.
+	GitHubRefreshed bool
 
 	GatewayURL        string
 	Provider          string
@@ -236,13 +276,124 @@ type SetupResult struct {
 // defaultGitHubAPIBase is GitHub's REST root.
 const defaultGitHubAPIBase = "https://api.github.com"
 
-// gitHubAppUpgradeNote is the second rung of the D11 ladder. It is printed,
-// not walked: minting per-run installation tokens needs a GitHub App the
-// operator creates and installs themselves, which is a heavy first-run ask
-// where a repo-scoped PAT is adequate for a personal factory.
-const gitHubAppUpgradeNote = "Upgrade path (later, optional): a personal GitHub App gives the factory\n" +
-	"per-run installation tokens and the two credential grades of D11.\n" +
-	"See docs/factory-credentials.md — the PAT below is the supported first rung."
+// gitHubAppUpgradeNote is the TOP rung of the D11 ladder. It is printed, not
+// walked, and it always will be: minting per-run installation tokens needs a
+// GitHub App's PRIVATE KEY, and a key shipped inside tk would let any holder
+// mint tokens for every installation of the shared App. So that rung belongs
+// to an operator who registers an App under their own account; the flow below
+// needs only the shared App's public client id.
+const gitHubAppUpgradeNote = "Upgrade path (later, optional): your OWN GitHub App gives the factory\n" +
+	"per-run installation tokens and the two credential grades of D11. It needs\n" +
+	"that App's private key, which is why ticks cannot ship it.\n" +
+	"See docs/factory-credentials.md."
+
+// GitHub credential kinds, as recorded in ~/.ticksrc. They are not cosmetic:
+// only a device-flow credential can be renewed without a browser, and only a
+// device-flow credential is bounded by the repositories chosen at install — so
+// the two fail differently and recover differently, and a report that cannot
+// tell them apart names the wrong remedy.
+const (
+	// AuthDeviceFlow is a user-to-server token from the device flow.
+	AuthDeviceFlow = "device-flow"
+	// AuthPAT is a token supplied by hand (--github-token, or the prompt a
+	// build with no App client id falls back to).
+	AuthPAT = "pat"
+)
+
+// githubRefreshWindow is how much life a stored credential must have left for
+// setup to reuse it rather than renew it. It is generous on purpose: a cloud
+// run lasts hours, and a credential that expires mid-run fails at its push —
+// the most expensive possible moment to discover it.
+const githubRefreshWindow = 2 * time.Hour
+
+// githubCredential is the GitHub rung's whole state: the token, how it was
+// obtained, and everything needed to know when it stops working and whether it
+// can be renewed without a browser.
+type githubCredential struct {
+	Token            string
+	Auth             string
+	ExpiresAt        time.Time
+	RefreshToken     string
+	RefreshExpiresAt time.Time
+}
+
+// credentialFromUserToken adapts a device-flow grant to what gets stored.
+func credentialFromUserToken(token *UserToken) githubCredential {
+	return githubCredential{
+		Token:            token.AccessToken,
+		Auth:             AuthDeviceFlow,
+		ExpiresAt:        token.ExpiresAt,
+		RefreshToken:     token.RefreshToken,
+		RefreshExpiresAt: token.RefreshExpiresAt,
+	}
+}
+
+// storedGitHubCredential reads back what a previous walk settled.
+func storedGitHubCredential(cfg *ticksrc.File) githubCredential {
+	cred := githubCredential{
+		Token:        cfg.Get(ticksrc.KeyFactoryGitHubToken),
+		Auth:         cfg.Get(ticksrc.KeyFactoryGitHubAuth),
+		RefreshToken: cfg.Get(ticksrc.KeyFactoryGitHubRefreshToken),
+	}
+	if cred.Auth == "" && cred.Token != "" {
+		// Written before this file recorded how the credential was obtained.
+		// Anything already there was typed in by hand.
+		cred.Auth = AuthPAT
+	}
+	cred.ExpiresAt = parseDeadline(cfg.Get(ticksrc.KeyFactoryGitHubTokenExpires))
+	cred.RefreshExpiresAt = parseDeadline(cfg.Get(ticksrc.KeyFactoryGitHubRefreshExpires))
+	return cred
+}
+
+// parseDeadline reads a stored RFC 3339 deadline. An unparseable or absent
+// value is the zero time, which every caller reads as "does not expire" —
+// deliberately, because the alternative (treating it as long past) would
+// condemn the recommended App registration, which issues no deadline at all.
+func parseDeadline(value string) time.Time {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return time.Time{}
+	}
+	parsed, err := time.Parse(time.RFC3339, value)
+	if err != nil {
+		return time.Time{}
+	}
+	return parsed
+}
+
+func formatDeadline(deadline time.Time) string {
+	if deadline.IsZero() {
+		return ""
+	}
+	return deadline.UTC().Format(time.RFC3339)
+}
+
+// DescribeGitHubLifetime says how long a credential has left, in the words a
+// report can use directly. It is shared by setup and status so the two cannot
+// disagree about whether a credential is live.
+func DescribeGitHubLifetime(expiresAt, now time.Time) string {
+	if expiresAt.IsZero() {
+		return "does not expire"
+	}
+	remaining := expiresAt.Sub(now)
+	if remaining <= 0 {
+		return "EXPIRED " + expiresAt.UTC().Format(time.RFC3339)
+	}
+	return "expires in " + roundDuration(remaining) + " (" + expiresAt.UTC().Format(time.RFC3339) + ")"
+}
+
+// roundDuration renders a lifetime at the precision a human acts on: whole
+// hours for anything over a day, minutes below that.
+func roundDuration(d time.Duration) string {
+	switch {
+	case d >= 24*time.Hour:
+		return fmt.Sprintf("%dd%dh", int(d.Hours())/24, int(d.Hours())%24)
+	case d >= time.Hour:
+		return d.Round(time.Minute).String()
+	default:
+		return d.Round(time.Second).String()
+	}
+}
 
 // Setup walks the credential ladder and returns what it settled.
 func Setup(ctx context.Context, opts SetupOptions) (*SetupResult, error) {
@@ -385,10 +536,18 @@ func setupDeployment(
 	return nil
 }
 
-// setupGitHub settles rung 2. The PAT is proven twice — it authenticates, and
-// it can see the repository the factory will clone — because a fine-grained
-// PAT that authenticates but was never granted the target repo is the single
-// most common way this rung is misconfigured.
+// setupGitHub settles rung 2, the one operator friction lived in: the walk no
+// longer stops and asks anyone to hand-build a fine-grained PAT in the GitHub
+// UI. It prints a code, the operator approves it at github.com/login/device and
+// picks the repositories the factory may use, and what comes back is a
+// user-to-server token — narrower than `gh auth token` (every repo, plus
+// admin:org) and cheaper than the PAT form.
+//
+// The credential is still proven TWICE before anything is stored — it
+// authenticates, and it can write to the repository the factory will clone —
+// because "approved the App but did not tick this repository" is now the single
+// most common way this rung is misconfigured, exactly as un-granted repository
+// access was for a PAT.
 func setupGitHub(
 	ctx context.Context,
 	w *wrangler,
@@ -412,82 +571,287 @@ func setupGitHub(
 		apiBase = defaultGitHubAPIBase
 	}
 
-	token := strings.TrimSpace(opts.GitHubToken)
-	if token == "" {
-		stored := cfg.Get(ticksrc.KeyFactoryGitHubToken)
-		if stored != "" {
-			if login, err := probeGitHubUser(ctx, client, apiBase, stored); err == nil {
-				fmt.Fprintf(out, "\nGitHub: the stored token still works (@%s)\n", login)
-				answer, err := promptLine(in, out, "Replace it? [y/N] ")
-				if err != nil {
-					return err
-				}
-				if !isYes(answer) {
-					result.GitHubLogin = login
-					result.GitHubRepo = cfg.Get(ticksrc.KeyFactoryGitHubRepo)
-					fmt.Fprintf(out, "Keeping the stored GitHub token.\n")
-					return nil
-				}
-			} else {
-				fmt.Fprintf(out, "\nGitHub: the stored token no longer works (%v) — a new one is needed\n", err)
-			}
-		}
+	// --github-token is the manual escape hatch, and it bypasses everything
+	// below: an operator who supplies a credential is not asked to approve one.
+	cred := githubCredential{Token: strings.TrimSpace(opts.GitHubToken), Auth: AuthPAT}
 
-		fmt.Fprintf(out, "\nGitHub credential\n")
-		fmt.Fprintf(out, "Create a fine-grained personal access token scoped to %s with\n", orThisRepo(repo))
-		fmt.Fprintf(out, "Contents: Read and write, and Pull requests: Read and write:\n")
-		fmt.Fprintf(out, "  https://github.com/settings/personal-access-tokens/new\n")
-		fmt.Fprintf(out, "%s\n\n", gitHubAppUpgradeNote)
-
-		typed, err := promptSecret(in, raw, out, "Fine-grained PAT: ")
+	if cred.Token == "" {
+		kept, next, err := reuseStoredGitHubCredential(ctx, w, in, out, client, cfg, opts, apiBase, repo, result)
 		if err != nil {
 			return err
 		}
-		token = typed
+		if kept {
+			return nil
+		}
+		if next.Token == "" {
+			obtained, err := obtainGitHubCredential(ctx, in, raw, out, opts, repo)
+			if err != nil {
+				return err
+			}
+			next = obtained
+		}
+		cred = next
 	}
-	if token == "" {
-		return errors.New("a GitHub token is required — create a fine-grained, repo-scoped PAT and run setup again")
+	if cred.Token == "" {
+		return errors.New("a GitHub credential is required — run setup again and approve the ticks App, " +
+			"or pass --github-token to supply one directly")
 	}
 
 	// Verify before anything is stored.
-	login, err := probeGitHubUser(ctx, client, apiBase, token)
+	login, err := probeGitHubUser(ctx, client, apiBase, cred.Token)
 	if err != nil {
-		return fmt.Errorf("verifying the GitHub token: %w", err)
+		return fmt.Errorf("verifying the GitHub credential: %w", err)
 	}
-	fmt.Fprintf(out, "GitHub token accepted for @%s\n", login)
+	fmt.Fprintf(out, "GitHub credential accepted for @%s\n", login)
 
 	if repo != "" {
-		push, err := probeGitHubRepo(ctx, client, apiBase, token, repo)
+		push, err := probeGitHubRepo(ctx, client, apiBase, cred.Token, repo)
 		if err != nil {
-			return fmt.Errorf("verifying the GitHub token against %s: %w", repo, err)
+			return fmt.Errorf("verifying the GitHub credential against %s: %w\n%s", repo, err, repoScopeRemedy(cred.Auth, repo))
 		}
 		if !push {
-			return fmt.Errorf("the GitHub token can read %s but cannot write to it — "+
-				"grant the token Contents: Read and write on that repository, then run setup again", repo)
+			return fmt.Errorf("the GitHub credential can read %s but cannot write to it\n%s", repo, writeScopeRemedy(cred.Auth, repo))
 		}
-		fmt.Fprintf(out, "GitHub token can write to %s\n", repo)
+		fmt.Fprintf(out, "GitHub credential can write to %s\n", repo)
 		result.GitHubRepoChecked = true
 	} else {
 		fmt.Fprintf(out, "note: no git remote to check the repository scope against — "+
 			"pass --repo owner/name to verify it\n")
 	}
 
-	// Verified, so now persist: the Worker secret first (the copy that matters
-	// to a run), the local mirror second (the copy `tk factory status` reads).
-	if err := putSecret(ctx, w, opts, SecretGitHubToken, token); err != nil {
+	if err := storeGitHubCredential(ctx, w, out, cfg, opts, cred, login, repo); err != nil {
 		return err
 	}
-	cfg.Set(ticksrc.KeyFactoryGitHubToken, token)
+
+	result.GitHubLogin = login
+	result.GitHubRepo = repo
+	result.GitHubAuth = cred.Auth
+	result.GitHubTokenExpiresAt = cred.ExpiresAt
+	return nil
+}
+
+// reuseStoredGitHubCredential offers back what a previous walk settled, after
+// renewing it when it is close enough to its deadline that a run started after
+// this walk could outlive it.
+//
+// It reports kept=true when the operator chose to keep the stored credential
+// untouched (nothing more to verify or write), or hands back the credential the
+// walk should carry forward — which is the renewed one when a refresh
+// succeeded, so the caller re-proves and re-pushes it like any other.
+func reuseStoredGitHubCredential(
+	ctx context.Context,
+	w *wrangler,
+	in *bufio.Reader,
+	out io.Writer,
+	client *http.Client,
+	cfg *ticksrc.File,
+	opts SetupOptions,
+	apiBase string,
+	repo string,
+	result *SetupResult,
+) (bool, githubCredential, error) {
+	stored := storedGitHubCredential(cfg)
+	if stored.Token == "" {
+		return false, githubCredential{}, nil
+	}
+
+	flow := opts.deviceFlow(out)
+	renewed, didRenew, err := renewGitHubCredential(ctx, flow, out, stored)
+	if err != nil {
+		// A renewal that could not happen is not fatal: the stored credential
+		// may still be live, and if it is not, the probe below says so and the
+		// walk mints a fresh one.
+		fmt.Fprintf(out, "\nGitHub: the stored credential could not be renewed — %v\n", err)
+	}
+	if didRenew {
+		stored = renewed
+	}
+
+	login, probeErr := probeGitHubUser(ctx, client, apiBase, stored.Token)
+	if probeErr != nil {
+		fmt.Fprintf(out, "\nGitHub: the stored credential no longer works (%v) — a new one is needed\n", probeErr)
+		return false, githubCredential{}, nil
+	}
+
+	fmt.Fprintf(out, "\nGitHub: the stored credential still works (@%s, %s, %s)\n",
+		login, describeAuth(stored.Auth), DescribeGitHubLifetime(stored.ExpiresAt, flow.clock()))
+
+	if didRenew {
+		// A renewed token is a NEW credential. It has to reach the Worker and
+		// the mirror here, or the factory keeps running on the one that is
+		// about to expire.
+		storedRepo := repo
+		if storedRepo == "" {
+			storedRepo = cfg.Get(ticksrc.KeyFactoryGitHubRepo)
+		}
+		if err := storeGitHubCredential(ctx, w, out, cfg, opts, stored, login, storedRepo); err != nil {
+			return false, githubCredential{}, err
+		}
+		result.GitHubRefreshed = true
+	}
+
+	answer, err := promptLine(in, out, "Replace it? [y/N] ")
+	if err != nil {
+		return false, githubCredential{}, err
+	}
+	if isYes(answer) {
+		return false, githubCredential{}, nil
+	}
+
+	result.GitHubLogin = login
+	result.GitHubRepo = cfg.Get(ticksrc.KeyFactoryGitHubRepo)
+	result.GitHubAuth = stored.Auth
+	result.GitHubTokenExpiresAt = stored.ExpiresAt
+	fmt.Fprintf(out, "Keeping the stored GitHub credential.\n")
+	return true, githubCredential{}, nil
+}
+
+// renewGitHubCredential exchanges the refresh token for a fresh one when the
+// stored credential is inside githubRefreshWindow of its deadline.
+//
+// A credential with no deadline is left alone — that is the recommended
+// registration for the shared App, which has no client secret to refresh with —
+// and so is a PAT, which has no refresh token at all.
+func renewGitHubCredential(ctx context.Context, flow DeviceFlowOptions, out io.Writer, stored githubCredential) (githubCredential, bool, error) {
+	switch {
+	case stored.Auth != AuthDeviceFlow, stored.ExpiresAt.IsZero(), flow.ClientID == "":
+		return stored, false, nil
+	}
+	now := flow.clock()
+	if stored.ExpiresAt.Sub(now) > githubRefreshWindow {
+		return stored, false, nil
+	}
+	if stored.RefreshToken == "" {
+		return stored, false, fmt.Errorf("it %s and no refresh token was stored with it",
+			DescribeGitHubLifetime(stored.ExpiresAt, now))
+	}
+	if !stored.RefreshExpiresAt.IsZero() && !stored.RefreshExpiresAt.After(now) {
+		return stored, false, fmt.Errorf("its refresh token expired on %s, so renewal needs one browser approval again",
+			formatDeadline(stored.RefreshExpiresAt))
+	}
+
+	fmt.Fprintf(out, "\nGitHub: the stored credential %s — renewing it without a browser\n",
+		DescribeGitHubLifetime(stored.ExpiresAt, now))
+	token, err := RefreshUserToken(ctx, flow, stored.RefreshToken)
+	if err != nil {
+		return stored, false, err
+	}
+	return credentialFromUserToken(token), true, nil
+}
+
+// obtainGitHubCredential gets a credential the operator does not yet have: the
+// device flow when this build names an App, and the manual PAT prompt when it
+// does not — so a build with no client id is a build with the old walk, never a
+// build with a broken one.
+func obtainGitHubCredential(
+	ctx context.Context,
+	in *bufio.Reader,
+	raw io.Reader,
+	out io.Writer,
+	opts SetupOptions,
+	repo string,
+) (githubCredential, error) {
+	flow := opts.deviceFlow(out)
+
+	fmt.Fprintf(out, "\nGitHub credential\n")
+	if flow.ClientID != "" {
+		fmt.Fprintf(out, "No access token to create by hand: approve the ticks GitHub App instead.\n")
+		fmt.Fprintf(out, "It asks for Contents and Pull requests on the repositories YOU pick, and\n")
+		fmt.Fprintf(out, "the credential it hands back can reach nothing else.\n")
+		token, err := DeviceFlow(ctx, flow)
+		if err != nil {
+			return githubCredential{}, err
+		}
+		return credentialFromUserToken(token), nil
+	}
+
+	fmt.Fprintf(out, "This tk build ships no GitHub App client id, so the device flow is not\n")
+	fmt.Fprintf(out, "available and a token has to be supplied by hand.\n")
+	fmt.Fprintf(out, "Create a fine-grained personal access token scoped to %s with\n", orThisRepo(repo))
+	fmt.Fprintf(out, "Contents: Read and write, and Pull requests: Read and write:\n")
+	fmt.Fprintf(out, "  https://github.com/settings/personal-access-tokens/new\n")
+	fmt.Fprintf(out, "%s\n\n", gitHubAppUpgradeNote)
+
+	typed, err := promptSecret(in, raw, out, "Fine-grained PAT: ")
+	if err != nil {
+		return githubCredential{}, err
+	}
+	return githubCredential{Token: strings.TrimSpace(typed), Auth: AuthPAT}, nil
+}
+
+// storeGitHubCredential persists a VERIFIED credential: the Worker secret first
+// (the copy that matters to a run), the local mirror second (the copy `tk
+// factory status` reads).
+//
+// The refresh token is written to the mirror and NOWHERE else. It outlives the
+// token it mints, so pushing it as a Worker secret — from where a sandbox could
+// read it — would hand a run a longer-lived credential than the one it needs,
+// which is exactly what D11 forbids.
+func storeGitHubCredential(
+	ctx context.Context,
+	w *wrangler,
+	out io.Writer,
+	cfg *ticksrc.File,
+	opts SetupOptions,
+	cred githubCredential,
+	login string,
+	repo string,
+) error {
+	if err := putSecret(ctx, w, opts, SecretGitHubToken, cred.Token); err != nil {
+		return err
+	}
+	cfg.Set(ticksrc.KeyFactoryGitHubToken, cred.Token)
 	cfg.Set(ticksrc.KeyFactoryGitHubLogin, login)
 	cfg.Set(ticksrc.KeyFactoryGitHubRepo, repo)
+	cfg.Set(ticksrc.KeyFactoryGitHubAuth, cred.Auth)
+	cfg.Set(ticksrc.KeyFactoryGitHubTokenExpires, formatDeadline(cred.ExpiresAt))
+	cfg.Set(ticksrc.KeyFactoryGitHubRefreshToken, cred.RefreshToken)
+	cfg.Set(ticksrc.KeyFactoryGitHubRefreshExpires, formatDeadline(cred.RefreshExpiresAt))
 	if err := cfg.Save(); err != nil {
 		return err
 	}
 	fmt.Fprintf(out, "%s stored as a Worker secret\n", SecretGitHubToken)
-
-	result.GitHubLogin = login
-	result.GitHubRepo = repo
+	if cred.Auth == AuthDeviceFlow && !cred.ExpiresAt.IsZero() {
+		// Say the deadline out loud at the moment it is created. A run that
+		// outlives it fails at its push, and the operator should have read the
+		// number once before that happens.
+		fmt.Fprintf(out, "  the credential %s; `tk factory setup` renews it without a browser\n",
+			DescribeGitHubLifetime(cred.ExpiresAt, opts.deviceFlow(io.Discard).clock()))
+	}
 	return nil
+}
+
+// describeAuth names the rung a stored credential came from.
+func describeAuth(auth string) string {
+	switch auth {
+	case AuthDeviceFlow:
+		return "device flow"
+	case AuthPAT:
+		return "token supplied by hand"
+	default:
+		return auth
+	}
+}
+
+// repoScopeRemedy names what to fix when the credential cannot SEE the repo.
+// The two rungs fail identically at the API and are fixed in completely
+// different places, so one message for both would send half the operators to
+// the wrong screen.
+func repoScopeRemedy(auth, repo string) string {
+	if auth == AuthDeviceFlow {
+		return fmt.Sprintf("The ticks App is not installed on %s, or you did not select it when you "+
+			"approved the code. Run `tk factory setup` again and tick that repository.", repo)
+	}
+	return fmt.Sprintf("List %s under the token's Repository access, then run setup again.", repo)
+}
+
+// writeScopeRemedy names what to fix when the credential can read but not push.
+func writeScopeRemedy(auth, repo string) string {
+	if auth == AuthDeviceFlow {
+		return fmt.Sprintf("Grant the ticks App Contents: Read and write on %s in your GitHub App "+
+			"installation settings, then run setup again.", repo)
+	}
+	return fmt.Sprintf("Grant the token Contents: Read and write on %s, then run setup again.", repo)
 }
 
 // setupGateway settles rung 3: all cloud model traffic goes through the
@@ -852,9 +1216,11 @@ func githubGet(ctx context.Context, client *http.Client, endpoint, token string,
 	case http.StatusForbidden:
 		return fmt.Errorf("GitHub refused the request (403): %s", githubMessage(body))
 	case http.StatusNotFound:
-		// A fine-grained PAT sees a 404, not a 403, for a repository it was
-		// never granted — so this is the repo-scope message, not a typo one.
-		return errors.New("not visible to this token (404) — a fine-grained PAT must list this repository under Repository access")
+		// A credential sees a 404, not a 403, for a repository it was never
+		// granted — so this is the repo-scope message, not a typo one. WHICH
+		// grant is missing depends on the rung, so the remedy is added by the
+		// caller that knows it (repoScopeRemedy).
+		return errors.New("not visible to this credential (404) — it was never granted access to this repository")
 	default:
 		return fmt.Errorf("GitHub returned %s: %s", resp.Status, githubMessage(body))
 	}
