@@ -453,17 +453,56 @@ starts a command in a sandbox.
 | `TICKS_WORKDIR` | no | Checkout path, default `/work/repo`. |
 | `TICKS_CACHE_DIR` | no | Cache tree, default `/cache`. |
 | `TICKS_RUN_ID` | no | Run id, echoed into the log banner and exported. |
-| `TICKS_PHASE` | no | `run` (default), `reconcile` or `closeout` — what this boot is for (below). |
+| `TICKS_PHASE` | no | `run` (default), `reconcile`, `wave`, `closeout` or `review` — what this boot is for (below). |
 | `TICKS_STOP_REASON` | no | Why a `closeout` boot is stopping; carried into the prompt. |
+| `TICKS_REVIEW_PR` | on `review` | The pull request this boot reviews. Required on a `review` boot and meaningless elsewhere: the run-to-pull-request binding lives in the factory's own record, and a container that could name its own would be one that could comment on somebody else's. |
+| `TICKS_REVIEW_HEAD_SHA` | on `review` | The commit the control plane dispatched the review for. A pull request that has moved since is reviewed as it stands now, out loud. |
+| `TICKS_REVIEW_OUTPUT` | no | Where the harness writes its findings on a `review` boot; the ENTRYPOINT posts that file to the factory's `/api/review` door with the run's own credential. Defaults to `/tmp/ticks-review-<run id>.md`. |
 | `TICKS_SANDBOX_IMAGE` | no | The image reference the control plane booted. Reported, and compared against a repository's declared `[sandbox].image`: a mismatch ends the boot with exit 6 rather than running a wave in an image nobody asked for. Unset (a hand-driven boot) means the comparison cannot be made, which is a warning. |
 | `TICKS_KEEPER_INTERVAL` | no | Seconds between run-keeper passes — one push of the run branch when it has moved, one heartbeat — default 60. `0` turns the keeper off, which means nothing this run commits reaches origin until it chooses to push. See *The run branch, and why it is pushed continuously*. |
 | `TICKS_RUN_BRANCH` | derived | **Output, not input.** The branch this run's commits land on (`tick-run/<epic>`), exported so the orchestrator and everything it spawns name the same branch. Setting it has no effect; the entrypoint derives it. |
 | `TICKS_FACTORY_URL` | no | Factory Worker URL for the RunRoom-backed operator channel. |
 | `TICKS_FACTORY_TOKEN` | no | Ephemeral factory bearer credential used by `tk ask` to sync gates. Never written to the checkout. |
 | `TICKS_FACTORY_PROJECT` | no | Canonical `owner/repo` for the RunRoom; defaults to the checked-out Git remote when omitted. |
-| `GITHUB_TOKEN` | no | Clone/push credential, wired into a git credential helper. |
+| `GITHUB_TOKEN` | no | Clone/push credential, wired into a git credential helper. **Not always a GitHub token** (D11, tick pzf): a `write`-grade run gets the operator's, and its `TICKS_REPO_URL` is github.com; a `read_only` run gets its own `tkr_` run token, and `TICKS_REPO_URL` points at the factory's read-only `/api/git` door. The helper answers for any host, so the container needs no knowledge of which it holds — and a read-only run holds nothing github.com would accept. The helper only fires when the remote **challenges** for Basic: git picks its auth scheme from the 401's `WWW-Authenticate` header, so a 401 without one means the token never leaves this container (tick jwd). `explain_git_refusal` probes for exactly that when a fetch fails, because git's own `fatal: Authentication failed` cannot tell the two apart. |
 | `TICKS_GIT_NAME`, `TICKS_GIT_EMAIL` | no | Commit identity for tracker writes. |
 | `TICKS_TK_VERSION` | baked | The tk version the image pins; the entrypoint refuses a different `tk` on PATH. |
+
+## The review phase, and the one rule that makes it safe
+
+A `review` boot (UC5, tick `v7g`) reads one pull request's diff, writes findings
+to `TICKS_REVIEW_OUTPUT`, and the entrypoint POSTs that file to the factory's
+`/api/review` door. It is always a `read_only`-grade run, so its `GITHUB_TOKEN`
+is its own `tkr_` credential and its remote is the factory's git door — it could
+not push if its prompt told it to.
+
+**A review container never executes anything from the pull request.** The head
+is fetched as a ref (`refs/remotes/pr/<n>`) and the working tree stays at
+`TICKS_BASE_SHA`, the tracked tree the run was submitted at. No `[sandbox]`
+setup runs, no toolchain is provisioned, no pre-flight command is executed, and
+nothing from the pull request is checked out. Anyone can open a pull request
+against a public repository and `[sandbox].setup` is a list of shell commands:
+without this rule the safest loop in the product would be its widest remote
+code execution path.
+
+Two consequences worth stating: a review is *fast* (it skips the steps tick
+`kuf` measured as the whole of a wave's fan-out cost), and its prompt says the
+diff is evidence rather than direction — text in a diff that addresses the
+reviewer is a finding to report, not an instruction.
+
+**Not every pull request gets one** (tick `ytd`). A container never sees the
+decision — it is made in the control plane before a boot exists — but it is
+what decides whether this phase runs at all: a pull request whose author has
+write access to the base repository is reviewed automatically, and every other
+pull request needs the `tk` consent label, which only somebody with triage
+rights can apply. A per-repository daily cap sits behind that. The rule and its
+edges are in `repo-wiki/pr-review-loop.md`.
+
+**Exit `12`** is a review whose findings never reached the factory: the diff was
+read, the model was paid for, and the comment — the only durable thing a
+read-only run produces — does not exist. It is not terminal; a second boot
+re-reviews, and the door answers a post whose comment already landed with a
+refusal the container reads as success.
 
 ## The run branch, and why it is pushed continuously
 

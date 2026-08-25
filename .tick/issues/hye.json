@@ -2,7 +2,8 @@
   "id": "hye",
   "title": "Cron sweeps: deterministic selection, Workflow-enforced budgets",
   "description": "D14/D15. A schedule picks work and runs it without anyone asking.\n\nTWO PROPERTIES THE DESIGN DOC IS EXPLICIT ABOUT, and both are about auditability rather than capability:\n- SELECTION IS DETERMINISTIC: priority, then age, then id. No model call, no judgement. 'Why did it pick these five' must have a boring answer.\n- BUDGETS ARE ENFORCED BY THE WORKFLOW, not by the prompt (D14). Phase 2 established what happens otherwise — a run that outlives its supervisor keeps spending, and the record it writes cannot report its own death.\n\nThe sweep policy shape from the design doc: a filter, max_ticks, budget_usd, tier and a completion gate. Phase 2's clamp lesson applies to every one of those numbers: report the EFFECTIVE budget after clamping, because an operator whose ceiling was silently replaced learns about it from a cancelled run.",
-  "status": "open",
+  "notes": "2026-08-24 18:18 - runner-state: substrate=herdr kind=claude branch=tick/hye worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-hye workspace=wG4 base=446a8bccaf3d7f916bded44c5e2d0277d7544b99 agent=tick-hye pane=wG4:p1 session=914f780a-5d6c-4a4f-97bf-ce6e0877fb2f\n2026-08-24 18:59 - runner-state: runner=herdr branch=tick/hye merged gate=green (factory vitest 1086)",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -13,5 +14,7 @@
   "acceptance_criteria": "A cron sweep selects deterministically and the selection is explainable from the record alone; its budget is enforced by the Workflow and the effective value is reported; a sweep that trips its budget stops without losing the work already done.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-23T18:04:59.980165Z",
-  "updated_at": "2026-08-23T18:04:59.980165Z"
+  "updated_at": "2026-08-24T16:59:14.200974Z",
+  "closed_at": "2026-08-24T16:59:14.200974Z",
+  "closed_reason": "Completed: cron sweeps select deterministically — priority, then age, then id, no model call — so 'why did it pick these five' is answerable from the record alone. Budgets are Workflow-enforced rather than prompt-enforced (D14), and the EFFECTIVE budget after clamping is reported, which is the gap tick 7zk found when an operator's --max-cost 40 became a silent $8 and they learned about it from a cancelled run."
 }

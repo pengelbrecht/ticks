@@ -44,6 +44,22 @@ export interface Run {
    * belonged to no traced chain must not be made to look as though it did.
    */
   trace_id: string | null;
+  /**
+   * Which credential this run is issued (D11, tick pzf) — `write` or
+   * `read_only`, from `src/credentials.ts`'s closed vocabulary.
+   *
+   * Typed as a plain string here for the same reason `state` is: this is the
+   * shape D1 returns, and narrowing it belongs where the value is interpreted
+   * (`credentialGrade`), which is also where an unrecognised one fails closed.
+   *
+   * Decided at submission and never by the run. A container has no route to
+   * this column: it cannot set it, and reading it would buy it nothing —
+   * whether it holds a credential that can push was settled before it booted.
+   *
+   * Rows written before migrations/0009 carry the column's `write` default,
+   * which is the truth about them: they really did hold a write credential.
+   */
+  credential_grade: string;
 }
 
 /**
@@ -80,8 +96,9 @@ export async function insertRun(db: D1Database, run: Run): Promise<void> {
   await db
     .prepare(
       `INSERT INTO runs
-        (run_id, project, epic, base_sha, requested_by, state, started_at, ended_at, cost_usd, trace_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+        (run_id, project, epic, base_sha, requested_by, state, started_at, ended_at, cost_usd,
+         trace_id, credential_grade)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
     .bind(
       run.run_id,
@@ -93,7 +110,8 @@ export async function insertRun(db: D1Database, run: Run): Promise<void> {
       run.started_at,
       run.ended_at,
       run.cost_usd,
-      run.trace_id
+      run.trace_id,
+      run.credential_grade
     )
     .run();
 }
@@ -195,7 +213,7 @@ export async function getRun(db: D1Database, runId: string): Promise<Run | null>
   return db
     .prepare(
       `SELECT run_id, project, epic, base_sha, requested_by, state,
-              started_at, ended_at, cost_usd, trace_id
+              started_at, ended_at, cost_usd, trace_id, credential_grade
        FROM runs
        WHERE run_id = ?`
     )
@@ -221,7 +239,7 @@ export async function updateRunCost(
        SET cost_usd = ?
        WHERE run_id = ?
        RETURNING run_id, project, epic, base_sha, requested_by, state,
-                 started_at, ended_at, cost_usd, trace_id`
+                 started_at, ended_at, cost_usd, trace_id, credential_grade`
     )
     .bind(costUsd, runId)
     .first<Run>();
@@ -442,7 +460,7 @@ export async function listRuns(
   const result = await db
     .prepare(
       `SELECT run_id, project, epic, base_sha, requested_by, state,
-              started_at, ended_at, cost_usd, trace_id
+              started_at, ended_at, cost_usd, trace_id, credential_grade
        FROM runs${where}
        ORDER BY started_at DESC, run_id DESC
        LIMIT ?`
@@ -472,7 +490,7 @@ export async function updateRunState(
        SET state = ?, ended_at = COALESCE(?, ended_at)
        WHERE run_id = ?
        RETURNING run_id, project, epic, base_sha, requested_by, state,
-                 started_at, ended_at, cost_usd, trace_id`
+                 started_at, ended_at, cost_usd, trace_id, credential_grade`
     )
     .bind(state, endedAt, runId)
     .first<Run>();
@@ -571,4 +589,85 @@ export async function removeEnrolledProject(db: D1Database, project: string): Pr
   // assignment would silently come back with it on the next enrolment.
   await db.prepare("DELETE FROM project_topic WHERE project = ?").bind(project).run();
   return (result.meta.changes ?? 0) > 0;
+}
+
+// ------------------------------------------------------ cron sweeps (hye) ---
+
+/**
+ * One cron sweep firing, and the whole account of what it selected (D14/D15).
+ *
+ * Written whether or not a run was ignited, because "nothing matched this
+ * morning" and "the tracker could not be read this morning" are different
+ * facts an operator has to be able to tell apart — and neither of them
+ * produces a run to hang the explanation off.
+ */
+export interface SweepSelectionRow {
+  sweep_id: string;
+  project: string;
+  /** The policy's name in `[sweeps.<name>]`. */
+  sweep: string;
+  cron: string;
+  fired_at: string;
+  /** The commit the frontier was read at, or "" when it could not be read. */
+  base_sha: string;
+  outcome: string;
+  run_id: string | null;
+  detail: string;
+  /** The selection as JSON — see migrations/0010_sweep_selection.sql. */
+  record: string;
+}
+
+export async function insertSweepSelection(
+  db: D1Database,
+  row: SweepSelectionRow
+): Promise<void> {
+  await db
+    .prepare(
+      `INSERT OR REPLACE INTO sweep_selection
+        (sweep_id, project, sweep, cron, fired_at, base_sha, outcome, run_id, detail, record)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    )
+    .bind(
+      row.sweep_id,
+      row.project,
+      row.sweep,
+      row.cron,
+      row.fired_at,
+      row.base_sha,
+      row.outcome,
+      row.run_id,
+      row.detail,
+      row.record
+    )
+    .run();
+}
+
+export async function getSweepSelection(
+  db: D1Database,
+  sweepID: string
+): Promise<SweepSelectionRow | null> {
+  return await db
+    .prepare("SELECT * FROM sweep_selection WHERE sweep_id = ?")
+    .bind(sweepID)
+    .first<SweepSelectionRow>();
+}
+
+/** The most recent sweeps, newest first — optionally for one project. */
+export async function listSweepSelections(
+  db: D1Database,
+  options: { project?: string; limit?: number } = {}
+): Promise<SweepSelectionRow[]> {
+  const limit = Math.max(1, Math.min(options.limit ?? 20, 100));
+  const statement =
+    options.project === undefined
+      ? db
+          .prepare("SELECT * FROM sweep_selection ORDER BY fired_at DESC, sweep_id DESC LIMIT ?")
+          .bind(limit)
+      : db
+          .prepare(
+            "SELECT * FROM sweep_selection WHERE project = ? ORDER BY fired_at DESC, sweep_id DESC LIMIT ?"
+          )
+          .bind(options.project, limit);
+  const result = await statement.all<SweepSelectionRow>();
+  return result.results;
 }

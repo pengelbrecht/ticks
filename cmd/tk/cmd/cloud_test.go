@@ -362,7 +362,11 @@ func TestCloudWithoutFactoryConfigurationNamesSetup(t *testing.T) {
 // counting subcommands would otherwise conclude D21 had been violated.
 func TestCloudExposesOnlyTheClosedCommandVocabulary(t *testing.T) {
 	steering := map[string]bool{"run": true, "stop": true}
-	observation := map[string]bool{"status": true, "logs": true, "trace": true}
+	// `supervisor` reads the run's Workflow instance from OUTSIDE the factory
+	// (tick acy). It observes and cannot steer, so it is an observation like
+	// the other three — the credential it uses is the operator's own read-only
+	// Cloudflare token, not a door into the run.
+	observation := map[string]bool{"status": true, "logs": true, "trace": true, "supervisor": true}
 	// The orchestrator's own hands (D19): dispatch, fan-in, verdict, recovery.
 	dispatch := map[string]bool{"spawn": true, "wait": true, "collect": true, "reconcile": true}
 	// The third kind: reads the checkout it is run in, prints, and touches no
@@ -370,13 +374,22 @@ func TestCloudExposesOnlyTheClosedCommandVocabulary(t *testing.T) {
 	// neither commands a run nor reads one, so it is outside D21 rather than an
 	// addition to it. It still has to say so in its own help.
 	local := map[string]bool{"pr-body": true}
+	// The fifth kind (tick t4y): a container REPORTING A FACT ABOUT ITSELF.
+	// `branch` records with the factory that this run created a branch, on the
+	// run's own gateway token. It commands no run — not even its own: it
+	// starts nothing, stops nothing and changes no run's state, and the record
+	// it writes is read by CI remediation to decide what it may NOT do. A
+	// container telling the control plane what it just did is the opposite
+	// direction of travel from an operator steering a run, which is what D21
+	// closes.
+	report := map[string]bool{"branch": true}
 
 	for _, command := range cloudCmd.Commands() {
 		name := command.Name()
-		if !steering[name] && !observation[name] && !dispatch[name] && !local[name] {
-			t.Errorf("unexpected cloud command %q: it is neither a D21 verb, a D19 dispatch verb, a read-only observation, nor a local git read", name)
+		if !steering[name] && !observation[name] && !dispatch[name] && !local[name] && !report[name] {
+			t.Errorf("unexpected cloud command %q: it is neither a D21 verb, a D19 dispatch verb, a read-only observation, a local git read, nor an in-run record", name)
 		}
-		if (observation[name] || local[name]) && !strings.Contains(command.Long, "D21") {
+		if (observation[name] || local[name] || report[name]) && !strings.Contains(command.Long, "D21") {
 			// Said in the help text, not just in a design doc: the next reader
 			// of `tk cloud --help` counts the subcommands against a four-verb
 			// vocabulary and needs the answer where they are looking.
@@ -386,9 +399,9 @@ func TestCloudExposesOnlyTheClosedCommandVocabulary(t *testing.T) {
 			t.Errorf("cloud %s does not say it is a D19 dispatch verb — the one thing that distinguishes it from steering a run", name)
 		}
 	}
-	if len(cloudCmd.Commands()) != len(steering)+len(observation)+len(dispatch)+len(local) {
+	if len(cloudCmd.Commands()) != len(steering)+len(observation)+len(dispatch)+len(local)+len(report) {
 		t.Fatalf("cloud commands = %d, want exactly %d", len(cloudCmd.Commands()),
-			len(steering)+len(observation)+len(dispatch)+len(local))
+			len(steering)+len(observation)+len(dispatch)+len(local)+len(report))
 	}
 
 	// The half of the surface that COMMANDS A RUN is exactly D21's verbs, and

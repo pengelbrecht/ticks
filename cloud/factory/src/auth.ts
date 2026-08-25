@@ -131,6 +131,51 @@ export const GATEWAY_PREFIX = "/api/gateway";
  */
 export const WAVE_PATH = "/api/wave";
 
+/**
+ * The read-only git door (D11, tick pzf), exempt for the same reason as the
+ * two above: its caller is a sandbox holding a run token, never the operator's.
+ *
+ * It is what a READ-ONLY run's remote points at. The operator's GitHub
+ * credential stays in this Worker, so a run that must not push is not carrying
+ * anything it could push with — and this door forwards git's read half only.
+ *
+ * Declared here rather than imported from src/credentials.ts because this
+ * module deliberately imports nothing (see {@link isAuthExempt}); the two
+ * spellings are pinned together by a test.
+ */
+export const GIT_PREFIX = "/api/git";
+
+/**
+ * The review door (UC5, tick v7g), exempt for the same reason as the three
+ * above: its caller is a sandbox holding a run token, never the operator's.
+ *
+ * It is where a read-only PR review run hands in its findings. There is no PR
+ * number in the path — the credential says which run is speaking and the run's
+ * `pr_reviews` row says which pull request it was dispatched for, so a
+ * container cannot ask to comment somewhere else.
+ *
+ * Declared here rather than imported from src/pr-review.ts because this module
+ * deliberately imports nothing (see {@link isAuthExempt}); the two spellings
+ * are pinned together by a test.
+ */
+export const REVIEW_PREFIX = "/api/review";
+
+/**
+ * The branch-record door (tick t4y), exempt for the same reason as the four
+ * above: its caller is a sandbox holding a run token, never the operator's.
+ *
+ * It is where a container records the branch it just created, which is what
+ * turns branch ownership from a naming convention into a lookup. There is no
+ * run id in the path — the credential says which run is speaking, so a
+ * container cannot record a branch on behalf of a run it is not, and it cannot
+ * record one outside its own epic.
+ *
+ * Declared here rather than imported from src/branch-registry.ts because this
+ * module deliberately imports nothing (see {@link isAuthExempt}); the two
+ * spellings are pinned together by a test.
+ */
+export const BRANCH_CLAIM_PREFIX = "/api/branches";
+
 /** The slice of the environment this module reads. */
 export interface FactoryAuthEnv {
   /** Worker secret: the derived hash of the current factory token. */
@@ -306,6 +351,9 @@ export function isAuthExempt(pathname: string): boolean {
   if (pathname === TELEGRAM_WEBHOOK_PATH) return true;
   if (pathname === GATEWAY_PREFIX || pathname.startsWith(`${GATEWAY_PREFIX}/`)) return true;
   if (pathname === WAVE_PATH) return true;
+  if (pathname === GIT_PREFIX || pathname.startsWith(`${GIT_PREFIX}/`)) return true;
+  if (pathname === REVIEW_PREFIX) return true;
+  if (pathname === BRANCH_CLAIM_PREFIX) return true;
   return pathname === WEBHOOK_PREFIX || pathname.startsWith(`${WEBHOOK_PREFIX}/`);
 }
 

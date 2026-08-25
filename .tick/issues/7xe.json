@@ -2,16 +2,20 @@
   "id": "7xe",
   "title": "Close out Phase 4: retro + plan the next epic",
   "description": "Retro, fold learnings into .tick/learnings.md inside the 150-line cap (compact, do not append — Phases 2 and 3 both had to drop entries to pay for new ones), verify the epic outside-in against its definition of done with a REAL unattended loop, then plan the next feasible epic.\n\nThe verification bar for an autonomy epic is higher than for the ones before it: a loop that works when you are watching is not the thing being built. Prove one ran, did the right thing, and reported it, with nobody in the loop.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
   "blocked_by": [
-    "xjc"
+    "xjc",
+    "uls",
+    "jwd"
   ],
   "parent": "szp",
   "role": "closeout",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-23T18:05:00.184811Z",
-  "updated_at": "2026-08-23T18:05:00.184811Z"
+  "updated_at": "2026-08-24T20:58:06.166943Z",
+  "closed_at": "2026-08-24T20:58:06.166943Z",
+  "closed_reason": "Completed: Phase 4 retro on the epic; three learnings folded into .tick/learnings.md at the 150-line cap; the epic verified outside-in by a REAL unattended loop — PR #59 reviewed by run_6e3550f9 from a read-only credential, with nobody in the loop — and the two clauses that are built but not live-verified recorded as not-claimed; the project's A1-A6 assessed on w1z; six branches of uncollected paid work flagged on 72y; ko8 closed to match its children."
 }

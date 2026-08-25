@@ -143,6 +143,12 @@ fi
   for a in "$@"; do printf 'ARG=%s\n' "$a"; done
   env
 } > "$TICKS_TEST_RECORD"
+# A review boot's harness writes its findings to a file and the ENTRYPOINT
+# posts them; this is the stub standing in for "the reviewer wrote something".
+if [ -n "${TICKS_TEST_REVIEW_FINDINGS:-}" ] && [ -n "${TICKS_REVIEW_OUTPUT:-}" ]; then
+  printf '%s\n' "$TICKS_TEST_REVIEW_FINDINGS" > "$TICKS_REVIEW_OUTPUT"
+fi
+exit "${TICKS_TEST_HARNESS_EXIT:-0}"
 `
 	writeStub(t, filepath.Join(binDir, "omp"), harness)
 	writeStub(t, filepath.Join(binDir, "claude"), harness)
@@ -231,7 +237,12 @@ done
   for a in "$@"; do printf 'ARG=%s\n' "$a"; done
 } >> "$TICKS_TEST_CURL_RECORD"
 [ -z "$out" ] || printf '%s' "${TICKS_TEST_CURL_BODY:-{\"ok\":true}}" > "$out"
-printf '%s' "${TICKS_TEST_CURL_STATUS:-200}"
+# The review door and the model probe are different calls with different
+# success codes, so the stub answers per URL rather than with one status.
+case "$url" in
+  */api/review) printf '%s' "${TICKS_TEST_REVIEW_STATUS:-201}" ;;
+  *) printf '%s' "${TICKS_TEST_CURL_STATUS:-200}" ;;
+esac
 `)
 
 	f := &fixture{

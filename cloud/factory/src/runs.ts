@@ -45,6 +45,12 @@ import {
   type Run,
   type RunProgressRecord,
 } from "./db";
+import {
+  DEFAULT_RUN_CREDENTIAL_GRADE,
+  RUN_CREDENTIAL_GRADES,
+  isRunCredentialGrade,
+  type RunCredentialGrade,
+} from "./credentials";
 import { modelRoutingComplaint, revokeRunTokens } from "./gateway";
 import { carriedTraceID, parseTraceID } from "./trace";
 import type { Env } from "./index";
@@ -192,6 +198,16 @@ export type RunWorkflowParams = {
    * deployment did not make for it.
    */
   tick_ids?: string[];
+  /**
+   * The credential grade the run was submitted with (D11, tick pzf).
+   *
+   * Carried for the record and for a Workflow that wants it without a read,
+   * but it is NOT the authority: every place that decides what a container
+   * holds reads `runs.credential_grade` from the index row, because that row
+   * is the durable one and a params blob is a copy that a resumed instance
+   * could be older than.
+   */
+  credential_grade?: RunCredentialGrade;
 };
 
 export type WorkflowInstanceStatus = { status: string; error?: unknown; output?: unknown };
@@ -272,6 +288,15 @@ export type RunSubmission = {
    * was.
    */
   origin?: LeaseOrigin;
+  /**
+   * Which credential this run is issued (D11, tick pzf).
+   *
+   * Absent means {@link DEFAULT_RUN_CREDENTIAL_GRADE} — `write`, which is what
+   * every run before this field was. A weaker grade is asked for; it is never
+   * inferred, because inferring it would mean the factory quietly deciding
+   * that some run's push should fail.
+   */
+  credential_grade?: RunCredentialGrade;
 };
 
 export type SubmissionParse =
@@ -404,6 +429,24 @@ export function parseSubmission(body: unknown): SubmissionParse {
     origin = raw.origin;
   }
 
+  // A grade the factory did not understand is a 400, never a fallback to
+  // `write`. The two failure modes are not symmetric: a submission that meant
+  // read_only and was silently upgraded is a run holding a credential the
+  // submitter deliberately withheld from it, which is the whole thing this
+  // field exists to prevent.
+  let grade: RunCredentialGrade | undefined;
+  if (raw.credential_grade !== undefined && raw.credential_grade !== null) {
+    if (!isRunCredentialGrade(raw.credential_grade)) {
+      return {
+        ok: false,
+        detail:
+          `credential_grade must be one of ${RUN_CREDENTIAL_GRADES.join(", ")}, got ` +
+          JSON.stringify(raw.credential_grade),
+      };
+    }
+    grade = raw.credential_grade;
+  }
+
   // The RunRoom's queued-submission record (D22) has no `tick_ids` column —
   // queueing is for the project-lease-held case, and adding cloud-wave
   // support to that path is its own migration. Refusing loudly here is the
@@ -433,6 +476,7 @@ export function parseSubmission(body: unknown): SubmissionParse {
       ...(maxWallClock === undefined ? {} : { max_wall_clock_ms: maxWallClock }),
       ...(tickIDs === undefined ? {} : { tick_ids: tickIDs }),
       ...(origin === undefined ? {} : { origin }),
+      ...(grade === undefined ? {} : { credential_grade: grade }),
     },
   };
 }
@@ -538,6 +582,8 @@ export type StartRunInput = {
   max_wall_clock_ms?: number;
   lease_token: string;
   tick_ids?: string[];
+  /** See {@link RunSubmission.credential_grade}. Absent means `write`. */
+  credential_grade?: RunCredentialGrade;
 };
 
 export type StartedRun = { run: Run; workflow: { id: string; status: string } };
@@ -571,6 +617,11 @@ export async function startRun(env: Env, input: StartRunInput): Promise<StartedR
     // filled in by a later update is a field a crash between the two leaves
     // empty on exactly the run that needs explaining.
     trace_id: input.trace_id ?? null,
+    // Written with the row, like the trace id and for a stronger reason: this
+    // is the field the control plane reads back to decide which credential a
+    // container is handed, so a run that existed for one instant without it
+    // would be a run whose grade a boot could miss (D11, tick pzf).
+    credential_grade: input.credential_grade ?? DEFAULT_RUN_CREDENTIAL_GRADE,
   };
   await insertRun(env.DB, run);
 
@@ -594,6 +645,7 @@ export async function startRun(env: Env, input: StartRunInput): Promise<StartedR
           : { max_wall_clock_ms: input.max_wall_clock_ms }),
         lease_token: input.lease_token,
         ...(input.tick_ids === undefined ? {} : { tick_ids: input.tick_ids }),
+        credential_grade: run.credential_grade as RunCredentialGrade,
       },
     });
   } catch (error) {
@@ -775,6 +827,9 @@ export async function submitRun(env: Env, submission: RunSubmission): Promise<Su
             : { max_wall_clock_ms: submission.max_wall_clock_ms }),
           lease_token: lease.lease.token,
           ...(submission.tick_ids === undefined ? {} : { tick_ids: submission.tick_ids }),
+          ...(submission.credential_grade === undefined
+            ? {}
+            : { credential_grade: submission.credential_grade }),
         }),
       };
     } catch (error) {
@@ -822,6 +877,12 @@ export async function submitRun(env: Env, submission: RunSubmission): Promise<Su
     ...(submission.max_wall_clock_ms === undefined
       ? {}
       : { max_wall_clock_ms: submission.max_wall_clock_ms }),
+    // Parked for the same reason the budget is (tick wn5), and with a sharper
+    // edge: a queued read-only submission that ignited as `write` would be the
+    // factory silently granting a run the push access its submitter withheld.
+    ...(submission.credential_grade === undefined
+      ? {}
+      : { credential_grade: submission.credential_grade }),
     blocked_by: lease.holder.run_id,
     ttl_ms: queueTtlMs(env, submission.queue_ttl_ms),
   });

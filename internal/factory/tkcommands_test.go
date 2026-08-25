@@ -17,6 +17,10 @@ func TestEntrypointTkCommandsAreDerivedFromTheScripts(t *testing.T) {
 		t.Fatalf("EntrypointTkCommands: %v", err)
 	}
 	want := []string{
+		// The container's write side for branch ownership (tick t4y): both
+		// entrypoints record the branch they create, so remediation can decide
+		// what it may push to from a record rather than from a name.
+		"cloud branch",
 		"sandbox environment",
 		"sandbox image",
 		"sandbox model",

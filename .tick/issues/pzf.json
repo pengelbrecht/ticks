@@ -2,7 +2,8 @@
   "id": "pzf",
   "title": "Two credential grades: a run gets read-only or write, and never picks its own",
   "description": "D11's second grade, and the contract the rest of Phase 4 rests on — so it lands first and alone.\n\nEverything the factory runs today gets a credential that can push. Phase 4 introduces runs that must NOT: a PR review run reads a diff and comments, and giving it write access to the branch it is reviewing is the kind of blast radius that is obvious in hindsight.\n\nDeliverable: a run declares its grade at submission, the control plane mints the matching credential, and the grade is a property of the RUN RECORD rather than of the prompt. A read-only run that tries to push must fail at the credential, not at an instruction it was asked to respect — Phase 3's dxk learning applies directly: a boundary the substrate can enforce must not rest on instruction-following.\n\nWatch the interaction with vdg: the shipped GitHub rung is a user-to-server token whose permissions come from the App installation, so 'read-only' may need to be enforced at the factory rather than expressed in the token. Say which, and if it is the factory, say what stops a run from simply calling GitHub directly.",
-  "status": "open",
+  "notes": "2026-08-24 17:41 - runner-state: substrate=herdr kind=claude branch=tick/pzf worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-pzf workspace=wFZ base=12398fd412603bca0802348b055fdd43ad5b895b agent=tick-pzf pane=wFZ:p1 session=1435dc1a-eeb6-4115-9b90-56f857e47b11\n2026-08-24 18:17 - runner-state: runner=herdr branch=tick/pzf merged=cc993d0a gate=green (go build, go test ./..., public-repo guard, gofmt, tsc, factory vitest 955).\n\nTHE ENFORCEMENT ANSWER, recorded because three ticks depend on it: read-only is NOT expressible in the token — a user-to-server token's permissions belong to the App installation, and the per-run installation token that could narrow them needs the App's private key, which tk cannot ship. So enforcement takes the strongest form available: a read-only run is never given the operator's GitHub credential at all. It holds only its own tkr_ run token and a remote pointing at a factory-mediated door. Nothing stops it reaching github.com; what stops it doing anything is that it holds no credential GitHub will accept, so a direct call is an anonymous call.",
+  "status": "closed",
   "priority": 0,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -10,5 +11,7 @@
   "acceptance_criteria": "A run's grade is recorded on the run and drives the credential it is issued; a read-only run cannot push, proven by attempting it rather than by reading the code; the enforcement point is documented.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-23T18:04:28.806873Z",
-  "updated_at": "2026-08-23T18:04:28.806873Z"
+  "updated_at": "2026-08-24T16:17:45.23848Z",
+  "closed_at": "2026-08-24T16:17:45.23848Z",
+  "closed_reason": "Completed: a run's credential grade is decided at submission, recorded on the run record and never chosen by the run. Read-only is enforced by withholding the operator's GitHub credential entirely rather than by narrowing a token that cannot be narrowed — a read-only sandbox holds only a tkr_ token github.com has never heard of, so a direct call is anonymous and a push has nothing to authenticate with. Proven by attempting the push in a test, not by reading the code."
 }

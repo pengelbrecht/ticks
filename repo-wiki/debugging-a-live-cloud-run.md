@@ -46,6 +46,7 @@ Three reads, one query each:
 ```
 tk cloud logs <run>                # prints "# trace: tr_…" above the output
 tk cloud logs <run> --tick <id>    # the same id, on one container's stream
+tk cloud logs <run> -f             # follow a LIVE stream (tick acy)
 tk cloud trace <run>               # "trace: tr_…" from the gateway rows
 git show <sha>:.tick/issues/<id>.json | jq .trace_id
 ```
@@ -96,21 +97,38 @@ hypothesis**, with the evidence that would confirm or kill it.
 Added 2026-08-22 after tick `2xm`. A run record is written BY the supervisor,
 so a supervisor that died leaves a record frozen at its last honest value —
 `state: running`, `lease: null`, containers still working. Reading that record
-harder never produces the answer; the Workflow instance has it:
+harder never produces the answer; the Workflow instance has it.
+
+**Since tick `acy` this is a command, not a curl.** `tk cloud supervisor <run>`
+is the read, and it goes to Cloudflare DIRECTLY on `factory_cloudflare_api_token`
+rather than through the factory — the answer must not depend on the deployment
+being healthy, because the deployment is usually the suspect:
 
 ```
-GET /accounts/<cloudflare-account-id>/workflows/ticks-run/instances/<run_id>
+tk cloud supervisor <run>            # status, error, and the step it stopped on
+tk cloud supervisor <run> --steps 20 # the trail — this is what told 7n7 apart
+tk cloud logs <run> -f               # follow, and it STOPS when the supervisor dies
 ```
 
-Read-only, needs only `factory_cloudflare_api_token`, costs nothing and needs
-no run. It returns the instance `status`, the failing `error` and the LAST STEP
-that ran. Two runs that had produced days of inference answered in one call:
+It also asks the factory what the run record claims and prints a `DISAGREEMENT`
+block when the two differ, which is the 2xm symptom stated as a contradiction
+instead of left for a reader to notice across two commands. Run against 2xm's
+own instance it reproduces the whole diagnosis:
 
 ```
-status: errored
-error:  {"message": "Execution timed out after 600000ms", "name": "Error"}
-last step: cloud:dispatch:0-1
+status: errored — the supervisor is DEAD: it errored, so nothing is supervising this run any more
+error: Execution timed out after 600000ms
+DISAGREEMENT: the run record says "stopping", but its supervisor is errored.
+step 5/5: cloud:dispatch:0-1
+    FAILED, 2 attempts, 20m2s
 ```
+
+The endpoint underneath is still
+`GET /accounts/<cloudflare-account-id>/workflows/ticks-run/instances/<run_id>`;
+read-only, costs nothing and needs no run. **Do not print a step's `output`.**
+It is the step's return value verbatim, and `cloud:credential:*` returns the
+run's live gateway token — `internal/factory/supervisor.go` therefore never
+decodes the field at all, so nothing downstream can print what was never parsed.
 
 **600000ms is Cloudflare's per-step EXECUTION cap** — ten minutes, and it fails
 the whole INSTANCE, not just the step. Since `2xm` the number lives in
@@ -142,6 +160,52 @@ Concretely, it did not catch:
 
 **Rule:** never report cloud-factory progress in test counts alone. The number
 that matters is whether a real run did the thing.
+
+## The worker log stops mid-run because the HARNESS goes quiet, not R2 (tick `acy`)
+
+Phase 4 opened with "worker harness output still stops streaming once the
+harness starts". Measured against two real Phase 2 containers, that diagnosis is
+wrong, and the correction matters because it points the fix at a different file.
+
+The R2 pipeline is fine. `waitForWorker` drains `readOutput` on every liveness
+poll and writes an immutable segment, the cursor is carried across wave legs by
+`adoptOffsets`, and both halves are visible in the stored streams. What a
+container actually leaves behind is this, whole:
+
+```
+ticks-worker: starting the omp harness on tick 5jo (branch tick/72y/5jo)
+Working...
+Done.
+<the agent's entire final report, in one flush>
+ticks-worker: the omp harness exited 0
+```
+
+and, for a container the supervisor killed mid-tick:
+
+```
+ticks-worker: starting the omp harness on tick 201 (...)
+Working...
+ticks-worker: the omp harness exited 143
+```
+
+`Working...` **was streamed while the harness ran** — that container's post-kill
+lines reached R2 too. So output does reach R2 during the run. The gap is that
+`omp -p … --mode text` prints one progress line and then nothing until it is
+finished: there is no per-step output for the pipeline to carry.
+
+**What the streaming fix actually needs**, then, is not factory code:
+
+1. Run the worker harness in an event-emitting mode — `omp --mode json` (and
+   `claude --output-format stream-json --verbose` on the other rung) — in
+   `run_harness`, `cloud/sandbox/worker.sh`.
+2. Decide what the container prints from it. Raw JSONL is streamable but is not
+   what an operator reads; a small formatter in `worker.sh` keeps the log human.
+3. Re-check the exit contract. `worker.sh` keys the report header off the
+   harness's exit status, and neither mode's exit behaviour has been measured.
+
+**It cannot be verified from a worktree**: `FakeSandboxes` boots instantly and
+models none of this, so only a real dispatched run proves it — the same rule the
+section above states about test counts. Ship it with a run, not with a suite.
 
 ## Operational traps
 

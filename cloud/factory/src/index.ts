@@ -23,6 +23,13 @@
  * - POST /api/hooks/source/:owner/:repo/:name - a webhook source the repository
  *                             declares in its own `.tick/runners.toml`; signed
  *                             with the scheme that declaration names
+ * - POST /api/branches      - a container recording a branch it just created,
+ *                             on its own run's gateway token (tick t4y); this
+ *                             is what makes branch ownership a lookup rather
+ *                             than a naming convention
+ * - GET/POST/DELETE /api/ci/branches - a person answering the same question,
+ *                             on the operator's token; the only door that may
+ *                             say a branch is a HUMAN's
  * - GET/POST/DELETE /api/projects[/:owner/:repo] - project enrolment
  * - everything else        - requires `Authorization: Bearer <factory token>`
  *
@@ -53,12 +60,19 @@ import {
   removeEnrolledProject,
   type EnrolledProject,
 } from "./db";
+import { proxyGitRequest } from "./credentials";
 import { proxyModelRequest } from "./gateway";
 import { handleDraftPress, parseDraftCallback } from "./drafts";
+import { ciEscalationsRoute } from "./ci-escalations";
+import { BRANCH_CLAIM_PATH, branchOwnershipRoute, claimBranch } from "./branch-ownership";
 import { GITHUB_WEBHOOK_PATH, githubWebhookRoute } from "./github-issues";
+import { REVIEW_PATH, postReviewFindings } from "./pr-review";
 import { WEBHOOK_SOURCE_PREFIX, webhookSourceRoute } from "./webhook-sources";
 import { observeRoute } from "./observe";
 import { requestWave } from "./wave-request";
+import { runDueSweeps } from "./sweep-dispatch";
+import { runDailyDigest } from "./loop-digest";
+import { getSweepSelection, listSweepSelections } from "./db";
 import { SignalInbox } from "./signal-inbox";
 import { RunWorkflow, effectiveRunBudget } from "./run-workflow";
 import {
@@ -1080,6 +1094,53 @@ async function acknowledgeTelegramCallback(
   );
 }
 
+/**
+ * One sweep's record (tick hye), which is the whole explanation of what it
+ * selected and why — see migrations/0010_sweep_selection.sql.
+ */
+async function sweepRoute(sweepID: string, env: Env): Promise<Response> {
+  const row = await getSweepSelection(env.DB, sweepID);
+  if (row === null) {
+    return Response.json({ error: "not_found", detail: `no sweep ${sweepID}` }, { status: 404 });
+  }
+  return Response.json({ sweep: { ...row, record: safeSweepRecord(row.record) } });
+}
+
+/** Recent sweeps, newest first, optionally for one project. */
+async function sweepsRoute(url: URL, env: Env): Promise<Response> {
+  const project = url.searchParams.get("project");
+  const limitParam = url.searchParams.get("limit");
+  const limit = limitParam === null ? undefined : Number(limitParam);
+  if (limit !== undefined && (!Number.isSafeInteger(limit) || limit < 1)) {
+    return Response.json(
+      { error: "invalid_request", detail: "limit must be a positive integer" },
+      { status: 400 }
+    );
+  }
+  const rows = await listSweepSelections(env.DB, {
+    ...(project === null || project === "" ? {} : { project }),
+    ...(limit === undefined ? {} : { limit }),
+  });
+  return Response.json({
+    sweeps: rows.map((row) => ({ ...row, record: safeSweepRecord(row.record) })),
+  });
+}
+
+/**
+ * The stored record as JSON, or the raw text when it will not parse.
+ *
+ * A record this route cannot parse is still the only account of that sweep, so
+ * it is handed back as it was stored rather than dropped — an operator reading
+ * a malformed record can still see what was written.
+ */
+function safeSweepRecord(record: string): unknown {
+  try {
+    return JSON.parse(record);
+  } catch {
+    return record;
+  }
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -1109,6 +1170,54 @@ export default {
         return Response.json({ error: result.error, detail: result.detail }, { status: result.status });
       }
       return Response.json({ wave: result.request }, { status: 202 });
+    }
+
+    // A container recording the branch it just created (tick t4y). Beside
+    // /api/wave and authorized the same way, because it is the same kind of
+    // caller: a sandbox holding its run's own token, never the operator's.
+    // This is the write side that made a positive record of branch ownership
+    // possible at all — before it, `epic/<id>` and the run branch were pushed
+    // from inside a container with no way to say so.
+    if (url.pathname === BRANCH_CLAIM_PATH) {
+      if (request.method !== "POST") return methodNotAllowed(["POST"]);
+      const claimed = await claimBranch(env, request);
+      if (!claimed.ok) {
+        return Response.json(
+          { error: claimed.error, detail: claimed.detail },
+          { status: claimed.status }
+        );
+      }
+      return Response.json(
+        { recorded: claimed.created, branch: claimed.record },
+        // 200 rather than 201 when the record already existed: the branch is
+        // decided either way, and the container is told which happened.
+        { status: claimed.created ? 201 : 200 }
+      );
+    }
+
+    // A read-only PR review run handing in its findings (UC5, tick v7g).
+    // Beside the other run-credential doors and before the /api/runs table,
+    // for the reason /api/wave is: it is authorized by a run token rather than
+    // the operator's, and the factory — never the run — composes what is
+    // posted.
+    if (url.pathname === REVIEW_PATH) {
+      if (request.method !== "POST") return methodNotAllowed(["POST"]);
+      const posted = await postReviewFindings(env, request);
+      if (!posted.ok) {
+        return Response.json(
+          { error: posted.denial.error, detail: posted.denial.detail },
+          { status: posted.denial.status }
+        );
+      }
+      return Response.json(
+        {
+          posted: true,
+          comment_id: posted.comment_id,
+          project: posted.project,
+          pull_request: posted.pr_number,
+        },
+        { status: 201 }
+      );
     }
 
     if (url.pathname === TELEGRAM_WEBHOOK_PATH) {
@@ -1150,11 +1259,48 @@ export default {
       return await proxyModelRequest(env, request, segments.slice(2));
     }
 
+    // A read-only run's repository path (D11, tick pzf). Authenticated by the
+    // run's own token like the model path above — git presents it as Basic
+    // auth, which is what a `credential.helper` in the container produces —
+    // and it forwards git's read half only. This is where a read-only run's
+    // `git push` stops: at the credential, not at an instruction.
+    if (segments[0] === "api" && segments[1] === "git") {
+      return await proxyGitRequest(env, request, segments.slice(2));
+    }
+
     // One read that draws a board frame for `tk factory dashboard` (tick t9s).
     // Read-only, like status, logs and trace: it composes records other code
     // wrote and cannot steer a run.
     if (segments[0] === "api" && segments[1] === "observe" && segments.length === 2) {
       return await observeRoute(request, env);
+    }
+
+    // Cron sweep records (D14/D15, tick hye). Read-only, like status and
+    // logs: it hands back the account a sweep already wrote, and cannot start
+    // one — a sweep ignites from the clock and from nothing else.
+    if (segments[0] === "api" && segments[1] === "sweeps") {
+      if (request.method !== "GET") return methodNotAllowed(["GET"]);
+      if (segments.length === 2) return await sweepsRoute(url, env);
+      if (segments.length === 3) return await sweepRoute(segments[2]!, env);
+    }
+
+    // What the CI remediation loop is waiting on a person for, and the one
+    // way a person releases it (tick uls). Authenticated by the operator's own
+    // token like every other /api route: the release of a struck-out branch is
+    // human-driven, and "human" has to be something the substrate checks. It
+    // is the ONLY thing that reopens an escalated branch — the strike window
+    // rolling over does not, which is what this route was written to fix.
+    if (segments[0] === "api" && segments[1] === "ci" && segments[2] === "escalations") {
+      return await ciEscalationsRoute(request, env, segments.slice(3));
+    }
+
+    // Who created a branch, answered by a person (tick t4y). Beside the
+    // escalation route because it is the same kind of surface — the CI loop
+    // waiting on somebody — and authenticated the same way. Distinct from the
+    // container's `/api/branches` door above, which carries a run credential
+    // and may only ever say "the factory created this".
+    if (segments[0] === "api" && segments[1] === "ci" && segments[2] === "branches") {
+      return await branchOwnershipRoute(request, env, segments.slice(3));
     }
 
     if (segments[0] === "api" && segments[1] === "projects") {
@@ -1186,6 +1332,63 @@ export default {
     }
 
     return notFound();
+  },
+
+  /**
+   * The clock's door into the factory (D14/D15, tick hye).
+   *
+   * Cron triggers declared in wrangler.toml wake the Worker; which sweeps are
+   * DUE is the repository's decision, read from its own tracked
+   * `.tick/runners.toml` and matched against this minute. So a deployment
+   * declares when the factory may look and a repository declares what it looks
+   * for, and neither can be changed by anything a run says.
+   *
+   * `runDueSweeps` never throws: a sweep that could not read a policy, a
+   * frontier or a branch head records a refusal and the next project is still
+   * swept. A throw here would abandon every project after the failing one with
+   * no record of why.
+   *
+   * The same trigger carries the daily loop digest (tick zaw), which is the
+   * one thing that ASKS whether the unattended loops are still working — and
+   * it is asked here, after the sweep pass and in its own try, so that the
+   * watcher can never be what stops the work it watches. It rides this trigger
+   * rather than declaring a second one because the sweeps' trigger is the
+   * thing whose failures it reports.
+   */
+  async scheduled(controller: ScheduledController, env: Env, ctx: ExecutionContext): Promise<void> {
+    ctx.waitUntil(
+      (async () => {
+        // The trigger's own scheduled time, not `new Date()`: a delivery that
+        // arrives late must sweep the minute it was FOR, or a policy due at
+        // 04:00 silently stops matching whenever the platform is busy.
+        const at = new Date(controller.scheduledTime);
+        try {
+          const outcomes = await runDueSweeps(env, at);
+          for (const outcome of outcomes) {
+            console.log(
+              `factory sweep: ${outcome.sweep_id} ${outcome.outcome} — ${outcome.detail}`
+            );
+          }
+        } catch (error) {
+          console.error(
+            `factory sweep: the ${controller.cron} trigger at ${at.toISOString()} failed: ${String(error)}`
+          );
+        }
+        try {
+          const digest = await runDailyDigest(env, at);
+          if (digest.state !== "not_due") {
+            console.log(`factory digest: ${digest.state} at ${at.toISOString()}`);
+          }
+        } catch (error) {
+          // `runDailyDigest` is written not to throw, so reaching this is
+          // itself the news: the watcher broke, and the one thing that must
+          // never happen quietly is the watcher failing quietly.
+          console.error(
+            `factory digest: the ${controller.cron} trigger at ${at.toISOString()} threw: ${String(error)}`
+          );
+        }
+      })()
+    );
   },
 } satisfies ExportedHandler<Env>;
 

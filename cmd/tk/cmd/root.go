@@ -651,10 +651,14 @@ func ResetFlags() {
 	cloudTraceCache = false
 	cloudLogsTail = 0
 	cloudLogsTick = ""
+	cloudLogsFollow = false
+	cloudLogsInterval = defaultCloudLogsInterval
+	cloudSupervisorSteps = 0
 	cloudPRBodyHead = ""
 	cloudPRBodyBase = ""
 	cloudPRBodyRunBase = ""
 	cloudPRBodyEpic = ""
+	cloudBranchDetail = ""
 
 	// Reset cloud wave (spawn/wait/collect/reconcile) flags
 	cloudSpawnTicks = nil

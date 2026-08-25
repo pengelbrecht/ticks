@@ -368,7 +368,22 @@ export async function authorizeGatewayRequest(
   env: Env,
   request: Request
 ): Promise<GatewayAuthorization> {
-  const presented = extractRunToken(request);
+  return authorizeRunCredential(env, extractRunToken(request));
+}
+
+/**
+ * The same four verdicts, over a credential already pulled out of a request.
+ *
+ * Split from {@link authorizeGatewayRequest} for the git door (tick pzf),
+ * which reads its credential from `Authorization: Basic` because that is what
+ * a git client sends. Two doors authorizing a run must agree about what a
+ * revoked token means, and the only way to guarantee that is for there to be
+ * one function that decides it.
+ */
+export async function authorizeRunCredential(
+  env: Env,
+  presented: string | null
+): Promise<GatewayAuthorization> {
   if (presented === null) {
     return {
       ok: false,

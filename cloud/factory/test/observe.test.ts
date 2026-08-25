@@ -92,6 +92,7 @@ async function recordedRun(runID: string, state = "running", project = PROJECT):
     ended_at: null,
     cost_usd: 0,
     trace_id: null,
+    credential_grade: "write",
   });
 }
 

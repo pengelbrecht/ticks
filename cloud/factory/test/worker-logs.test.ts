@@ -63,6 +63,7 @@ async function recordedRun(runID: string): Promise<void> {
     ended_at: null,
     cost_usd: 0,
     trace_id: null,
+    credential_grade: "write",
   });
 }
 

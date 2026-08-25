@@ -65,8 +65,16 @@
  * has taught it what it needs.
  */
 
+import {
+  DEFAULT_CONSENT_LABEL,
+  carriesLabel,
+  consentLabel,
+  labelNames,
+} from "./consent";
 import { getEnrolledProject } from "./db";
+import { CHECK_RUN_EVENT, checkRunWebhookRoute } from "./ci-webhook";
 import { announceDraft } from "./drafts";
+import { PULL_REQUEST_EVENT, ingestPullRequestEvent } from "./pr-review";
 import { GITHUB_API_BASE_URL } from "./progress";
 import { submitSignal, type Signal, type SignalOutcome } from "./signal-inbox";
 import { escapeHTML } from "./telegram";
@@ -86,8 +94,14 @@ import type { Env } from "./index";
 /** The funnel's source name for everything GitHub-shaped. Half the dedup key. */
 export const GITHUB_SIGNAL_SOURCE = "github";
 
-/** The consent label, when a deployment does not name its own. */
-export const DEFAULT_CONSENT_LABEL = "tk";
+/**
+ * The consent label, when a deployment does not name its own.
+ *
+ * Defined in `consent.ts` since tick ytd, because pull requests now read the
+ * same label and `pr-review.ts` cannot import it from here (this module hands
+ * deliveries to that one). Re-exported so every existing reader is unmoved.
+ */
+export { DEFAULT_CONSENT_LABEL, consentLabel };
 
 /**
  * The webhook door. Under `/api/hooks`, which `isAuthExempt` already exempts
@@ -141,13 +155,6 @@ const HTML_URL_PATTERN = /^https:\/\/[A-Za-z0-9._~:\/?#\[\]@!$&'()*+,;=%-]{1,300
  * `unlabeled` is absent on purpose and is not an oversight: see the header.
  */
 export const INGESTING_ACTIONS = ["labeled", "opened", "reopened", "edited"] as const;
-
-/** The consent label this deployment agreed on. */
-export function consentLabel(env: Pick<Env, "GITHUB_CONSENT_LABEL">): string {
-  const raw = env.GITHUB_CONSENT_LABEL;
-  if (typeof raw !== "string" || raw.trim() === "") return DEFAULT_CONSENT_LABEL;
-  return raw.trim();
-}
 
 // ---------------------------------------------------------- the signature ---
 
@@ -233,27 +240,6 @@ function ignored(reason: string, detail: string): IssueVerdict {
 
 function refused(reason: string, detail: string): IssueVerdict {
   return { verdict: "refused", reason, detail };
-}
-
-function labelNames(raw: unknown): string[] {
-  if (!Array.isArray(raw)) return [];
-  return raw
-    .map((entry) => {
-      if (typeof entry === "string") return entry;
-      if (entry !== null && typeof entry === "object") {
-        const name = (entry as { name?: unknown }).name;
-        return typeof name === "string" ? name : "";
-      }
-      return "";
-    })
-    .map((name) => name.trim())
-    .filter((name) => name !== "");
-}
-
-/** GitHub label names are unique case-insensitively, so consent is matched that way. */
-function carriesLabel(names: string[], label: string): boolean {
-  const wanted = label.toLowerCase();
-  return names.some((name) => name.toLowerCase() === wanted);
 }
 
 function login(raw: unknown): string {
@@ -761,6 +747,30 @@ export async function githubWebhookRoute(request: Request, env: Env): Promise<Re
 
   const event = request.headers.get("X-GitHub-Event")?.trim() ?? "";
   if (event === "ping") return json({ ok: true, event: "ping" }, 200);
+  // `check_run` is CI-failure remediation's delivery (UC4, tick meo). It comes
+  // through THIS door because GitHub sends every event for a repository to one
+  // webhook URL, and the signature it was just checked against is the same
+  // one. The handoff is a delegation and nothing else: the ownership test, the
+  // flake gate and the strike budget all live in `ci-remediation.ts`, so this
+  // module keeps knowing only about issues.
+  if (event === CHECK_RUN_EVENT) return checkRunWebhookRoute(env, raw);
+
+  // A pull request arrives at THIS door rather than at a second one (tick
+  // v7g). It is signed by the same secret, sent by the same app installation
+  // and settled under the same status-code contract; a separate route would
+  // have been a second HMAC check and a second set of redelivery semantics to
+  // keep in step. What differs is everything after the signature, which is
+  // why the module is separate and this is a hand-off rather than a branch.
+  if (event === PULL_REQUEST_EVENT) {
+    let prPayload: unknown;
+    try {
+      prPayload = JSON.parse(raw);
+    } catch {
+      return json({ error: "invalid_payload", detail: "the body is not JSON" }, 400);
+    }
+    return await pullRequestDelivery(env, prPayload);
+  }
+
   if (event !== "issues") {
     return json(
       { ok: true, ingested: false, reason: "unsupported_event", detail: `this door reads \`issues\`, not \`${event}\`` },
@@ -823,4 +833,34 @@ export async function githubWebhookRoute(request: Request, env: Env): Promise<Re
     return json({ ok: false, ingested: false, reason: outcome.reason, detail: outcome.detail }, 503);
   }
   return json({ ok: true, ingested: false, reason: outcome.reason, detail: outcome.detail }, 200);
+}
+
+/**
+ * A `pull_request` delivery, under this route's own status-code contract.
+ *
+ * Same three rules as the `issues` half: 2xx for every settled outcome
+ * including a refusal (so one pull request cannot become an unbounded
+ * redelivery loop), and 503 only when nothing was recorded and a redelivery is
+ * exactly what should happen next.
+ */
+async function pullRequestDelivery(env: Env, payload: unknown): Promise<Response> {
+  const result = await ingestPullRequestEvent(env, payload);
+  if (result.state === "deferred") {
+    return json({ ok: false, reviewing: false, reason: result.reason, detail: result.detail }, 503);
+  }
+  if (result.state !== "dispatched") {
+    return json({ ok: true, reviewing: false, reason: result.reason, detail: result.detail }, 200);
+  }
+  return json(
+    {
+      ok: true,
+      reviewing: true,
+      queued: result.queued,
+      run_id: result.run_id,
+      project: result.facts.project,
+      pull_request: result.facts.number,
+      detail: result.detail,
+    },
+    202
+  );
 }

@@ -402,6 +402,7 @@ describe("what carries the id", () => {
         ended_at: null,
         cost_usd: 0,
         trace_id: layout.trace_id.example,
+        credential_grade: "write",
       }
     );
     expect(metadata.trace_id).toBe(layout.trace_id.example);

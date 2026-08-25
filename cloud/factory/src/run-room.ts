@@ -24,7 +24,11 @@
  * 3. **The submission queue** (D22) — a submission refused by a live lease may
  *    park here instead of bouncing. It ignites on release, is visible to
  *    `status`, and expires on a configurable window, because a queue that
- *    silently ignites work hours later is worse than a refusal.
+ *    silently ignites work hours later is worse than a refusal. An expiry is
+ *    ANNOUNCED (`queue-expiry.ts`, tick 6tx): the room used to delete the row
+ *    and say nothing, which made a PR review starved out by a 90-minute epic
+ *    wave indistinguishable, from the pull request, from a review that found
+ *    nothing.
  * 4. **The stop record** (D15/UC1b) — a clean stop is control-plane state, not
  *    a message the orchestrator has to read. It lands here, where the Run
  *    Workflow reads it at a step boundary, so a wedged orchestrator cannot
@@ -64,6 +68,8 @@ import {
   type RunEventMessage,
   type RunEventSource,
 } from "./run-events";
+import { isRunCredentialGrade, type RunCredentialGrade } from "./credentials";
+import { announceQueueExpiry } from "./queue-expiry";
 import { MAX_QUEUE_TTL_MS, MIN_QUEUE_TTL_MS, startRun } from "./runs";
 
 /**
@@ -191,6 +197,13 @@ export type QueuedSubmission = {
    */
   max_cost_usd?: number;
   max_wall_clock_ms?: number;
+  /**
+   * The credential grade the submission asked for (D11, tick pzf). Parked for
+   * the same reason the budget above is, and with a sharper edge: a queued
+   * read-only submission that ignited as `write` would hand a run exactly the
+   * push access its submitter withheld from it.
+   */
+  credential_grade?: RunCredentialGrade;
   /** The run holding the lease when this parked — why it is waiting. */
   blocked_by: string;
   queued_at: string;
@@ -207,6 +220,7 @@ export type QueueSubmissionRequest = {
   notify?: string;
   max_cost_usd?: number;
   max_wall_clock_ms?: number;
+  credential_grade?: RunCredentialGrade;
   blocked_by: string;
   ttl_ms?: number;
 };
@@ -416,6 +430,7 @@ type QueuedRecord = {
   notify: string | null;
   max_cost_usd: number | null;
   max_wall_clock_ms: number | null;
+  credential_grade: string | null;
   blocked_by: string;
   queued_at: number;
   expires_at: number;
@@ -569,7 +584,8 @@ export class RunRoom extends DurableObject<Env> {
         blocked_by TEXT NOT NULL,
         queued_at INTEGER NOT NULL,
         expires_at INTEGER NOT NULL,
-        trace_id TEXT
+        trace_id TEXT,
+        credential_grade TEXT
       );
       CREATE INDEX IF NOT EXISTS queued_submission_by_age ON queued_submission (queued_at);
       CREATE TABLE IF NOT EXISTS run_stop (
@@ -595,7 +611,12 @@ export class RunRoom extends DurableObject<Env> {
     // a column added after a room's first request would never appear in it —
     // and every project this factory has ever run has such a room. The add is
     // attempted and its "duplicate column name" is the expected answer.
-    for (const column of ["max_cost_usd REAL", "max_wall_clock_ms INTEGER", "trace_id TEXT"]) {
+    for (const column of [
+      "max_cost_usd REAL",
+      "max_wall_clock_ms INTEGER",
+      "trace_id TEXT",
+      "credential_grade TEXT",
+    ]) {
       try {
         ctx.storage.sql.exec(`ALTER TABLE queued_submission ADD COLUMN ${column}`);
       } catch {
@@ -746,8 +767,11 @@ export class RunRoom extends DurableObject<Env> {
     );
     // The lease is free for exactly as long as it takes to hand it to the next
     // parked submission — the release is what ignites a queued run (D22).
-    const ignited = await this.#igniteNextQueued();
+    const { ignited, expired } = await this.#igniteNextQueued();
     await this.#armAlarm();
+    // After the room's own state is settled: the announcement is best effort
+    // and must never be able to leave the lease or the alarm half-written.
+    await this.#reportExpired(expired);
     return { ok: true, released: this.#leaseView(current), ignited };
   }
 
@@ -775,7 +799,12 @@ export class RunRoom extends DurableObject<Env> {
     // so an early wake must never assume the deadline it was scheduled for is
     // still the current one, and a handler must never clear an alarm the other
     // deadline still needs.
-    this.#pruneExpiredQueued();
+    //
+    // The rows swept here are the ones tick 6tx is about: this alarm is armed
+    // at the earliest queue deadline, so it is the wake that a review parked
+    // behind an epic run dies on. They are collected, not discarded, and
+    // announced once the room's state is settled below.
+    const expired = this.#pruneExpiredQueued();
 
     const current = this.#readLease();
     if (current !== null && current.expires_at <= Date.now()) {
@@ -787,10 +816,12 @@ export class RunRoom extends DurableObject<Env> {
       );
       // An abandoned run must not strand the queue behind it: the expiry is a
       // release like any other.
-      await this.#igniteNextQueued();
+      const swept = await this.#igniteNextQueued();
+      expired.push(...swept.expired);
     }
 
     await this.#armAlarm();
+    await this.#reportExpired(expired);
   }
 
   // ---------------------------------------------------------------- queue ---
@@ -836,6 +867,7 @@ export class RunRoom extends DurableObject<Env> {
       notify: request.notify ?? null,
       max_cost_usd: request.max_cost_usd ?? null,
       max_wall_clock_ms: request.max_wall_clock_ms ?? null,
+      credential_grade: request.credential_grade ?? null,
       blocked_by: request.blocked_by,
       queued_at: now,
       // The window is policy and the caller states it (src/runs.ts resolves the
@@ -846,8 +878,8 @@ export class RunRoom extends DurableObject<Env> {
     this.ctx.storage.sql.exec(
       `INSERT INTO queued_submission
          (run_id, project, epic, base_sha, requested_by, notify, max_cost_usd,
-          max_wall_clock_ms, blocked_by, queued_at, expires_at, trace_id)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          max_wall_clock_ms, blocked_by, queued_at, expires_at, trace_id, credential_grade)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       record.run_id,
       record.project,
       record.epic,
@@ -859,7 +891,8 @@ export class RunRoom extends DurableObject<Env> {
       record.blocked_by,
       record.queued_at,
       record.expires_at,
-      record.trace_id
+      record.trace_id,
+      record.credential_grade
     );
     await this.#armAlarm();
     return { ok: true, queued: this.#queuedView(record) };
@@ -1378,8 +1411,49 @@ export class RunRoom extends DurableObject<Env> {
     ];
   }
 
-  #pruneExpiredQueued(now: number = Date.now()): void {
-    this.ctx.storage.sql.exec("DELETE FROM queued_submission WHERE expires_at <= ?", now);
+  /**
+   * Drops every submission whose window has closed, and HANDS BACK what it
+   * dropped (tick 6tx).
+   *
+   * This used to be a bare `DELETE`, and that was the defect: a PR review
+   * parked behind an epic run expired without a trace, so from the pull
+   * request "no review because nothing was wrong" and "no review because
+   * somebody else held the one slot for half an hour" were the same
+   * observation. The delete is `RETURNING *` so the rows are evidence rather
+   * than a number, and the caller that removed them owns telling somebody —
+   * `DELETE ... RETURNING` is atomic, so exactly one caller can.
+   */
+  #pruneExpiredQueued(now: number = Date.now()): QueuedRecord[] {
+    return [
+      ...this.ctx.storage.sql.exec<QueuedRecord>(
+        "DELETE FROM queued_submission WHERE expires_at <= ? RETURNING *",
+        now
+      ),
+    ];
+  }
+
+  /**
+   * Says that these submissions expired unrun, to whoever was waiting.
+   *
+   * Best effort and never fatal: the room's job is the lease, and a GitHub
+   * outage must not wedge a project. Awaited rather than fired and forgotten,
+   * because a report whose completion nobody observes is the silence again in
+   * a different place — and because an expiry is rare enough that the extra
+   * round trip on a release costs nothing measurable.
+   */
+  async #reportExpired(records: QueuedRecord[]): Promise<void> {
+    if (records.length === 0) return;
+    try {
+      await announceQueueExpiry(
+        this.env,
+        records.map((record) => this.#queuedView(record))
+      );
+    } catch (error) {
+      console.error(
+        `RunRoom: ${records.length} queued submission(s) expired unrun and could not be ` +
+          `announced: ${String(error)}`
+      );
+    }
   }
 
   /**
@@ -1389,14 +1463,23 @@ export class RunRoom extends DurableObject<Env> {
    * anything may interleave at an await inside a DO. If the boot then fails the
    * lease is handed straight back and the submission stays parked, so a broken
    * ignition costs a retry rather than wedging the project for a lease ttl.
+   *
+   * It returns whatever it swept on the way in as well as what it lit. The
+   * expired rows are not this function's business to announce — announcing
+   * means network I/O, and doing it here would put an await between the prune
+   * and the lease read, which is the one place in this file where an
+   * interleave would matter.
    */
-  async #igniteNextQueued(): Promise<QueuedSubmission | null> {
+  async #igniteNextQueued(): Promise<{
+    ignited: QueuedSubmission | null;
+    expired: QueuedRecord[];
+  }> {
     const now = Date.now();
-    this.#pruneExpiredQueued(now);
+    const expired = this.#pruneExpiredQueued(now);
 
     const next = this.#liveQueue(now)[0];
-    if (next === undefined) return null;
-    if (this.#readLease() !== null) return null;
+    if (next === undefined) return { ignited: null, expired };
+    if (this.#readLease() !== null) return { ignited: null, expired };
 
     const token = crypto.randomUUID();
     this.#writeLease({
@@ -1422,6 +1505,14 @@ export class RunRoom extends DurableObject<Env> {
         ...(next.max_wall_clock_ms === null
           ? {}
           : { max_wall_clock_ms: next.max_wall_clock_ms }),
+        // A grade this bundle does not recognise is dropped rather than
+        // passed on, which lands the run on `write` — the same value the row
+        // would have had before the column existed. It is unreachable in
+        // practice: `parseSubmission` refuses an unknown grade at the door, so
+        // nothing valid can be parked with one.
+        ...(isRunCredentialGrade(next.credential_grade)
+          ? { credential_grade: next.credential_grade }
+          : {}),
         lease_token: token,
       });
     } catch (error) {
@@ -1435,11 +1526,11 @@ export class RunRoom extends DurableObject<Env> {
         `RunRoom: queued submission ${next.run_id} (epic ${next.epic}) could not ignite; ` +
           `it stays queued until ${stamp(next.expires_at)}: ${String(error)}`
       );
-      return null;
+      return { ignited: null, expired };
     }
 
     this.ctx.storage.sql.exec("DELETE FROM queued_submission WHERE run_id = ?", next.run_id);
-    return this.#queuedView(next);
+    return { ignited: this.#queuedView(next), expired };
   }
 
   #queuedView(record: QueuedRecord): QueuedSubmission {
@@ -1457,6 +1548,9 @@ export class RunRoom extends DurableObject<Env> {
       ...(record.max_wall_clock_ms === null
         ? {}
         : { max_wall_clock_ms: record.max_wall_clock_ms }),
+      ...(isRunCredentialGrade(record.credential_grade)
+        ? { credential_grade: record.credential_grade }
+        : {}),
       blocked_by: record.blocked_by,
       queued_at: stamp(record.queued_at),
       expires_at: stamp(record.expires_at),

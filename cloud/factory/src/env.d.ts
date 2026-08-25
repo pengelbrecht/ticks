@@ -108,6 +108,17 @@ declare namespace Cloudflare {
      */
     ISSUE_LABELS?: import("./github-issues").IssueLabelReader;
     /**
+     * The one GitHub write this factory makes on a run's behalf: the review
+     * comment a read-only PR review run hands in (tick v7g).
+     *
+     * Unset on a deployment, which posts through GitHub's issue-comments API
+     * with the operator's token. A seam for the same reason `ISSUE_LABELS` is
+     * one — at-most-once posting, the scoping to the run's own pull request,
+     * and the anti-forgery invariant on what is sent are not exercisable
+     * against real GitHub.
+     */
+    REVIEW_COMMENTER?: import("./pr-review").ReviewCommenter;
+    /**
      * The writer the SignalInbox commits a signal's tick record with: one
      * CREATE of `.tick/issues/<id>.json` through GitHub's contents API (tick
      * 8sm).
@@ -118,6 +129,17 @@ declare namespace Cloudflare {
      * against a run pushing tracker state) are exercisable at all.
      */
     TICK_WRITER?: import("./tracker-write").TrackerWriter;
+    /**
+     * What the CI-failure flake gate asks GitHub: a check's conclusions on a
+     * ref, and a request to run it again (tick meo).
+     *
+     * Unset on a deployment, which reads GitHub's check-runs API directly. A
+     * seam for the same reason `ISSUE_LABELS` is one — the cases the gate
+     * exists for are exactly the ones real GitHub cannot be made to stage: a
+     * check that passed once and failed once on identical code, a base branch
+     * already red, a re-run GitHub declines.
+     */
+    CHECK_HISTORY?: import("./ci-remediation").CheckHistoryReader;
     /**
      * Where the RunRoom forwards a run's `run_event` stream (tick bne).
      *
@@ -329,6 +351,52 @@ declare namespace Cloudflare {
      * `FACTORY_TOKEN_HASH`, and answers 503 for a source whose secret this
      * deployment does not hold.
      */
+    /**
+     * The ceilings a cron sweep's declared policy is clamped to (D14, tick hye).
+     *
+     * `SWEEP_MAX_TICKS` bounds how many ticks one sweep may select and
+     * `SWEEP_MAX_TIER` the richest compute tier it may ask for; the COST
+     * ceiling is deliberately not here, because it is `RUN_MAX_COST_USD` — a
+     * sweep is a run, and a second cost ceiling that could disagree with the
+     * enforcing one is exactly the layering tick 5fg had to enumerate by hand.
+     * `SWEEP_MAX_PROJECTS` bounds how many enrolled projects one cron trigger
+     * sweeps, which is a subrequest bound.
+     *
+     * Every clamp these produce is REPORTED in the sweep record beside the
+     * number that was asked for (tick 7zk). Bounds and defaults live in
+     * src/sweeps.ts.
+     */
+    SWEEP_MAX_TICKS?: string;
+    SWEEP_MAX_TIER?: string;
+    SWEEP_MAX_PROJECTS?: string;
+    /**
+     * The UTC hour the daily loop digest is built at (tick zaw), 0-23.
+     *
+     * Unset on a real deployment: the default is 07:00 UTC. It must be an hour
+     * `[triggers] crons` actually covers, since the digest rides the sweeps'
+     * own trigger rather than declaring a second one. An unusable value is
+     * logged and ignored (src/loop-digest.ts) — a typo here must not be able
+     * to silence the thing whose job is reporting silence.
+     */
+    DIGEST_HOUR?: string;
+    /**
+     * The listing a cron sweep reads the tracker's frontier from: every
+     * `.tick/issues/<id>.json` at the default branch head (tick hye).
+     *
+     * Unset on a deployment, which lists GitHub's contents API directly. Its
+     * own seam beside `TICK_TRACKER` rather than a method on it, because it
+     * answers a different question — which ticks exist, not what one says.
+     */
+    TICK_INDEX?: import("./sweep-dispatch").TickIndexReader;
+    /**
+     * The commit a cron sweep selects and runs at: the head of the
+     * repository's default branch (tick hye).
+     *
+     * Unset on a deployment, which asks GitHub for the default branch and
+     * reads its head from the refs listing. A seam for the same reason
+     * `TICK_INDEX` is one.
+     */
+    SWEEP_BASE?: import("./sweep-dispatch").SweepBaseReader;
     [signalSecret: `SIGNAL_SECRET_${string}`]: string | undefined;
   }
 }

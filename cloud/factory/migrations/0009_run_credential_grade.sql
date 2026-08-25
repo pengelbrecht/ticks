@@ -1,0 +1,27 @@
+-- The credential grade on the run index (D11, tick pzf).
+--
+-- Until this column, every run the factory booted held the operator's GitHub
+-- credential — a token that can push to every repository the App installation
+-- (or the PAT) covers. Phase 4 introduces runs that must not: a PR review run
+-- reads a diff and comments, and handing it write access to the branch it is
+-- reviewing is a blast radius nobody would ask for on purpose.
+--
+-- The grade is recorded HERE, on the run, rather than being asked for in the
+-- prompt. `.tick/learnings.md`, from tick dxk: a boundary the substrate can
+-- enforce must not rest on instruction-following. A run cannot read this row
+-- to widen itself, and no container ever supplies it — it is settled at
+-- submission by whoever submitted, and the control plane reads it back when it
+-- decides which credential to put in a sandbox's environment.
+--
+-- `write` is the default, and that is the compatible answer rather than the
+-- lazy one: every run recorded before this column existed held a write
+-- credential, and every submission that names no grade still means exactly
+-- what it meant yesterday. A read-only run is asked for; it is never inferred.
+-- D1/SQLite allows NOT NULL with a literal default on ADD COLUMN, so existing
+-- rows are backfilled with the truth about themselves.
+--
+-- There is deliberately no CHECK constraint: SQLite cannot add one to an
+-- existing table without rewriting it, and the vocabulary is enforced in code
+-- (src/credentials.ts) where an unrecognised value fails CLOSED to read-only
+-- rather than opening a run up.
+ALTER TABLE runs ADD COLUMN credential_grade TEXT NOT NULL DEFAULT 'write';

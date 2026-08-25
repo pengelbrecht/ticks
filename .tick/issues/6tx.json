@@ -1,0 +1,17 @@
+{
+  "id": "6tx",
+  "title": "A queued PR review can expire behind a live epic run",
+  "description": "Raised by tick v7g, second of its two policy questions.\n\nA review run queues behind the project's dispatch lease. If an epic run holds that lease for an hour — which Phase 2 measured as normal, container waves ran 60-90 minutes — a queued review can pass its window and expire without ever running. The PR author sees nothing: no review, and no explanation of why.\n\nNot a correctness bug; the lease behaviour is D4 working as designed and a review is genuinely lower priority than an epic. The defect is the SILENCE. Phase 2's rule applies — never collapse distinct outcomes into one, and here 'no review because nothing was wrong' and 'no review because it expired behind a lease' are indistinguishable from outside.\n\nCheapest honest fix is probably to say so: when a review expires unrun, comment that it did and why. Whether reviews should instead get their own lease lane, or preempt, is a bigger question worth its own thought — a read-only run touches no branch, so the one-writer argument for the lease does not obviously bind it.",
+  "notes": "2026-08-24 21:40 - runner-state: runner=herdr branch=tick/6tx merged=cc655e04 gate=green",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "szp",
+  "acceptance_criteria": "A review that never runs says so, with the reason; or reviews no longer queue behind epic runs and the reasoning for why that is safe is documented.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-24T16:59:16.601872Z",
+  "updated_at": "2026-08-24T19:40:39.044444Z",
+  "closed_at": "2026-08-24T19:40:39.044444Z",
+  "closed_reason": "Completed: a review that never runs says so, and why. An expired review is its own digest kind rather than being folded into 'stalled' — it has no run to ask about because it never booted, so reporting it as stalled would hand an operator a supervisor query for a run that does not exist. The PR author is told on the pull request itself."
+}
