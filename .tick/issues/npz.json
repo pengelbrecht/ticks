@@ -1,7 +1,8 @@
 {
   "id": "npz",
   "title": "Close out epic gj9: retro, verify acceptance, PR gate",
-  "status": "open",
+  "notes": "2026-08-25 08:48 - Retro: epic gj9 completed the full factory loop end-to-end. Substrate=harness (TICKS_SUBSTRATE override, no herdr). Payload ita landed as a single implementer turn: gofmt-clean scripts/experiments/waves-chart.go (one-line comment pad) plus a widened whole-module gofmt gate (test -z \"$(gofmt -l .)\") in the CI go job. EPIC-SKELETON was repaired (reopened 9f5, re-pointed blocker iit-\u003eita). Integrated gate green: gofmt -l scripts/ and gofmt -l . empty, go build ./... and go test ./... pass. PR #61 opened and CI ran: go job (the changed surface) green on first pass; factory job flaked twice (41 then 25 failures, all run-workflow.test.ts workerd boot-hang/timeout — the documented known workerd boot crash, open tick 5qj) and passed on attempt 3, confirming nondeterminism not regression. PR #61 merged to main (41779b12). Acceptance outside-in: ita criteria all met and evidenced in implementer report; gate-coverage decision stated (WIDEN) with rationale.",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "ticks-orchestrator@ticks.invalid",
@@ -13,5 +14,7 @@
   "role": "closeout",
   "created_by": "ticks-orchestrator@ticks.invalid",
   "created_at": "2026-08-21T10:53:29.020146724Z",
-  "updated_at": "2026-08-25T07:12:00.496517Z"
+  "updated_at": "2026-08-25T08:48:47.295765733Z",
+  "closed_at": "2026-08-25T08:48:47.295765733Z",
+  "closed_reason": "Completed: epic gj9 closeout. Retro written; acceptance verified outside-in (ita criteria: gofmt -l scripts/ empty, go build ./... and go test ./... green, gate-coverage decision stated as WIDEN with rationale); PR gate satisfied — PR #61 opened, CI green (go job first-pass; factory job a documented workerd-boot flake, tick 5qj, passed attempt 3), merged to main 41779b12."
 }
