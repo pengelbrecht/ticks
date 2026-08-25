@@ -11,7 +11,7 @@ import (
 func main() {
 	w, h := 480, 160
 	img := image.NewRGBA(image.Rect(0, 0, w, h))
-	bg := color.RGBA{30, 30, 46, 255}      // catppuccin base
+	bg := color.RGBA{30, 30, 46, 255}       // catppuccin base
 	green := color.RGBA{166, 227, 161, 255} // primary
 	yellow := color.RGBA{249, 226, 175, 255}
 	grey := color.RGBA{69, 71, 90, 255}
