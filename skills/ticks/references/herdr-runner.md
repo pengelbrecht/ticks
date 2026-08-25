@@ -291,6 +291,10 @@ Three removals, in this order: the herdr **workspace** (`worktree.remove` on the
 
 Before that first removal, cleanup consumes the tick's own uncommitted `RESULT-<tick-id>.md` (archiving it beside the manifest, then deleting it) when it is the *sole* dirt in the worktree — any other uncommitted change still refuses exactly as before.
 
+**A tick filed from inside a worktree is one of those uncommitted changes.** `tk create` writes `.tick/issues/<id>.json` into the *current* working tree, so a worker that files a report writes it onto its own branch and nowhere else. Combined with the stage-explicit-paths rule every multi-agent run follows, no later commit picks it up: the branch merges clean and the tick never existed. Six open reports were lost that way in one repository, sitting untracked in a worktree whose own work had long since merged; `tk create` now warns when it is filing into a linked worktree. A worker that files must **commit the tick file on its own branch**, in the same block — and this is exactly why cleanup refuses on any dirt but its own RESULT file, rather than removing the worktree and taking the report with it.
+
+Only a worktree the helper created carries that protection, because only it has a manifest. A worktree opened by hand or by an agent tool's own isolation is outside every command above: before removing one, read `git -C <worktree> status --short` yourself. Rescue, then prune.
+
 `--preview` is the default and is built by the same code as `--apply`, so a preview is a promise rather than a description. One refused tick never strands the others.
 
 Four refusals, in the order they are checked, each a categorical rule:

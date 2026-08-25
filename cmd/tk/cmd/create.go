@@ -265,6 +265,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	if IsTickDirGitignored(root) {
 		fmt.Fprintln(os.Stderr, "warning: .tick/ is gitignored - ticks won't sync via git")
 	}
+	warnIfFiledInLinkedWorktree(root, t.ID)
 
 	return nil
 }
