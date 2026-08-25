@@ -1,19 +1,19 @@
 {
   "id": "9f5",
   "title": "Final review of epic gj9 diff",
-  "notes": "2026-08-21 11:56 - Final review (controller, read-only): clean. Diff is 2 files, +40/-1: herd_cleanup.go now chooses the per-tick verb after the steps run (p.OK() -\u003e removed | FAILED), leaving the REFUSED and preview paths untouched; herd_cleanup_test.go pins both outcomes and asserts a failed apply never contains \"removed\". Sibling audit: herd_collect prints its verdict after collection, spawn/paint print titles not outcomes, reconcile prints class after evidence, wait computes its summary after settle — no other herd command carries the header-before-outcome pattern. Gate: go test -short -count=1 ./... green on the integrated tree. Findings: none.",
+  "notes": "2026-08-21 11:56 - Final review (controller, read-only): clean. Diff is 2 files, +40/-1: herd_cleanup.go now chooses the per-tick verb after the steps run (p.OK() -\u003e removed | FAILED), leaving the REFUSED and preview paths untouched; herd_cleanup_test.go pins both outcomes and asserts a failed apply never contains \"removed\". Sibling audit: herd_collect prints its verdict after collection, spawn/paint print titles not outcomes, reconcile prints class after evidence, wait computes its summary after settle — no other herd command carries the header-before-outcome pattern. Gate: go test -short -count=1 ./... green on the integrated tree. Findings: none.\n2026-08-25 07:47 - runner-state: reopened for run_fc812f5699f1445ea0150aeb081fdd1b; re-pointed blockers iit-\u003eita so this review covers the NEW payload (gofmt fix), not the old herd_cleanup diff it previously reviewed.",
   "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "ticks-orchestrator@ticks.invalid",
   "blocked_by": [
-    "iit"
+    "ita"
   ],
   "parent": "gj9",
   "role": "review",
   "created_by": "ticks-orchestrator@ticks.invalid",
   "created_at": "2026-08-21T10:53:28.983589223Z",
-  "updated_at": "2026-08-21T11:56:21.70872232Z",
-  "closed_at": "2026-08-21T11:56:21.70872232Z",
-  "closed_reason": "Completed: full epic diff reviewed read-only against base 6f45a32; fix is correct and minimal, acceptance covered by two pinned tests, sibling herd commands audited for the same pattern (none), integrated go test -short ./... gate green; no findings to route"
+  "updated_at": "2026-08-25T08:20:22.408728502Z",
+  "closed_at": "2026-08-25T08:20:22.408728502Z",
+  "closed_reason": "Completed: final review of the run_fc812f5699f1445ea0150aeb081fdd1b diff (base origin/main 1f030508). Two files, +6/-1: (1) scripts/experiments/waves-chart.go gains the one-space comment pad — exactly the tick's named diff, mechanically correct; (2) .github/workflows/ci.yml gains a Format step (test -z gofmt -l .) in the go job. Review verified: no gofmt gate existed anywhere in the tree prior (the tick's historical 'cmd/ internal/' claim was stale — checked ci.yml, Makefile, scripts/, and all Go tests); gofmt -l . recurses (probe confirmed); the new gate is the minimal idiomatic home (the single existing Go-hygiene CI job); YAML parses clean; public-repo guard passes (no operator identifiers); integrated gate green (gofmt -l scripts/ empty, gofmt -l . empty, go build ./..., go test ./... 0 FAIL). Findings: none."
 }
