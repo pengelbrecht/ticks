@@ -10,10 +10,24 @@ import (
 // (herdr 0.8.2). [New] accepts it and anything newer; see [MinProtocolVersion]
 // for the hard floor and [ProtocolWarnVersion] for the warning threshold.
 //
-// Bumped 19 -> 20 for herdr 0.8.2. The testdata/ fixtures are still the
-// 0.8.0-era captures (their provenance headers say so); whether the 19 -> 20
-// bump changed any response shape, and re-capturing against a live 0.8.2
-// server, were not possible in this environment — open work (RESULT-3nh.md).
+// Bumped 19 -> 20 for herdr 0.8.2.
+//
+// THE 19 -> 20 SHAPE DIFF, taken 2026-08-25 against a live 0.8.2 server rather
+// than assumed. `session.snapshot` is identical at the top level — no key
+// added, removed or renamed — and every difference below it is ADDITIVE:
+// `panes[]` gained `agent`, `agent_session`, `foreground_cwd`; `agents[]`
+// gained `agent_session`, `cwd`, `foreground_cwd`, `state_change_seq`. Nothing
+// this client decodes disappeared or changed meaning. The captured `pong`
+// matches the live one exactly.
+//
+// That is the evidence the forward-compatible policy below rests on: a newer
+// server was observed to only ADD. It is one dated observation against one
+// version, not a guarantee — which is why the floor is still a hard stop.
+//
+// The testdata/ fixtures remain deliberately 0.8.0-era CURATED scenarios (two
+// workspaces, two panes, one agent) rather than live dumps: they exist to pin
+// decoding of a known shape, and a live capture would churn them every time
+// the operator opens a window. Their provenance headers say what they are.
 const ProtocolVersion uint32 = 20
 
 // MinProtocolVersion is the lowest protocol [New] will talk to. A server below
