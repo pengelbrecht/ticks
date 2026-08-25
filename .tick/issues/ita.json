@@ -1,0 +1,14 @@
+{
+  "id": "ita",
+  "title": "scripts/experiments/waves-chart.go is not gofmt-clean",
+  "description": "A genuinely small, mechanically verifiable defect, chosen as the payload for the factory's end-to-end acceptance run (project w1z, A1).\n\n`gofmt -l scripts/` reports `scripts/experiments/waves-chart.go`. The diff is one line of comment alignment:\n\n  -\tbg := color.RGBA{30, 30, 46, 255}      // catppuccin base\n  +\tbg := color.RGBA{30, 30, 46, 255}       // catppuccin base\n\ngofmt aligns the trailing comments of a run of consecutive lines; the following line's comment sits one column further right, so this one is under-padded.\n\nIt is pre-existing on main and predates the cloud factory epics — the repo's gates only ever ran `gofmt -l cmd/ internal/`, so `scripts/` was never covered.\n\nWork:\n1. Run `gofmt -w scripts/experiments/waves-chart.go`.\n2. Decide whether the gate should cover `scripts/` too, and say so in the report. If yes, widen it — a formatting rule nothing enforces is a rule that drifts back, which is the same class as the Go/TS parity gaps this project has now hit three times. If no, say why `scripts/` is deliberately exempt.\n\nDeliberately trivial. The thing under test is the factory, not the work — that is what this epic is for.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "gj9",
+  "acceptance_criteria": "gofmt -l scripts/ is empty; go build ./... and go test ./... stay green; the report states whether the gate now covers scripts/ and why.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-25T07:12:00.462769Z",
+  "updated_at": "2026-08-25T07:12:00.462769Z"
+}

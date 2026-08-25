@@ -6,11 +6,12 @@
   "type": "task",
   "owner": "ticks-orchestrator@ticks.invalid",
   "blocked_by": [
-    "9f5"
+    "9f5",
+    "ita"
   ],
   "parent": "gj9",
   "role": "closeout",
   "created_by": "ticks-orchestrator@ticks.invalid",
   "created_at": "2026-08-21T10:53:29.020146724Z",
-  "updated_at": "2026-08-21T10:54:37.726797386Z"
+  "updated_at": "2026-08-25T07:12:00.496517Z"
 }
