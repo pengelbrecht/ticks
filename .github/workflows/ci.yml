@@ -35,6 +35,11 @@ jobs:
       - name: Vet
         run: go vet ./...
 
+      - name: Format
+        # gofmt -l prints any file that needs formatting; fail the job on a
+        # non-empty list so gofmt coverage cannot drift. ./... reaches every
+        # package in the module, including scripts/experiments.
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
       - name: Build
         run: go build ./...
 
