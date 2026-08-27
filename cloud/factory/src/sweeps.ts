@@ -513,7 +513,7 @@ export function parseSweepFilter(expression: string): SweepFilter {
  *
  * A second reader of a format Go owns (`internal/tick.Tick`), like
  * `parseTickRecord` in tick-membership.ts, and pinned from both languages by
- * `test/fixtures/sweep-selection-contract.json` — a field renamed in Go alone
+ * `contracts/sweep-selection-contract.json` — a field renamed in Go alone
  * would otherwise turn every sweep into one that selects nothing, quietly, on
  * a schedule, with both suites green.
  *

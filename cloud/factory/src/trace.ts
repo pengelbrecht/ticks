@@ -46,7 +46,7 @@
  * it to a container as `TICKS_TRACE_ID`. `.tick/learnings.md` is unambiguous
  * about what a constant crossing that boundary needs: a cross-implementation
  * golden test, because otherwise each suite stays internally consistent while
- * the two halves disagree. `test/fixtures/tracker-layout.json` is that pin and
+ * the two halves disagree. `contracts/tracker-layout.json` is that pin and
  * `internal/trace` is Go's half.
  */
 

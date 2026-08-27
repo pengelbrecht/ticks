@@ -14,8 +14,8 @@ import {
   repoConfig,
   type RepoConfigReader,
 } from "../src/repo-config";
-import cases from "./fixtures/sandbox-image-cases.json";
-import contract from "./fixtures/runners-config-contract.json";
+import cases from "../../../contracts/sandbox-image-cases.json";
+import contract from "../../../contracts/runners-config-contract.json";
 
 /**
  * The control plane's reader of a repository's tracked `[sandbox].image`.

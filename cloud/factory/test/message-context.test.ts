@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import fixture from "./fixtures/message-context.json";
+import fixture from "../../../contracts/message-context.json";
 
 import {
   MESSAGE_CONTEXT_EPIC_PREFIX,

@@ -25,7 +25,7 @@ import {
 } from "../src/tracker-write";
 import { tickRecordPath } from "../src/tick-membership";
 
-import layout from "./fixtures/tracker-layout.json";
+import layout from "../../../contracts/tracker-layout.json";
 
 const PROJECT = "acme/ticks";
 const NOW = "2026-08-23T10:00:00.000Z";

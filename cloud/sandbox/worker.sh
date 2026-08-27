@@ -79,7 +79,7 @@ readonly WORKER_PROBE_MARKER="ticks-worker-probe-ok"
 # The two strings the supervisor's side of the cancellation door is pinned to,
 # alongside the probe marker and for the same reason: a word one half prints
 # and the other half looks for must be declared once and carried across the
-# languages by `test/fixtures/worker-boot-contract.json`.
+# languages by `contracts/worker-boot-contract.json`.
 #
 # WORKER_CANCEL_MARKER is what `--cancel` prints when it has lodged the
 # request, so the dispatcher can tell "the container took the ask" from "the

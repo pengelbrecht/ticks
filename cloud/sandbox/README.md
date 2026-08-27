@@ -92,7 +92,7 @@ The gate is **`ticks-worker-probe-ok` appearing in the output**, never the exit
 status — a probe that exits 0 having printed the wrong thing is exactly the
 trap. The marker is defined here and read from three places: `worker.sh`,
 `internal/sandbox/worker.go` and `cloud/factory/src/worker-boot.ts`, pinned
-together by `cloud/factory/test/fixtures/worker-boot-contract.json`.
+together by `contracts/worker-boot-contract.json`.
 
 The probe deliberately makes **no model call** and does **no clone**. It runs
 once per sandbox in a wave, and the model round-trip is already proved during
@@ -258,7 +258,7 @@ the branch comes back clean and `ready-to-merge` for exactly the runs a human
 most needs to hear about.
 
 The refusal text and the report marker are pinned in
-`cloud/factory/test/fixtures/worker-boot-contract.json` beside the probe marker,
+`contracts/worker-boot-contract.json` beside the probe marker,
 for the same reason that one is: two halves matching on a substring drift the
 moment only one of them is edited.
 
