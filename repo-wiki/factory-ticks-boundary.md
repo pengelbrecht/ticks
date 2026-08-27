@@ -94,6 +94,56 @@ was two answers to one question.
 package public is a permanent promise; freezing ticks' internals to serve one
 consumer is the thing this approach avoids.
 
+## What factory code costs a `tk` build — measured, then deferred
+
+Phase 1 removed the `cmd/tk/cmd/root.go` edge, but `cmd/tk/cmd/factory_dashboard.go`
+still imports `internal/factory/dashboard`, so a `tk` build still compiles factory
+code. Tick `ffy` asked whether that is worth fixing now with a build tag or a CLI
+boundary. **Measured first** (`go1.26.2`, `darwin/arm64`, `go build ./cmd/tk`,
+cold cache via `go clean -cache`; variants produced by moving command files aside
+and reverted afterwards):
+
+| Build | Binary bytes | Δ |
+|---|---|---|
+| `tk` as it ships | 22,728,802 | — |
+| minus `factory_dashboard.go` (the edge `ffy` names) | 22,565,330 | **−163,472 B, −0.72%** |
+| minus the whole `tk factory` command family | 20,659,010 | −2,069,792 B, −9.1% |
+
+- **Dependency surface: four packages of 337, and no third-party module.** The
+  packages that enter a `tk` build *only* because of the factory are
+  `internal/factory`, `internal/factory/dashboard`, `crypto/pbkdf2` and
+  `crypto/internal/fips140/pbkdf2`. Everything else the factory needs — cobra,
+  bubbletea, `net/http` — `tk` already compiles for its own commands. The factory
+  adds no module to `go.mod`'s effective build closure.
+- **Compile time: no measurable difference.** Cold builds came in at 6.00 s,
+  6.22 s and 6.37 s wall across the three variants — run-to-run noise, not signal.
+
+**Decision: defer to the phase that moves the files.** Recorded so that phase
+inherits the number rather than re-deriving it.
+
+Three things make the fix-now option a bad trade at this price:
+
+1. **The 9% column is not available to a build tag.** It is reached only by
+   dropping `tk factory deploy` / `setup` / `status` / `webhook`, which is
+   shipping a different `tk`, not a cheaper build of the same one. What a tag on
+   `cmd/tk/cmd/factory_*.go` actually buys is the 0.72% row.
+2. **A tag on `factory_*.go` would not even make `internal/factory` stop
+   compiling.** `cmd/tk/cmd/cloud_logs.go` and `cmd/tk/cmd/cloud_supervisor.go`
+   import it for `factory.ReadSupervisor` / `factory.Supervisor` /
+   `factory.SupervisorOptions`, and those are `tk cloud` commands that stay in
+   ticks. Reaching "no `internal/factory` package compiles" means relocating the
+   supervisor read as well — real work, for four packages out of 337 and no
+   dependency reduction.
+3. **The move deletes the cost outright**, and it has to answer the supervisor
+   question anyway. A build tag added now would be scaffolding torn out then, and
+   a tag is not free: it doubles the build configurations every later change has
+   to keep compiling.
+
+The epic's own acceptance never promised a factory-free build closure — it
+promised no promotion out of `internal/` and no `root.go` edge, both of which
+hold. This is the broader reading, and it is a Phase 5 obligation, not a Phase 1
+regression.
+
 ## Gotchas
 
 - **Eight CORE Go tests read fixtures out of `cloud/factory/test/fixtures/`** —
@@ -112,7 +162,12 @@ consumer is the thing this approach avoids.
   does not cleanly reverse — `internal/sandbox` and `tk sandbox` stay in ticks.
 - **`tk` commands self-register** via `init()` + `rootCmd.AddCommand` with no
   central registry, so deleting a command file removes the command with zero
-  edits elsewhere. The CLI surface cuts cleanly.
+  edits to any *other* command. The CLI surface cuts cleanly — with **one
+  exception, found while measuring `ffy`**: `ResetFlags` in `cmd/tk/cmd/root.go`
+  is a hand-maintained list of every command's flag variables, so removing a
+  command file breaks the build there and nowhere else. It is a test helper, and
+  the fix is to delete the corresponding lines. Budget for it in the move; do not
+  read the compile error as a hidden coupling.
 - **`~/.ticksrc` carries 30 `KeyFactory*` constants**, including live GitHub
   OAuth refresh tokens and a Cloudflare API token. Splitting it is the only step
   that can break a live deployment; it needs a migration, not a cut.
@@ -126,3 +181,6 @@ consumer is the thing this approach avoids.
 - 2026-08-27 — boundary mapped, extraction scoped as project `a4n`, factory
   design-doc status header corrected (it claimed nothing was implemented above
   ~29.5k lines of running code) — @da494c6d
+- 2026-08-27 — the cost of factory code in a `tk` build measured (0.72% of the
+  binary for the edge in question, four packages of 337, no third-party module,
+  no compile-time signal) and the fix deferred to the move, tick `ffy`.

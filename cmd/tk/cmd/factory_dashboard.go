@@ -1,5 +1,14 @@
 package cmd
 
+// This file is the reason a `tk` build still compiles factory code: the import
+// of internal/factory/dashboard below. That was measured rather than argued —
+// it costs 163 KB of a 22.7 MB binary (0.72%), no third-party dependency and no
+// measurable compile time — and the deliberate decision is to leave it until the
+// factory command files leave the repo, rather than pay for a build tag that
+// would not even remove internal/factory (cloud_logs.go and cloud_supervisor.go
+// import it for the supervisor read). Numbers and reasoning:
+// repo-wiki/factory-ticks-boundary.md, "What factory code costs a `tk` build".
+
 import (
 	"net/http"
 	"strings"
