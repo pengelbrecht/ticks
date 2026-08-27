@@ -1,0 +1,17 @@
+{
+  "id": "69b",
+  "title": "Phase 4 — PATH-discovered subcommand dispatch",
+  "description": "So the factory can own 'tk factory ...' from outside the binary. tk commands self-register via init() + rootCmd.AddCommand with no central registry, so removing a command file removes the command with zero edits elsewhere — the CLI surface cuts cleanly. What is missing is the other half: git-style dispatch where an unrecognised 'tk foo' resolves to a tk-foo binary on PATH. Chosen over a separate tkf binary (breaks every doc and all muscle memory) and over the factory shipping a superset tk (two binaries claiming one name is worse than either). The repo already has plugin/extension precedent in plugins/herdr-ticks and extensions/ticks-runner. Useful independently of the extraction.",
+  "status": "open",
+  "priority": 2,
+  "type": "epic",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "9hu"
+  ],
+  "parent": "a4n",
+  "acceptance_criteria": "An external tk-hello binary on PATH is invocable as 'tk hello' with arguments and exit codes passed through faithfully. tk factory still resolves to the in-repo implementation. Unknown-command error messages still name real suggestions and do not degrade.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-27T09:03:24.589966Z",
+  "updated_at": "2026-08-27T09:03:24.589966Z"
+}

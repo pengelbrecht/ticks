@@ -1,0 +1,17 @@
+{
+  "id": "kka",
+  "title": "Phase 2 — publish the cross-language contract",
+  "description": "EIGHT CORE GO TESTS read fixtures out of cloud/factory/test/fixtures/ — the dependency runs backwards from what anyone would predict. They are deliberate Go/TS drift detectors: .tick/runners.toml is parsed by internal/herd/config AND re-implemented in cloud/factory/src/{toml,repo-config}.ts, and the fixtures are what stop the two diverging. Same for sandbox worker boot and message context. internal/gatewaytrace/trace_test.go:332-342 pins constants against cloud/factory/src/gateway.ts by convention. Move the fixtures into a versioned artifact both repos consume (skills/ticks/references/runners-config.schema.json is the natural seed) and repoint both test suites at it. A naive extraction relocates these and silently disables eight drift detectors — the likeliest way this project does real damage.",
+  "status": "open",
+  "priority": 1,
+  "type": "epic",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "3j4"
+  ],
+  "parent": "a4n",
+  "acceptance_criteria": "Deliberately breaking cloud/factory/src/toml.ts still fails a Go test, with no test reading a fixture by relative path across the repo boundary. All eight detectors demonstrably still fire — show one failing on purpose. go test ./... and the factory vitest suite green.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-27T09:03:04.281814Z",
+  "updated_at": "2026-08-27T09:03:04.281814Z"
+}
