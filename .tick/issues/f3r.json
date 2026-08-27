@@ -1,0 +1,13 @@
+{
+  "id": "f3r",
+  "title": "CI bypasses package typecheck scripts, so anything chained into them is not gated",
+  "description": "FOUND BY TICK pvb while wiring a gate into pnpm typecheck.\n\n.github/workflows/ci.yml runs 'pnpm exec tsc --noEmit' directly in the ui, worker and factory jobs rather than 'pnpm typecheck'. So the package.json script is NOT what CI executes, and anything chained into it silently is not gated in CI — it only runs for developers locally.\n\npvb hit this and worked around it by adding an explicit 'Verify the contracts pin' CI step, so its own gate IS enforced. The trap is general: the next person who chains a check into a package script will reasonably assume CI runs it, and will be wrong. The failure is silent and in the safe-looking direction — locally red, CI green.\n\nFIX: have CI invoke the package scripts (pnpm typecheck / pnpm test) rather than reimplementing them, so the script is the single definition of what those words mean. If there is a deliberate reason CI bypasses them — speed, or wanting an exact command — say so in the workflow next to the line, because right now it reads as an accident.\n\nSmall, and worth doing before more gates get chained.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "Either CI invokes the package scripts so a chained check is executed, or the workflow states beside each bypassing line why it does not and what the consequence is. pvb's explicit contracts step remains enforced either way. CI green.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-27T12:36:57.185494Z",
+  "updated_at": "2026-08-27T12:36:57.185494Z"
+}

@@ -2,7 +2,7 @@
   "id": "pvb",
   "title": "Repoint the factory's vitest suite and pin how it gets the fixtures",
   "description": "The TS half. cloud/factory/test/*.test.ts reads the same eight fixtures (tracker-layout.json x4, worker-boot-contract.json x2, sweep-policy-cases.json x2, and one each of the rest) plus omp-tool-call-exchange.json, which is TS-only and stays put — check that assumption rather than moving it by reflex.\n\nTwo jobs:\n1. Repoint the vitest suite at the new home.\n2. Decide and implement HOW ticfac gets these once it is a separate repo. Today a relative path works; after Phase 5 it cannot. The precedent to follow is already in the tree: cloud/sandbox/Dockerfile go-installs tk at a pinned TK_SOURCE_REF from the public module proxy — the image ALREADY consumes ticks as a published, version-pinned artifact. Do the same shape for the contracts rather than inventing a second mechanism.\n\nOptions to weigh and choose between, with the reasoning written down: vendor a copy with a sync check in CI; fetch at test time from a pinned ticks ref; publish them as an npm package alongside the existing schemas codegen. The requirement is not elegance — it is that a Go/TS divergence FAILS A BUILD after the repos split. A mechanism that silently no-ops when the fetch fails is worse than a relative path.\n\nWhatever you choose must work TODAY in one repo and CONTINUE to work after Phase 5. Say explicitly what Phase 5 will have to do to it, so 5hm inherits the answer rather than rediscovering it.",
-  "status": "open",
+  "status": "closed",
   "priority": 1,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -13,5 +13,7 @@
   "acceptance_criteria": "The vitest suite reads the fixtures from the new home and passes. The chosen distribution mechanism is implemented and documented, works in-repo today, and is stated to work post-split with what Phase 5 must do written down. A fetch or sync failure FAILS rather than silently skipping. pnpm typecheck and the factory vitest suite green; go test ./... still green.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-27T11:51:51.479932Z",
-  "updated_at": "2026-08-27T11:51:51.479932Z"
+  "updated_at": "2026-08-27T12:36:57.158483Z",
+  "closed_at": "2026-08-27T12:36:57.158483Z",
+  "closed_reason": "Completed: the eight contracts have one copy (13 vitest imports repointed, duplicates deleted), and ticfac's post-split access is a vendored pin verified by an OFFLINE digest check. The safety argument is structural, not a promise: 'contracts:check' makes NO network call and is chained into pnpm test/typecheck plus its own CI step, while 'contracts:sync' is network and runs only on a deliberate pin bump. So no network failure can turn a run green by skipping — the objection that a silent no-op is worse than a relative path is answered by design. Transport follows the existing precedent (same module proxy the sandbox Dockerfile already uses). The check asserts the pinned file set EQUALS the set the suite imports, both directions fatal, which caught collect-vocabulary.json arriving mid-task. Failure behaviour exercised across seven cases including a real proxy fetch of v0.31.0 (predates contracts/) so sync is not untested dead code. Both suites demonstrated red on a one-sided fixture edit."
 }
