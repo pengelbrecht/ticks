@@ -8,17 +8,15 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-
-	"github.com/pengelbrecht/ticks/internal/operator"
 )
 
-func gate(id, tick string, resolution *operator.PendingResolution) operator.Pending {
-	return operator.Pending{
+func gate(id, tick string, resolution *GateResolution) Gate {
+	return Gate{
 		ID:         id,
 		TickID:     tick,
-		Kind:       operator.PendingGate,
-		Question:   operator.Question{Text: "merge wave 6?"},
-		CreatedAt:  at("2026-08-22T05:59:00Z"),
+		Kind:       GateApproval,
+		Question:   GateQuestion{Text: "merge wave 6?"},
+		CreatedAt:  "2026-08-22T05:59:00Z",
 		Resolution: resolution,
 	}
 }
@@ -37,9 +35,9 @@ func boardModel(t *testing.T, snap Snapshot) *Model {
 
 func loaded() Snapshot {
 	observation := frame()
-	observation.Focus.Gates = []operator.Pending{
+	observation.Focus.Gates = []Gate{
 		gate("q1", "bmo", nil),
-		gate("q2", "s7f", &operator.PendingResolution{AnsweredBy: operator.AnsweredByTelegram, AnsweredAt: at("2026-08-22T05:58:00Z")}),
+		gate("q2", "s7f", &GateResolution{AnsweredBy: GateAnsweredByTelegram, AnsweredAt: "2026-08-22T05:58:00Z"}),
 	}
 	return Snapshot{
 		Observation: observation,
@@ -279,7 +277,7 @@ func TestNoKeyCommandsTheFactory(t *testing.T) {
 func TestGatesShowWithNoRunFocused(t *testing.T) {
 	snap := loaded()
 	snap.Focus = nil
-	snap.Gates = []operator.Pending{gate("q9", "bmo", nil)}
+	snap.Gates = []Gate{gate("q9", "bmo", nil)}
 	model := boardModel(t, snap)
 
 	body := strings.Join(rowTexts(model), "\n")

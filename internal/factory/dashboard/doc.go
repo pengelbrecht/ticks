@@ -4,11 +4,13 @@
 // submissions the dispatch policy refused — rendered as a bubbletea TUI in a
 // local terminal.
 //
-// It is the cloud counterpart to
-// [github.com/pengelbrecht/ticks/internal/herd/dashboard] and deliberately
-// mirrors it: same keys, same fold behaviour, same posture. An operator who
-// has driven the herd board drives this one, and a rebinding there fails a
-// test here.
+// It is the cloud counterpart to `tk herd dashboard` and deliberately mirrors
+// it: same keys, same fold behaviour, same posture. An operator who has driven
+// the herd board drives this one. That agreement used to be enforced by a test
+// that rendered the herd board's own footer; since epic 3j4 stopped this
+// package importing ticks internals it is pinned as a frozen list instead, so
+// a rebinding over there is now a decision someone has to carry across rather
+// than a build failure.
 //
 // # Read-only, in two senses
 //

@@ -1,5 +1,14 @@
 package cmd
 
+// This file is the reason a `tk` build still compiles factory code: the import
+// of internal/factory/dashboard below. That was measured rather than argued —
+// it costs 163 KB of a 22.7 MB binary (0.72%), no third-party dependency and no
+// measurable compile time — and the deliberate decision is to leave it until the
+// factory command files leave the repo, rather than pay for a build tag that
+// would not even remove internal/factory (cloud_logs.go and cloud_supervisor.go
+// import it for the supervisor read). Numbers and reasoning:
+// repo-wiki/factory-ticks-boundary.md, "What factory code costs a `tk` build".
+
 import (
 	"net/http"
 	"strings"
@@ -33,6 +42,20 @@ const defaultFactoryDashboardIntervalMs = int64(2 * 1000)
 // Each pass pages the AI Gateway logs API, so it is deliberately far slower
 // than a frame.
 const defaultFactoryDashboardCostMs = int64(30 * 1000)
+
+// defaultFactoryDashboardTailBytes is how much of a run's harness output tail
+// `--tail-bytes` reads: a screenful of scrollback, not a log dump. The board
+// polls it every couple of seconds, and the operator who wants the whole
+// stream has `tk cloud logs`.
+//
+// It lives here, with the flag it is the default for and beside the other two
+// defaults for this same command, rather than in internal/factory/dashboard.
+// This is a `tk` flag default: root.go resets every flag to it, and the root
+// command — always compiled, factory installed or not — should not have to
+// import factory code to learn the default value of one of its own flags.
+// internal/factory/dashboard keeps its own fallback for the different question
+// of what a Loader does when a programmatic caller leaves HarnessBytes zero.
+const defaultFactoryDashboardTailBytes = 64 << 10
 
 var factoryDashboardCmd = &cobra.Command{
 	Use:   "dashboard",
@@ -86,7 +109,7 @@ func init() {
 		"how often to re-read the factory, in milliseconds")
 	factoryDashboardCmd.Flags().Int64Var(&factoryDashboardCost, "cost-interval", defaultFactoryDashboardCostMs,
 		"how often to re-total AI Gateway spend, in milliseconds")
-	factoryDashboardCmd.Flags().IntVar(&factoryDashboardTailBytes, "tail-bytes", dashboard.DefaultHarnessBytes,
+	factoryDashboardCmd.Flags().IntVar(&factoryDashboardTailBytes, "tail-bytes", defaultFactoryDashboardTailBytes,
 		"how much of the harness output tail each frame reads")
 	factoryDashboardCmd.Flags().BoolVar(&factoryDashboardNoCost, "no-cost", false,
 		"skip gateway cost telemetry entirely")

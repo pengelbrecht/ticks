@@ -1,0 +1,19 @@
+{
+  "id": "46k",
+  "title": "Declare the tk commands the factory depends on, and guard them",
+  "description": "THE DELIVERABLE THAT OUTLIVES THIS EPIC. Once the factory reaches ticks through the CLI, that CLI is a contract — and an undeclared contract is one ticks breaks by accident on a quiet Tuesday.\n\nPRECEDENT TO COPY: cloud/sandbox/required-tk-commands already does exactly this for the container, and the image's last Dockerfile layer install-checks every listed command against the tk it just built. Follow that shape rather than inventing a new one; ideally the two lists converge or one references the other.\n\nThe list must name the commands AND the flags relied on — 'tk show \u003cid\u003e --json' and 'tk list --json' at minimum, whatever else tick 7o5 ends up using, and the sandbox's existing entries.\n\nTHE TEST IS THE POINT. Add a test that FAILS when a listed command or flag is removed or renamed. A list nobody checks is a comment. Decide how to assert it — invoking the built binary is the strongest signal and matches what the Dockerfile does; reading the cobra command tree is faster but proves less. Say which you chose and what it does not catch.\n\nOut of scope: JSON SHAPE stability (a field being renamed inside --json output). That is Phase 2's contract artifact, not this list. Note the boundary in the file so nobody assumes this test covers more than it does.",
+  "status": "closed",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "7o5"
+  ],
+  "parent": "3j4",
+  "acceptance_criteria": "A committed list names every tk command and flag the factory relies on. A test fails when any listed command or flag is removed or renamed — demonstrated by removing one on purpose and showing the failure. The list's relationship to cloud/sandbox/required-tk-commands is stated. The file says explicitly that JSON field stability is NOT covered here. go test ./... green.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-27T09:34:05.128763Z",
+  "updated_at": "2026-08-27T10:06:21.245644Z",
+  "closed_at": "2026-08-27T10:06:21.245644Z",
+  "closed_reason": "Completed: cloud/factory/required-tk-commands declares the two invocations the factory relies on (list --all --json, show \u003carg\u003e --json), DERIVED from the cloud.go call sites by a go/ast scan rather than hand-maintained. Four gates in factory_tk_contract_test.go: derivation match, real-subprocess invocation, --all asserted BY EFFECT (a tick owned by someone else must be absent without it and present with it), and prose gates on the sandbox cross-reference and the JSON disclaimer. Deliberate-removal demonstrated four ways including a no-op --all, which only the effect test catches."
+}

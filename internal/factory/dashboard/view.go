@@ -6,21 +6,37 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
-
-	"github.com/pengelbrecht/ticks/internal/styles"
 )
 
-// The repo's shared Catppuccin palette, reused rather than redefined so this
-// board matches `tk herd dashboard`, `tk tui` and `tk board`.
+// This board's palette. It starts as the same Catppuccin Mocha values
+// `tk tui` and `tk board` use, and it is a COPY of them rather than an import
+// of internal/styles.
+//
+// Why a copy: the factory board is its own product surface. Binding two
+// products' visual identity together through a shared package is a coupling
+// neither wants — a palette change made for the tracker's TUI would silently
+// restyle a deployed factory's board, and vice versa. If the two drift apart
+// later that is the correct outcome, not a bug to reconcile.
+const (
+	colorRed     = lipgloss.Color("#F38BA8") // Red
+	colorGreen   = lipgloss.Color("#A6E3A1") // Green
+	colorTeal    = lipgloss.Color("#94E2D5") // Teal
+	colorBlue    = lipgloss.Color("#89DCEB") // Sky
+	colorPurple  = lipgloss.Color("#CBA6F7") // Mauve
+	colorPink    = lipgloss.Color("#F5C2E7") // Pink
+	colorSubtext = lipgloss.Color("#A6ADC8") // Subtext0
+	colorDim     = lipgloss.Color("#7F849C") // Overlay1
+)
+
 var (
-	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(styles.ColorPink)
-	metaStyle     = lipgloss.NewStyle().Foreground(styles.ColorDim)
-	runStyle      = lipgloss.NewStyle().Foreground(styles.ColorTeal).Bold(true)
-	sectionStyle  = lipgloss.NewStyle().Foreground(styles.ColorPurple).Bold(true)
-	selectedStyle = lipgloss.NewStyle().Foreground(styles.ColorBlue).Bold(true)
-	errStyle      = lipgloss.NewStyle().Foreground(styles.ColorRed)
-	okStyle       = lipgloss.NewStyle().Foreground(styles.ColorGreen)
-	outputStyle   = lipgloss.NewStyle().Foreground(styles.ColorSubtext)
+	titleStyle    = lipgloss.NewStyle().Bold(true).Foreground(colorPink)
+	metaStyle     = lipgloss.NewStyle().Foreground(colorDim)
+	runStyle      = lipgloss.NewStyle().Foreground(colorTeal).Bold(true)
+	sectionStyle  = lipgloss.NewStyle().Foreground(colorPurple).Bold(true)
+	selectedStyle = lipgloss.NewStyle().Foreground(colorBlue).Bold(true)
+	errStyle      = lipgloss.NewStyle().Foreground(colorRed)
+	okStyle       = lipgloss.NewStyle().Foreground(colorGreen)
+	outputStyle   = lipgloss.NewStyle().Foreground(colorSubtext)
 )
 
 // keyHint is the footer. The verbs and their keys are the herd board's, in the

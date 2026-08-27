@@ -1,0 +1,19 @@
+{
+  "id": "ffy",
+  "title": "A tk build still compiles factory code — decide whether that is acceptable",
+  "description": "RAISED BY THE psh/fr1 IMPLEMENTER, and it is the honest 'did we actually achieve the goal' question for this epic.\n\nfr1 removed the root.go edge, which is exactly what its acceptance asked for. But cmd/tk/cmd/factory_dashboard.go still imports internal/factory/dashboard, so a tk build STILL compiles factory code. The epic's negative acceptance (nothing promoted out of internal/) holds; the broader reading — that a factory-free tk compiles no factory package at all — does not.\n\nTHE DECISION, not the mechanics, is the work here. Three readings, and they are genuinely different products:\n1. It does not matter until Phase 5. The factory command files leave the repo then and the question dissolves. Cheapest, and defensible — this epic never promised it.\n2. It matters now, because 'ticks is terminal-first' is the whole point of the project and a tk that compiles a Cloudflare deployment tool is not that. Would need a build tag or a CLI-driven boundary on the remaining cmd/tk/cmd/factory_*.go files.\n3. It matters for BINARY SIZE and dependency surface specifically — measure before deciding. Check what the factory packages actually pull into a tk build.\n\nDo the measurement first (option 3's step) even if the answer is option 1: 'we checked and it costs X' is a decision, 'we did not look' is not. If the answer is option 1, close this with that reasoning recorded and let Phase 5 handle it.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "46k"
+  ],
+  "parent": "3j4",
+  "acceptance_criteria": "The cost of factory code in a tk build is measured and recorded. A decision is made and written down: fix now, or defer to Phase 5 with the reasoning. If fix-now, a factory-free tk build compiles no internal/factory package and go test ./... stays green.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-27T09:54:04.275595Z",
+  "updated_at": "2026-08-27T10:45:07.902324Z",
+  "closed_at": "2026-08-27T10:45:07.902324Z",
+  "closed_reason": "Completed as a DECISION with the measurement behind it, which was the ask.\n\nMEASURED (go1.26.2, darwin/arm64, cold cache, variants built by moving command files aside and reverted):\n- tk as it ships: 22,728,802 bytes\n- minus factory_dashboard.go (the edge ffy names): -163,472 B, -0.72%\n- minus the whole tk factory command family: -2,069,792 B, -9.1%\n- Dependency surface: 4 packages of 337, computed by differencing dep closures — internal/factory, internal/factory/dashboard, crypto/pbkdf2, crypto/internal/fips140/pbkdf2. ZERO third-party modules; cobra, bubbletea and net/http are already in tk for its own commands.\n- Compile time: no signal (6.00 / 6.22 / 6.37 s across three cold builds).\n\nDECISION: defer to Phase 5. The 9% column is only reachable by dropping tk factory deploy/setup/status/webhook — that is a different tk, not a cheaper build of the same one — so a build tag actually buys the 0.72% row. Not worth a build-tag scheme.\n\nTHE REAL FINDING, and it is better than the numbers: a tag on cmd/tk/cmd/factory_*.go would NOT have made internal/factory stop compiling. cloud_logs.go and cloud_supervisor.go import it for factory.ReadSupervisor / factory.Supervisor. The implementer noted those are tk cloud commands \"that stay in ticks\" — as of the same day, they DO NOT. Phase 4 was cancelled and tk cloud becomes ticfac, so those two files leave with the factory and the factory-free closure falls out of the move for free. The measurement's conclusion (defer) was right; its reasoning is now stronger than when it was written.\n\nWritten up in repo-wiki/factory-ticks-boundary.md with a pointer comment at the import site in cmd/tk/cmd/factory_dashboard.go."
+}

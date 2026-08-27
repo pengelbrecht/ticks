@@ -1,0 +1,17 @@
+{
+  "id": "9oy",
+  "title": "Phase 4b — one bot reader: retire the Go Telegram poller",
+  "description": "THE DUPLICATION FIX, and the only user-visible behaviour change in the project. One bot token has exactly one reader. internal/operator/telegram/client.go:84 long-polls getUpdates and says so ('a second one gets 409'); cloud/factory/src/telegram.ts registers a webhook and says 'setWebhook and getUpdates are mutually exclusive and the front door is the choice this deployment makes'. They do not collide today only because the Go side has no users. Retire internal/operator/telegram/** (2,171 non-test + 1,852 test) and repoint tk channel and tk tell at the factory's API. telegram/markdown.go goes with the transport; internal/operator/markdownlite.go STAYS (it is the store's formatting, used by the terminal path). MUST land before the move, while both implementations are in one tree and one test run can prove the handover. Consequence to state in the release notes: remote answering now requires a deployed factory; terminal answering is unaffected and still works offline.",
+  "status": "open",
+  "priority": 1,
+  "type": "epic",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "69b"
+  ],
+  "parent": "a4n",
+  "acceptance_criteria": "No Go code calls the Telegram Bot API. No bot token is read from a laptop. Answering from Telegram still resolves a parked question end to end, proven against the fake bot or a live factory. tk answer at a terminal still resolves a parked question with no factory deployed and no network.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-27T09:03:24.631584Z",
+  "updated_at": "2026-08-27T09:03:24.631584Z"
+}

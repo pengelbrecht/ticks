@@ -1,0 +1,13 @@
+{
+  "id": "zkq",
+  "title": "required-tk-commands cannot express tk subcommands that tk itself invokes",
+  "description": "FOUND BY TICK 7o5. cloud/sandbox/required-tk-commands does not list 'show' or 'list'. Inside a cloud run, tk cloud spawn now shells out to both, so the container's tk needs them.\n\nIn practice they are core verbs present in every tk build, so nothing is broken today. The structural problem is that the file is DERIVED from the entrypoint shell scripts by TestRequiredTkCommandsFileMatchesTheEntrypoint — hand-adding entries fails that test. So the list can express 'the container's shell calls this' and cannot express 'tk calls this from inside tk'.\n\nThat matters more after the extraction, not less: tick 46k is about to publish a second required-commands list for the factory, and Phase 1's whole thesis is that the tk CLI is the contract between two products. A contract that structurally cannot name some of its own dependencies is a weak one.\n\nTWO HONEST OPTIONS, and the choice is the work: teach the derivation about tk subcommands invoked by tk itself, or decide that core verbs are out of this file's remit and say so in it. The second is cheaper and may well be right — but it should be a stated decision, not an omission.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "Either the derivation covers tk-invoked-by-tk and 'show'/'list' appear, or the file states in writing that core verbs are out of its remit and why. TestRequiredTkCommandsFileMatchesTheEntrypoint still passes. Tick 46k's factory list is consistent with whichever choice is made.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-27T09:46:22.127578Z",
+  "updated_at": "2026-08-27T09:46:22.127578Z"
+}

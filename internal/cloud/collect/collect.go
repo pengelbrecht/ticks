@@ -7,12 +7,17 @@
 // there is no terminal output that may be read (the collect rule
 // skills/ticks/references/herdr-runner.md states applies to every substrate).
 //
-// The three checks and their order are the herd package's, imported rather
-// than restated — commits beyond the base, a report with a STATUS line, an
-// empty `.tick/` boundary diff — so a container-per-tick substrate and a
-// herdr-pane substrate can never disagree about what "ready to merge" means
-// for the same tick. `cloud/factory/src/worker-collect.ts` is the third
-// implementation of the same rules, for the Workflow-hosted orchestrator.
+// The three checks and their order are the herd package's — commits beyond
+// the base, a report with a STATUS line, an empty `.tick/` boundary diff — so
+// a container-per-tick substrate and a herdr-pane substrate never disagree
+// about what "ready to merge" means for the same tick.
+// `cloud/factory/src/worker-collect.ts` is the third implementation of the
+// same rules, for the Workflow-hosted orchestrator.
+//
+// The verdicts and statuses were the herd package's BY IMPORT until epic 3j4
+// stopped this path importing ticks internals; they are now copies, and the
+// agreement they encode is held by a comment rather than by the compiler. See
+// [Verdict] for the drift risk that creates and what is meant to fix it.
 //
 // One verdict is added: [Unknown], for evidence that could not be READ. A
 // remote that will not answer is not a worker that failed, exactly as
@@ -22,32 +27,126 @@
 package collect
 
 import (
+	"bytes"
 	"fmt"
+	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 
 	cloudstate "github.com/pengelbrecht/ticks/internal/cloud/state"
-	herdcollect "github.com/pengelbrecht/ticks/internal/herd/collect"
-	"github.com/pengelbrecht/ticks/internal/herd/gitcmd"
 )
 
-// Verdict is the structured answer for one worker. The four values a herd
-// collect can produce are the same values, by import.
-type Verdict = herdcollect.Verdict
+// Verdict is the structured answer for one worker.
+//
+// # These values are INTENTIONAL TWINS of internal/herd/collect's
+//
+// They were the same type by import until epic 3j4 stopped the factory and
+// the cloud path importing ticks internals. They are now a copy, and the copy
+// is deliberate — but the SHARED MEANING is real and did not go away with the
+// import.
+//
+// The risk this creates, stated plainly: a verdict string is a contract
+// between three implementations of one rule set — this package,
+// internal/herd/collect, and cloud/factory/src/worker-collect.ts. If a value
+// here drifts from its twin, a cloud run and a herd run silently disagree
+// about what "ready to merge" or "needs context" means for the same tick, and
+// nothing fails loudly. Never rename or re-spell one of these without
+// changing all three. This pair belongs in the cross-language contract
+// artifact the Phase 2 epic publishes; until it exists, this comment is the
+// only thing holding them together.
+type Verdict string
 
-// The verdicts, re-exported so a caller never has to import both packages to
-// read one report.
+// The verdicts, in the order the checks run: the first failing check wins.
 const (
-	ReadyToMerge      = herdcollect.ReadyToMerge
-	NoCommits         = herdcollect.NoCommits
-	MissingResult     = herdcollect.MissingResult
-	BoundaryViolation = herdcollect.BoundaryViolation
+	// ReadyToMerge: commits exist, the report carries a status, and the
+	// `.tick/` boundary diff is empty.
+	ReadyToMerge Verdict = "ready-to-merge"
+	// NoCommits: the branch is missing or has nothing beyond the base. It
+	// means "the worker did not finish", never "done with no changes".
+	NoCommits Verdict = "no-commits"
+	// MissingResult: no RESULT-<tick-id>.md on the branch, or one with no
+	// recognisable final STATUS: line.
+	MissingResult Verdict = "missing-result"
+	// BoundaryViolation: the branch touches `.tick/`. The orchestrator owns
+	// all tracker state.
+	BoundaryViolation Verdict = "boundary-violation"
 
 	// Unknown: the durable evidence could not be read at all — an unreachable
 	// remote, a base commit this checkout does not have. It is never a verdict
-	// ON the worker, and a caller must not treat it as one.
+	// ON the worker, and a caller must not treat it as one. This one has no
+	// twin: only a laptop reading a remote can fail this way.
 	Unknown Verdict = "unknown"
 )
+
+// The four statuses a worker's report may end with. Twins of
+// internal/herd/collect's, under the same warning as the verdicts above:
+// StatusNeedsContext in particular is what a cloud run and a herd run must
+// agree means the same thing.
+const (
+	StatusDone             = "DONE"
+	StatusDoneWithConcerns = "DONE_WITH_CONCERNS"
+	StatusNeedsContext     = "NEEDS_CONTEXT"
+	StatusBlocked          = "BLOCKED"
+)
+
+// statusLine matches a report's final status line. DONE_WITH_CONCERNS is first
+// in the alternation so it is never truncated to DONE.
+var statusLine = regexp.MustCompile(
+	`^STATUS:[ \t]*(DONE_WITH_CONCERNS|DONE|NEEDS_CONTEXT|BLOCKED)\b[ \t]*(?:[-–—:][ \t]*)?(.*)$`)
+
+// decoration is the markdown a report line may be wrapped in. Workers write
+// prose, and a status line inside a bullet or bolded is still a status line.
+const decoration = " \t>-*#`"
+
+// parseStatus finds the FINAL status line of a report and splits it into the
+// status word, the detail after it, and the raw line. Everything is empty when
+// the report carries no recognisable status.
+//
+// A twin of internal/herd/collect.ParseStatus, and the third reader of the
+// same line is cloud/factory/src/worker-collect.ts. See the Verdict comment:
+// the regexp above is the contract, not this function.
+func parseStatus(body string) (status, detail, line string) {
+	for _, raw := range strings.Split(body, "\n") {
+		trimmed := strings.Trim(strings.TrimRight(raw, "\r"), decoration)
+		m := statusLine.FindStringSubmatch(trimmed)
+		if m == nil {
+			continue
+		}
+		// Keep scanning: the contract is the *final* status line, and a
+		// report may quote the template's four options above it.
+		status = m[1]
+		detail = strings.TrimSpace(strings.Trim(m[2], decoration))
+		line = trimmed
+	}
+	return status, detail, line
+}
+
+// git runs one git command in repoRoot and returns its trimmed stdout. A
+// non-zero exit yields an error carrying the command and git's own stderr, so
+// the message an operator reads is git's rather than `exit status 128`.
+//
+// This is a COPY of internal/herd/gitcmd.Run rather than an import of it,
+// and the same call is made at every one of this file's six call sites — a
+// single local helper is what kept those consistent when gitcmd was shared,
+// and it is what keeps them consistent now. Shelling out to `tk` instead was
+// considered and rejected for all six: they are plumbing reads of the local
+// object database (ls-remote, fetch, rev-list, diff, ls-tree, show), not
+// tracker questions, and `tk` has no verb for any of them.
+func git(repoRoot string, args ...string) (string, error) {
+	cmd := exec.Command("git", append([]string{"-C", repoRoot}, args...)...)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
+	if err := cmd.Run(); err != nil {
+		msg := strings.TrimSpace(stderr.String())
+		if msg == "" {
+			msg = err.Error()
+		}
+		return "", fmt.Errorf("git %s: %s", strings.Join(args, " "), msg)
+	}
+	return strings.TrimSpace(stdout.String()), nil
+}
 
 // ResultFile is the report artifact a cloud worker commits to its branch.
 func ResultFile(tickID string) string { return "RESULT-" + tickID + ".md" }
@@ -98,7 +197,7 @@ func (r Report) OK() bool { return r.Verdict == ReadyToMerge }
 // NeedsHuman reports whether the worker's own status is an escalation,
 // independent of the verdict.
 func (r Report) NeedsHuman() bool {
-	return r.Status == herdcollect.StatusBlocked || r.Status == herdcollect.StatusNeedsContext
+	return r.Status == StatusBlocked || r.Status == StatusNeedsContext
 }
 
 // Settled reports whether the durable layer shows this worker finished: the
@@ -158,7 +257,7 @@ func Collect(repoRoot string, m cloudstate.Manifest, manifestPath string) (Repor
 	r.RemoteSHA = sha
 
 	ref := trackingRef(remote, m.Branch)
-	if _, err := gitcmd.Run(repoRoot, "fetch", "--quiet", remote,
+	if _, err := git(repoRoot, "fetch", "--quiet", remote,
 		"+refs/heads/"+m.Branch+":"+ref); err != nil {
 		r.Verdict = Unknown
 		r.Detail = fmt.Sprintf("the branch %s could not be fetched from %s: %v", m.Branch, remote, err)
@@ -192,7 +291,7 @@ func Collect(repoRoot string, m cloudstate.Manifest, manifestPath string) (Repor
 	}
 	if found {
 		r.ResultExists = true
-		r.Status, r.StatusDetail, r.StatusLine = herdcollect.ParseStatus(body)
+		r.Status, r.StatusDetail, r.StatusLine = parseStatus(body)
 	}
 
 	r.Verdict = verdictFor(r)
@@ -225,7 +324,7 @@ func trackingRef(remote, branch string) string {
 // remoteHead asks the remote what a branch points at. "" means the remote
 // answered and does not have it; an error means the remote did not answer.
 func remoteHead(repoRoot, remote, branch string) (string, error) {
-	out, err := gitcmd.Run(repoRoot, "ls-remote", "--heads", remote, "refs/heads/"+branch)
+	out, err := git(repoRoot, "ls-remote", "--heads", remote, "refs/heads/"+branch)
 	if err != nil {
 		return "", err
 	}
@@ -237,7 +336,7 @@ func remoteHead(repoRoot, remote, branch string) (string, error) {
 }
 
 func commitCount(repoRoot, base, ref string) (int, error) {
-	out, err := gitcmd.Run(repoRoot, "rev-list", "--count", base+".."+ref)
+	out, err := git(repoRoot, "rev-list", "--count", base+".."+ref)
 	if err != nil {
 		return 0, err
 	}
@@ -251,7 +350,7 @@ func commitCount(repoRoot, base, ref string) (int, error) {
 // boundaryFiles is the mandatory `.tick/` check, in the three-dot form the
 // adapter specifies: what the branch changed relative to the merge base.
 func boundaryFiles(repoRoot, base, ref string) ([]string, error) {
-	out, err := gitcmd.Run(repoRoot, "diff", "--name-only", base+"..."+ref, "--", ".tick/")
+	out, err := git(repoRoot, "diff", "--name-only", base+"..."+ref, "--", ".tick/")
 	if err != nil {
 		return nil, err
 	}
@@ -274,14 +373,14 @@ func boundaryFiles(repoRoot, base, ref string) ([]string, error) {
 // two would report an unreadable object database as a worker that wrote no
 // report — the failure class the Unknown verdict exists to keep separate.
 func showFile(repoRoot, ref, path string) (body string, found bool, err error) {
-	listed, err := gitcmd.Run(repoRoot, "ls-tree", "--name-only", ref, "--", path)
+	listed, err := git(repoRoot, "ls-tree", "--name-only", ref, "--", path)
 	if err != nil {
 		return "", false, err
 	}
 	if strings.TrimSpace(listed) == "" {
 		return "", false, nil
 	}
-	out, err := gitcmd.Run(repoRoot, "show", ref+":"+path)
+	out, err := git(repoRoot, "show", ref+":"+path)
 	if err != nil {
 		return "", false, err
 	}
