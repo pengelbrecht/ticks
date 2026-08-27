@@ -2,7 +2,7 @@
   "id": "psh",
   "title": "Resolve the four one-off borrowings",
   "description": "Four imports, twelve symbols between them, three files — all small, all in files this tick OWNS.\n\n1. internal/factory/dashboard/view.go:10 -\u003e internal/styles. Uses EIGHT colour constants: ColorTeal, ColorSubtext, ColorRed, ColorPurple, ColorPink, ColorGreen, ColorDim, ColorBlue. Copy them into the dashboard package. Rationale to put in a comment: ticfac's dashboard is its own product surface, and binding two products' visual identity together is a coupling neither wants. If they drift apart later, that is correct, not a bug.\n\n2. internal/factory/setup.go:18 -\u003e internal/github, ONE function: github.DetectProject. Copy it. Do NOT promote internal/github — it handles OAuth device-flow token exchange, and a frozen public API around credential handling is a liability we are explicitly avoiding.\n\n3. internal/cloud/collect/collect.go:31 -\u003e internal/herd/gitcmd, gitcmd.Run x6. A git exec helper. Copy it or use a tk equivalent — decide per call site and say which you chose and why.\n\n4. internal/cloud/collect/collect.go:30 -\u003e internal/herd/collect, TWO refs: collect.Verdict and collect.StatusNeedsContext. A verdict type and a status constant. NOTE: this pair is a shared VOCABULARY between local herd collect and cloud collect — if they diverge, a cloud run and a herd run disagree about what 'needs context' means. Copying is right for the extraction, but the shared meaning is real: say in a comment that the two are intentional twins, and check whether Phase 2's contract artifact should cover them.\n\nAlso: internal/factory/dashboard/view_test.go:11 imports internal/herd/dashboard. Test-only. Check whether the reference survives at all once the dashboard owns its own types; delete it if it does not.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -10,5 +10,7 @@
   "acceptance_criteria": "internal/factory/** and internal/cloud/** import none of internal/styles, internal/github, internal/herd/gitcmd, internal/herd/collect, internal/herd/dashboard. Each copy carries a comment saying why it is a copy rather than a shared package. The collect.Verdict twin-vocabulary risk is recorded on the Phase 2 epic (kka). go test ./internal/... green.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-27T09:33:36.465226Z",
-  "updated_at": "2026-08-27T09:33:36.465226Z"
+  "updated_at": "2026-08-27T09:53:40.533725Z",
+  "closed_at": "2026-08-27T09:53:40.533725Z",
+  "closed_reason": "Completed: internal/factory and internal/cloud no longer import styles, github, herd/gitcmd, herd/collect or herd/dashboard. The tick undercounted borrowing #4 — six symbols from herd/collect, not two. gitcmd copied as a local git() at all six sites (plumbing reads of the object database, not tracker questions — tk has no verb for ls-remote/rev-list/ls-tree). detectProject copied with its own new test. The herd-dashboard key-binding test did not survive the import removal; keys are frozen with both the test and doc.go stating that a rebinding in the herd board no longer fails this build."
 }

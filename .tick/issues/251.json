@@ -2,7 +2,7 @@
   "id": "251",
   "title": "Give the factory dashboard its own wire struct",
   "description": "internal/factory/dashboard/client.go:121 and :168 declare 'Gates []operator.Pending `json:\"gates\"`'. That is operator.Pending used as a JSON WIRE TYPE in a response from the factory Worker — it was never a tracker call, which is why it looked like a dependency and is not one.\n\nDefine the struct in the dashboard package (or a small types file beside it) with the same JSON field names, so the wire format is byte-identical and the deployed Worker needs no change. Confirm the field set against what the Worker actually sends — cloud/factory/src/ is the other end; do not infer it from the Go struct alone, since unused fields may exist on either side.\n\nOWNS: internal/factory/dashboard/client.go and model.go. Do not touch view.go (another tick owns it).",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -10,5 +10,7 @@
   "acceptance_criteria": "internal/factory/dashboard does not import internal/operator. The JSON wire format is unchanged — same field names, proven against a fixture of a real Worker response. go test ./internal/factory/... green.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-27T09:33:15.524863Z",
-  "updated_at": "2026-08-27T09:33:15.524863Z"
+  "updated_at": "2026-08-27T09:53:40.492441Z",
+  "closed_at": "2026-08-27T09:53:40.492441Z",
+  "closed_reason": "Completed: internal/factory/dashboard no longer imports internal/operator. Checking the Worker's actual wire shape found a real defect — cloud/factory/src/run-room.ts sends 'epic', which operator.Pending had no field for and was silently dropping. The new struct carries it, omits a Go-only 'description' field nothing sends, and uses string timestamps like every other type in client.go. Three fixture tests pin decode, lossless re-encode, and omitted-vs-null for an undelivered gate."
 }
