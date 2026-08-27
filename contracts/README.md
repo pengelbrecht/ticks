@@ -52,6 +52,22 @@ the implementations disagreeing.
 The TypeScript readers live in the factory's vitest suite (`worker-boot.test.ts`,
 `repo-config.test.ts`, `message-context.test.ts`, `tick-membership.test.ts`,
 `sweep-contract.test.ts`, `collect-vocabulary.test.ts`, and their siblings).
+They import from here by relative path — `../../../contracts/<name>.json` — and
+there is deliberately no second copy under `cloud/factory/test/fixtures/`. Two
+copies of a parity fixture is the one arrangement guaranteed to defeat it: a
+one-sided edit then passes both suites. `cloud/factory/CONTRACTS.md` records how
+the factory keeps reaching these files once it is extracted into its own
+repository, which is the only reason a copy will ever exist again.
+
+### What is NOT a contract
+
+`cloud/factory/test/fixtures/omp-tool-call-exchange.json` looks like it belongs
+here and does not. It is not a hand-written case table pinning a rule two
+implementations must agree on — it is a **recording** of real traffic, written
+by `scripts/verify-harness-tool-execution.mjs` from an actual omp binary and
+replayed by `gateway-tool-calls.test.ts`. It has one reader by nature: there is
+no second implementation to drift from, only a third-party CLI whose behaviour
+it captures. Re-record it, do not reconcile it, and leave it where it is.
 
 `collect-vocabulary.json` is the one with **three** implementations rather than
 two: `internal/herd/collect` (local runs), `internal/cloud/collect` (the laptop

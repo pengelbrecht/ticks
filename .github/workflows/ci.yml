@@ -209,6 +209,19 @@ jobs:
       - name: Install
         run: pnpm install --frozen-lockfile
 
+      # The factory's vitest suite imports the cross-language contracts from
+      # the repository root. This asserts, offline, that every contract a test
+      # imports is pinned in contracts.pin.json and present — and, once the
+      # factory is extracted and the pin flips to "pinned" mode, that the
+      # vendored copy still hashes to what ticks published.
+      #
+      # A separate step so a contracts problem is named as one in the CI log
+      # rather than surfacing as a module-resolution error inside vitest.
+      # `pnpm test` and `pnpm typecheck` chain the same check, so this cannot
+      # be the only place it runs.
+      - name: Verify the contracts pin
+        run: pnpm contracts:check
+
       - name: Typecheck
         run: pnpm typecheck
 
