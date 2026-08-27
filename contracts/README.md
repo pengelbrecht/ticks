@@ -3,13 +3,18 @@
 The JSON files in this directory are **case tables and pinned surfaces that more
 than one language reads**. Every one of them describes a format that `ticks`
 owns — `.tick/runners.toml`, the tracker's on-disk layout, the sandbox worker
-boot handshake, the message context the operator composes — and that a second
-implementation, written in TypeScript, has to parse too.
+boot handshake, the message context the operator composes — and that at least one other
+implementation — usually the factory Worker's TypeScript — has to parse too.
 
-Go reads these files from its `*_parity_test.go` tests. The factory Worker's
-vitest suite reads the same files. That is the whole point: **the two sides are
-pinned to one file, so a rule changed on one side and not the other fails a
-test.**
+Go reads these files from its parity tests. The factory Worker's vitest suite
+reads the same files. That is the whole point: **every implementation of a rule
+is pinned to one file, so a rule changed in one of them and not the others fails
+a test.** Most are two-sided (Go and TypeScript); `collect-vocabulary.json` is
+three-sided.
+
+Note that "cross-language" is the common case, not the requirement — two Go
+packages that re-implement the same rule have the same drift problem and belong
+here too.
 
 ## Why they exist at all
 
@@ -23,16 +28,16 @@ single artifact that both suites assert against.
 So: **a one-sided edit is exactly what these files exist to catch.** If you
 change a rule in `internal/herd/config`, or in `cloud/factory/src`, and a test
 here goes red, the test is not in your way — it is doing the only job it has.
-Change the rule in *both* implementations and in the fixture, in one commit, or
+Change the rule in *every* implementation and in the fixture, in one commit, or
 do not change it.
 
 Corollary: never "fix" a red parity test by relaxing the fixture to match
 whichever side you just edited. That silently disables the detector and leaves
-the two implementations disagreeing.
+the implementations disagreeing.
 
 ## The files
 
-| File | Contract | Go reader |
+| File | Contract | Go reader(s) |
 |---|---|---|
 | `runners-config-contract.json` | `[sandbox].image` and `[orchestration].max_parallel` validation in `.tick/runners.toml` | `internal/herd/config/runners_config_parity_test.go` |
 | `signal-source-cases.json` | accepted/refused webhook signal sources | `internal/herd/config/signal_parity_test.go` |
@@ -42,10 +47,20 @@ the two implementations disagreeing.
 | `worker-boot-contract.json` | per-tick worker boot commands, probe and cancel markers | `internal/sandbox/worker_parity_test.go` |
 | `message-context.json` | the message context block the operator composes | `internal/operator/message_context_parity_test.go` |
 | `tracker-layout.json` | the tracker's on-disk record layout and field order | `internal/tick/tracker_layout_parity_test.go` |
+| `collect-vocabulary.json` | the collect verdict/status vocabulary and the status-line parse cases | `internal/herd/collect/contract_test.go`, `internal/cloud/collect/contract_test.go` |
 
 The TypeScript readers live in the factory's vitest suite (`worker-boot.test.ts`,
 `repo-config.test.ts`, `message-context.test.ts`, `tick-membership.test.ts`,
-`sweep-contract.test.ts`, and their siblings).
+`sweep-contract.test.ts`, `collect-vocabulary.test.ts`, and their siblings).
+
+`collect-vocabulary.json` is the one with **three** implementations rather than
+two: `internal/herd/collect` (local runs), `internal/cloud/collect` (the laptop
+side of a cloud run) and `cloud/factory/src/worker-collect.ts` (the Worker). The
+two Go halves used to be the same type by import, so drift between them was
+impossible by construction; they are now copies, and this fixture is what stands
+in for the compiler. A verdict or status string re-spelled in one of the three
+makes a cloud run and a herd run disagree about what happened to the same tick,
+with nothing failing — the report just quietly means something else.
 
 ## Why here, and not `schemas/`
 
