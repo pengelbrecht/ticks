@@ -2,6 +2,7 @@
   "id": "5hm",
   "title": "Phase 5 — create ticfac and move",
   "description": "Create the ticfac repo (PUBLIC, with ticks' scripts/check-public-repo.mjs guard copied over) and move: cloud/factory/** (~56k), cloud/sandbox/** (2,866), internal/factory/** (13,062), internal/cloud/{collect,lease,state} (1,250), internal/gatewaytrace/** (1,221), cmd/tk/cmd/{factory,cloud}*.go and tests (~9k), docs/design/cloud-factory.md, docs/factory-credentials.md, 16 repo-wiki pages, scripts/verify-factory-deploy.sh, the sandbox and workers-ai benchmarks, and the factory/sandbox/changes CI jobs.\n\nDOES NOT MOVE: cloud/worker/** — that is the ticks.sh BOARD (D1 tickboard, ProjectRoom/AgentHub DOs, serves internal/tickboard/server/static). It lives under cloud/ and the naming misleads; the deploy-cloud release job deploys this, not the factory.\n\nticfac gets its own embedded.go carrying cloud/factory + cloud/sandbox; ticks' root embedded.go keeps only skills/. That file exists at the module root precisely because go:embed cannot reach above its own package, and it currently welds skills + factory + sandbox into one unit — this is the hardest structural blocker in the project.\n\nOPEN QUESTION THIS EPIC MUST ANSWER: does the sandbox IMAGE (cloud/sandbox/*.sh) follow the factory while internal/sandbox Go and tk sandbox stay in ticks? internal/sandbox has 6,425 lines of Go test that literally EXECUTE those shell scripts, and cloud/sandbox/required-tk-commands means the container needs tk sandbox and tk cloud branch to keep existing — so tk is a RUNTIME dependency inside the factory's own container. Precedent for the direction: the Dockerfile already go-installs tk at a pinned ref from the public module proxy.",
+  "notes": "2026-08-27 12:06 - FROM TICK 46k: cloud/factory/required-tk-commands is DERIVED by a go/ast scan of cloudTkJSON call sites in cmd/tk/cmd. When this epic moves those call sites into ticfac, the scanner must move with them or be replaced — otherwise the derivation test keeps passing while scanning a package that no longer holds the calls, and the list silently stops matching reality. Tracked as its own tick (see the one titled 'The tk contract scanner only sees cloudTkJSON calls in cmd/tk/cmd').",
   "status": "open",
   "priority": 1,
   "type": "epic",
@@ -13,5 +14,5 @@
   "acceptance_criteria": "Both repos green. tk factory deploy works from the new binary against a real Cloudflare account. A sandbox image builds and its required-tk-commands check passes. ticks' embedded.go carries only skills/. No factory file remains in ticks and no ticks internal/ import remains in ticfac. The sandbox-image question is answered in writing with its reasoning.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-27T09:03:43.87262Z",
-  "updated_at": "2026-08-27T09:03:43.87262Z"
+  "updated_at": "2026-08-27T10:06:21.316815Z"
 }

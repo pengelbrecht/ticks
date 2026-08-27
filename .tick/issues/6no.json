@@ -1,0 +1,13 @@
+{
+  "id": "6no",
+  "title": "The tk contract scanner only sees cloudTkJSON calls in cmd/tk/cmd",
+  "description": "FROM TICK 46k, raised by its own implementer about its own work.\n\ncloud/factory/required-tk-commands is derived by a go/ast scan that looks for cloudTkJSON(ctx, root, ...) calls in the non-test files of cmd/tk/cmd. That is correct today and correct BECAUSE it is narrow — a wide scan would guess.\n\nBut it goes quietly incomplete in two futures, both of which this project is heading for: a later tick adds a SECOND shell-out helper (the scan does not know its name), or the extraction MOVES these call sites into ticfac (the scan looks in a package that no longer holds them). In either case the list stops matching reality and the derivation test keeps passing, because it compares the file against what it can see rather than against what exists.\n\nNot urgent and not a defect today. It becomes real at Phase 5 (5hm), when the call sites relocate — whoever does that move must carry the scanner with them or replace it. Worth a note on 5hm as well as this tick.\n\nThe honest options: teach the scan to find any function whose name matches a convention rather than one literal identifier; or move the derivation into ticfac when the call sites go, so it always lives beside what it scans. The second is probably right — the list describes ticfac's dependency, not ticks'.",
+  "status": "open",
+  "priority": 3,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "Either the derivation survives the Phase 5 move (scanner relocated with the call sites, list still derived and still green), or a deliberate replacement is in place and the old scan is removed rather than left passing vacuously. Recorded on 5hm so the move does not lose it.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-27T10:06:21.269312Z",
+  "updated_at": "2026-08-27T10:06:21.269312Z"
+}
