@@ -12,11 +12,13 @@ import (
 	"time"
 )
 
-// DefaultHarnessBytes is how much of the R2 harness tail one frame reads. It
-// is a screenful of scrollback, not a log dump: the board polls this every
-// couple of seconds, and the operator who wants the whole stream has
-// `tk cloud logs`.
-const DefaultHarnessBytes = 64 << 10
+// defaultHarnessBytes is what a Loader reads when its caller leaves
+// HarnessBytes zero — a screenful of scrollback, not a log dump. It is the
+// library's own fallback, not a published default: `tk factory dashboard`
+// owns the default for its `--tail-bytes` flag (defaultFactoryDashboardTailBytes
+// in cmd/tk/cmd/factory_dashboard.go), so the always-compiled root command
+// does not import this package to reset one flag.
+const defaultHarnessBytes = 64 << 10
 
 // Run is the factory's run index row, as `GET /api/observe` reports it.
 type Run struct {
