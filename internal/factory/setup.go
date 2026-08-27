@@ -10,12 +10,12 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
 	"golang.org/x/term"
 
-	"github.com/pengelbrecht/ticks/internal/github"
 	"github.com/pengelbrecht/ticks/internal/ticksrc"
 )
 
@@ -561,7 +561,7 @@ func setupGitHub(
 ) error {
 	repo := strings.TrimSpace(opts.Repo)
 	if repo == "" {
-		if detected, err := github.DetectProject(nil); err == nil {
+		if detected, err := detectProject(); err == nil {
 			repo = detected
 		}
 	}
@@ -1384,4 +1384,61 @@ func firstLine(body []byte) string {
 		return text[:200]
 	}
 	return text
+}
+
+// detectProject resolves owner/repo from the checkout's `origin` remote.
+//
+// This is a COPY of internal/github's DetectProject and ParseProjectFromRemote,
+// not an import of them. internal/github is the tracker's GitHub client, and
+// its main business is the OAuth device flow: token exchange, credential
+// storage, the App's own identity. Promoting it to reach this one small remote
+// parse would freeze a public API around credential handling in order to serve
+// a single caller that never touches a credential — exactly the liability epic
+// 3j4 exists to avoid. Parsing a git remote is small, stable and has no secret
+// in it, so the factory owns its own.
+//
+// It handles the common GitHub remote forms (scp-like SSH
+// "git@host:owner/repo" and "scheme://[user@]host[:port]/owner/repo") plus
+// proxied remotes that prepend path segments, e.g. the sandbox form
+// "http://local_proxy@127.0.0.1:PORT/git/owner/repo". owner/repo is the last
+// two path segments.
+func detectProject() (string, error) {
+	out, err := exec.Command("git", "remote", "get-url", "origin").Output()
+	if err != nil {
+		return "", fmt.Errorf("failed to read git remote: %w", err)
+	}
+	return parseProjectFromRemote(string(out))
+}
+
+func parseProjectFromRemote(remote string) (string, error) {
+	remote = strings.TrimSpace(remote)
+
+	var path string
+	switch {
+	case strings.Contains(remote, "://"):
+		// URL form: drop scheme and authority, keep the path.
+		rest := remote[strings.Index(remote, "://")+len("://"):]
+		slash := strings.IndexByte(rest, '/')
+		if slash == -1 {
+			return "", fmt.Errorf("unsupported remote format: %s", remote)
+		}
+		path = rest[slash+1:]
+	case strings.ContainsRune(remote, ':'):
+		// scp-like SSH form: [user@]host:owner/repo
+		path = remote[strings.IndexByte(remote, ':')+1:]
+	default:
+		return "", fmt.Errorf("unsupported remote format: %s", remote)
+	}
+
+	path = strings.TrimSuffix(strings.TrimSpace(path), ".git")
+	var parts []string
+	for _, part := range strings.Split(path, "/") {
+		if part != "" {
+			parts = append(parts, part)
+		}
+	}
+	if len(parts) < 2 {
+		return "", fmt.Errorf("invalid remote path: %s", path)
+	}
+	return parts[len(parts)-2] + "/" + parts[len(parts)-1], nil
 }
