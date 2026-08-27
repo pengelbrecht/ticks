@@ -70,7 +70,16 @@ the first draft of the plan got it wrong by counting instead:
 - 3 are `operator.Pending` used as a **JSON wire type** in
   `internal/factory/dashboard/client.go:121,168` — never a tracker call.
 - The rest are one-offs: 8 colour constants, one GitHub function, a git exec
-  helper, two collect symbols.
+  helper, and (the enumeration originally undercounted this) EIGHT collect
+  symbols, not two.
+
+**Two edges survive Phase 1 on purpose, and neither is a borrowing:**
+`internal/ticksrc` is deferred to the credentials split, which needs a migration
+rather than a cut; `internal/gatewaytrace` and `internal/cloud/state` are the
+FACTORY'S OWN packages — the spec's What-moves table sends them to ticfac, so
+those edges are internal-to-ticfac and survive the move by design. An
+acceptance criterion phrased as "imports no ticks internal/ package" is false
+against both and should say "no package that STAYS in ticks".
 
 So ticfac reaches ticks through `tk … --json` (36 commands support it; types are
 generated from `schemas/` via `make codegen-go`/`codegen-ts`).

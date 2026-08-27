@@ -10,8 +10,8 @@
     "4w3"
   ],
   "parent": "a4n",
-  "acceptance_criteria": "Nothing under cloud/factory or internal/factory imports a ticks internal/ package. NO package has been promoted out of internal/ — the diff adds no new public Go surface. cmd/tk/cmd/root.go does not import internal/factory/dashboard. A committed required-tk-commands list for the factory exists, with a test that fails if a listed command is removed or renamed. go test ./... green.",
+  "acceptance_criteria": "Nothing under cloud/factory or internal/factory imports a ticks internal/ package THAT STAYS IN TICKS. Two edges are expected to survive and are not violations: internal/ticksrc (deferred to Phase 3, which splits the credentials file with a migration) and internal/gatewaytrace + internal/cloud/state (the factory's OWN packages — the spec's What-moves table lists them as moving to ticfac, so the edge is internal-to-ticfac and survives the move by design). NO package has been promoted out of internal/ — the diff adds no new public Go surface. cmd/tk/cmd/root.go does not import internal/factory/dashboard. A committed required-tk-commands list for the factory exists, with a test that fails if a listed command or flag is removed or renamed. go test ./... green.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-27T09:03:04.239767Z",
-  "updated_at": "2026-08-27T09:27:12.925508Z"
+  "updated_at": "2026-08-27T10:14:19.322772Z"
 }
