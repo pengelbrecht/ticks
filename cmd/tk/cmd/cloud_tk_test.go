@@ -154,3 +154,96 @@ func writeCloudTickOwnedBy(t *testing.T, repo, id, epic, owner string) {
 		t.Fatalf("write tick %s: %v", id, err)
 	}
 }
+
+// TestCloudSpawnExitCodesFromTheTkRead pins the mapping Phase 1 claims it did
+// not change: the tracker read moved from an in-process store to a `tk`
+// subprocess, and the exit codes `tk cloud spawn` hands its users have to be
+// exactly what they were. Until this test that claim rested on reading — the
+// pre-existing cloud tests assert refusal MESSAGES and that nothing was
+// submitted, never GetExitCode.
+//
+// cloudTkJSON keeps three outcomes structurally apart, and each one lands here
+// (the third in the test below, because it substitutes the binary rather than
+// the tracker contents):
+//
+//	refused    tk ran and said the tick is not in this checkout  -> exit 4
+//	answered   tk returned a tick, and it is not an epic         -> exit 1
+//	unrunnable tk never ran at all                               -> exit 1
+//
+// Collapsing the third into the first is the specific regression this guards:
+// an environment fault masquerading as a missing tick sends a human looking for
+// a tick that was there all along.
+func TestCloudSpawnExitCodesFromTheTkRead(t *testing.T) {
+	setupCloudWaveRepo(t, "cloud", "aaa")
+	endpoint, requests := enrolledFactory(t, "acme/project", startedWave)
+	configureCloudFactory(t, endpoint)
+	captureCmdOutput(t)
+
+	for name, tc := range map[string]struct {
+		args []string
+		want int
+		says string
+	}{
+		// tk ran and refused the epic lookup: the epic is not in this checkout.
+		"missing epic": {[]string{"cloud", "spawn", "nope", "--ticks", "aaa"}, ExitNotFound, "nope"},
+		// tk answered, and the answer is a task. Not a lookup failure, so not
+		// a "not found" — the wave is simply not dispatchable.
+		"not an epic": {[]string{"cloud", "spawn", "aaa", "--ticks", "aaa"}, ExitGeneric, "not an epic"},
+		// tk answered the epic, and a named tick is not in the checkout.
+		"missing tick": {[]string{"cloud", "spawn", "epic1", "--ticks", "zzz"}, ExitNotFound, "zzz"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			ResetFlags()
+			err := ExecuteArgs(tc.args)
+			if err == nil {
+				t.Fatalf("%v was accepted, want a refusal", tc.args)
+			}
+			if code := GetExitCode(err); code != tc.want {
+				t.Errorf("exit code = %d, want %d — refusal was %q", code, tc.want, err.Error())
+			}
+			if !strings.Contains(err.Error(), tc.says) {
+				t.Errorf("refusal %q does not mention %q", err.Error(), tc.says)
+			}
+		})
+	}
+
+	if len(*requests) != 0 {
+		t.Errorf("refusals made %d factory call(s); the wave check runs before the network", len(*requests))
+	}
+}
+
+// TestCloudSpawnOnAnUnrunnableTkSaysSo is cloudTkJSON's third outcome.
+//
+// A tk that cannot be executed is an environment fault, not a missing epic. It
+// must exit 1, and the message must name the binary that could not be run AND
+// the arguments it would have been run with — a bare non-zero exit, or worse a
+// "no such epic", tells a human nothing they can act on.
+func TestCloudSpawnOnAnUnrunnableTkSaysSo(t *testing.T) {
+	setupCloudWaveRepo(t, "cloud", "aaa")
+	endpoint, requests := enrolledFactory(t, "acme/project", startedWave)
+	configureCloudFactory(t, endpoint)
+	captureCmdOutput(t)
+
+	missing := filepath.Join(t.TempDir(), "tk-that-is-not-there")
+	inner := cloudTkBinary
+	cloudTkBinary = func() (string, []string, error) { return missing, nil, nil }
+	t.Cleanup(func() { cloudTkBinary = inner })
+
+	ResetFlags()
+	err := ExecuteArgs([]string{"cloud", "spawn", "epic1", "--ticks", "aaa"})
+	if err == nil {
+		t.Fatal("cloud spawn dispatched a wave it could not read the tracker for")
+	}
+	if code := GetExitCode(err); code != ExitGeneric {
+		t.Errorf("exit code = %d, want %d — an unrunnable tk is an environment fault, not a missing epic (%d)",
+			code, ExitGeneric, ExitNotFound)
+	}
+	for _, want := range []string{missing, "tk show epic1 --json"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal %q does not name %q, so a human cannot tell which invocation failed", err.Error(), want)
+		}
+	}
+	if len(*requests) != 0 {
+		t.Errorf("an unreadable tracker cost %d factory call(s); it must cost none", len(*requests))
+	}
+}
