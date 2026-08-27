@@ -1,6 +1,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { runSubprocess } from "./boundary.ts";
+import { parseStatus } from "./collect-vocabulary.ts";
 import { DASHBOARD_HISTORY_FILE, readDashboardHistory, type DashboardModel } from "./dashboard.ts";
 import { listGitWorktrees, type WorktreeRecord } from "./merge.ts";
 import { parseProcessReportOutput } from "./process-ticks.ts";
@@ -653,7 +654,11 @@ export function scanRecovery(options: RecoveryScanOptions): RecoverySnapshot {
 						parseProcessReportOutput(tick.role, output);
 					} catch { complete = false; }
 				} else if (complete) {
-					complete = /STATUS:\s*(?:DONE|DONE_WITH_CONCERNS|NEEDS_CONTEXT|BLOCKED)\b/m.test(read.text);
+					// contracts/collect-vocabulary.json's status-line pattern, via
+					// ./collect-vocabulary.ts (tick pyj) — this used to be a hand-rolled
+					// `DONE|DONE_WITH_CONCERNS|...` alternation with DONE first, saved
+					// from a verdict inversion only by an incidental `\b`.
+					complete = parseStatus(read.text).status !== "";
 				}
 				if (!complete) addItem(items, { ...common, kind: "partial-report", label: `${state.tickId} child report is partial`, detail: report, action: "inspect artifacts and resume in place" }, limits.items);
 			} catch { addItem(items, { ...common, kind: "partial-report", label: `${state.tickId} child report is unreadable`, detail: report, action: "inspect artifacts and resume in place" }, limits.items); }

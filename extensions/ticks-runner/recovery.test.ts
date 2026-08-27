@@ -91,6 +91,24 @@ test("fresh running state is active and a malformed child report is partial", ()
 	assert.equal(recoveryDisposition(recovered, "epic").status, "active");
 });
 
+test("child report completeness reads the shared collect-vocabulary status line, not a hand-rolled alternation", () => {
+	// tick pyj: recovery.ts used to test its own `DONE|DONE_WITH_CONCERNS|...`
+	// alternation (DONE before DONE_WITH_CONCERNS — a trap for any future
+	// caller that extracts the captured group) rather than reading
+	// contracts/collect-vocabulary.json via ./collect-vocabulary.ts.
+	const f = fixture("status-parity");
+	issue(f.repo, { id: "t1", parent: "epic", title: "Colon separator", status: "in_progress", started_at: "2026-07-13T11:55:00Z", updated_at: "2026-07-13T11:59:00Z" });
+	const plan = planRunPaths({ repoRoot: f.repo, repoIdentity: identity, epicId: "epic", tickIds: ["t1"], stateRoot: f.stateRoot });
+	writeRunManifest(plan.manifest, createRunManifest(plan, "running", new Date("2026-07-13T11:59:00Z")));
+	fs.mkdirSync(plan.ticks[0].artifactDir, { recursive: true });
+	fs.writeFileSync(
+		plan.ticks[0].report,
+		"# Child report: t1\n\n- Outcome: **success** (completed)\n\n## Final output\n\n- **STATUS: DONE_WITH_CONCERNS — the suite passes but the migration is untested**\n",
+	);
+	const recovered = scan(f);
+	assert.equal(recovered.items.some((item) => item.kind === "partial-report" && item.tickId === "t1"), false);
+});
+
 test("strict JSON review and closeout reports are complete while malformed process JSON stays partial", () => {
 	const f = fixture("process-reports");
 	issue(f.repo, { id: "review", parent: "epic", title: "Review", role: "review", status: "open", updated_at: "2026-07-13T11:00:00Z" });

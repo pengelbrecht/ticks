@@ -238,6 +238,25 @@ test("outcome classification is conservative about concerns and supervisor/proto
 	assert.equal(classifyChildReport(report({ outcome: "failed", reason: "nonzero-exit:2" })).kind, "supervisor-failure");
 });
 
+// tick pyj: protocolLine() used to read only the literal final line with a
+// colon/en-dash-blind regex, disagreeing with the collect contract on the
+// same three inputs its description names. It now shares collect-vocabulary.ts
+// with recovery.ts, so all three parse here the same as in collect.
+test("protocol parsing matches the shared collect-vocabulary contract, not a hand-rolled regex", () => {
+	assert.equal(classifyChildReport(report({ finalOutput: "STATUS: NEEDS_CONTEXT: which remote owns the branch" })).kind, "needs-context");
+	assert.equal(classifyChildReport(report({ finalOutput: "STATUS: DONE – shipped" })).kind, "accepted");
+	assert.equal(classifyChildReport(report({ finalOutput: "Some prose first.\n\n- **STATUS: BLOCKED — no credentials for the remote**" })).kind, "blocked");
+});
+
+// tick pyj: the contract's decision is the last MATCHING status line, not the
+// literal final line — a report that signs off after its status line must
+// not read as having reported nothing.
+test("protocol parsing finds the last matching status line, not merely the final line", () => {
+	const outcome = classifyChildReport(report({ finalOutput: "STATUS: DONE_WITH_CONCERNS — the suite passes but the migration is untested\n\nThanks for reviewing!" }));
+	assert.equal(outcome.kind, "repair");
+	assert.equal(outcome.detail, "the suite passes but the migration is untested");
+});
+
 test("outside-in cards and waves reflect protocol failure, repair concerns, and blocked outcomes", async () => {
 	const cases = [
 		{ name: "malformed-card", behavior: { status: "UNKNOWN" }, kind: "protocol-failure", card: "failed" },
