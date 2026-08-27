@@ -1,0 +1,22 @@
+{
+  "id": "82h",
+  "title": "Final review of the Phase 1 diff",
+  "description": "Review the full epic diff. Three things specific to this phase:\n\n1. THE NEGATIVE ACCEPTANCE IS THE POINT. This epic's whole thesis is that ticks needs NO new public Go surface. Verify the diff promotes nothing out of internal/ and adds no exported API for the factory's benefit. If it did, the phase failed even if every test passes.\n\n2. NO SUBPROCESS IN A LOOP. Check every new tk invocation site. One batched 'tk list --json' is correct; a call per tick is the failure mode. Measured fact for context: the dashboard refreshes every 2s but reads the factory's HTTP API, not the tracker — so nothing should have appeared in a render loop.\n\n3. EXIT-CODE FIDELITY. The tracker reads moved from in-process to subprocess. Confirm a missing epic still exits ExitNotFound and a non-epic still exits ExitGeneric, and that a tk-not-found or tk-crashed case produces something a human can act on rather than a bare non-zero.\n\nRoute findings as new ticks under 3j4 rather than fixing inline unless trivial.",
+  "status": "open",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "7o5",
+    "251",
+    "psh",
+    "fr1",
+    "46k"
+  ],
+  "parent": "3j4",
+  "role": "review",
+  "acceptance_criteria": "The full diff is reviewed and every finding fixed or filed. Confirmed in writing: nothing left internal/, no new exported API exists for the factory, and no tk call sits in a loop. Exit-code fidelity verified against the pre-existing tests. go test ./... green.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-27T09:34:05.175955Z",
+  "updated_at": "2026-08-27T09:34:05.175955Z"
+}

@@ -1,0 +1,14 @@
+{
+  "id": "fr1",
+  "title": "Move DefaultHarnessBytes out of the factory dashboard",
+  "description": "cmd/tk/cmd/root.go:13 imports internal/factory/dashboard for ONE constant, dashboard.DefaultHarnessBytes, used at root.go:638. root.go is the always-compiled root command file, so this single import is what makes every tk build depend on factory code.\n\nMove the constant to wherever it belongs for a tk that has no factory — it describes a harness default, not a dashboard one. Find its real home; do not just relocate it into another factory-adjacent package.\n\nOWNS cmd/tk/cmd/root.go. root.go is a hot seam — many ticks touch it — so this is deliberately its own tick and nothing else in this epic may edit that file.",
+  "status": "open",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "3j4",
+  "acceptance_criteria": "cmd/tk/cmd/root.go does not import internal/factory/dashboard. The constant's new home makes sense for a tk with no factory installed, and the choice is explained in a comment. go build ./... and go test ./cmd/... green.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-27T09:33:36.617067Z",
+  "updated_at": "2026-08-27T09:33:36.617067Z"
+}

@@ -1,0 +1,14 @@
+{
+  "id": "7o5",
+  "title": "Read the tracker through tk --json, not the Go store",
+  "description": "TWO call sites, same shape, both in files this tick OWNS: cmd/tk/cmd/cloud.go:768 (prepareCloudSubmission) and cmd/tk/cmd/cloud_spawn.go:285 (cloudSpawnCheckWave). Each does exactly: store.Read(epicID), assert Type == tick.TypeEpic, store.List(), then walk descendants (cloudEpicPaths / cloudIsDescendant at cloud.go:857-873).\n\nReplace with tk subprocess calls: 'tk show \u003cid\u003e --json' and 'tk list --json'. Both exist today. Write ONE shared helper both sites use — do not inline the exec twice.\n\nBATCH, do not loop. Both sites need every tick once to compute descendants, so that is a single 'tk list --json', not a call per tick. A loop of subprocess spawns is the failure mode this approach has to avoid.\n\nPreserve the exit-code behaviour exactly: cloud_spawn.go returns ExitNotFound when the epic is missing and ExitGeneric when it is not an epic; cloud.go returns wrapped errors. A tk subprocess failure must map to the SAME exit codes users see today, not to a generic 'command failed'.\n\nResolve which tk binary to invoke deliberately and write the reasoning in a comment: the one on PATH, or os.Executable()? Inside the sandbox they are the same; on a laptop with two tk versions installed they are not. cloud/sandbox/required-tk-commands is the precedent for how the container thinks about this.\n\nDo NOT touch internal/factory/** in this tick — other ticks own those files.",
+  "status": "open",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "3j4",
+  "acceptance_criteria": "cmd/tk/cmd/cloud.go and cloud_spawn.go do not import internal/tick. One shared helper performs the tk calls; neither site spawns a subprocess per tick. Existing exit codes are unchanged, proven by the current tests still passing unmodified. go test ./cmd/... green.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-27T09:33:15.4248Z",
+  "updated_at": "2026-08-27T09:33:15.4248Z"
+}
