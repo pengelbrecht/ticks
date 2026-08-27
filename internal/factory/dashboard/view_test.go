@@ -1,14 +1,10 @@
 package dashboard
 
 import (
-	"context"
 	"strings"
 	"testing"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/x/ansi"
-
-	herd "github.com/pengelbrecht/ticks/internal/herd/dashboard"
 )
 
 // keyTokens is the key each footer segment binds, in order: "j/k move" -> "j/k".
@@ -33,26 +29,26 @@ func footerOf(view string) string {
 	return ""
 }
 
-// The tick's own acceptance criterion: this board shares its key bindings with
-// `tk herd dashboard`. Compared against the herd board's rendered footer rather
-// than a copy of it, so a rebinding there fails here — the cross-implementation
-// check `.tick/learnings.md` asks for whenever two surfaces must agree.
-func TestKeyBindingsAreTheHerdBoards(t *testing.T) {
-	herdModel := herd.New(context.Background(), herd.Config{RepoRoot: t.TempDir(), RefreshInterval: -1})
-	defer herdModel.Close()
-	herdModel.Update(tea.WindowSizeMsg{Width: 200, Height: 40})
-	herdFooter := footerOf(herdModel.View())
-	if herdFooter == "" {
-		t.Fatal("the herd board's footer could not be read")
-	}
+// herdBoardKeys is `tk herd dashboard`'s footer, in its order. It was read
+// live from that board's rendered footer until the factory stopped importing
+// ticks internals (epic 3j4); the value below is that same sequence, frozen.
+//
+// The requirement it pins is unchanged and is this board's own acceptance
+// criterion: an operator who has driven the herd board drives this one. What
+// changed is who enforces it — a rebinding in the herd board no longer fails
+// this test, so the two boards agreeing is now a decision someone makes rather
+// than a fact the compiler keeps. That is the price of the extraction, and it
+// is the same trade the palette above makes.
+var herdBoardKeys = []string{"j/k", "enter", "g/G", "r", "q", "read-only"}
 
+func TestKeyBindingsAreTheHerdBoards(t *testing.T) {
 	model := boardModel(t, loaded())
 	footer := footerOf(model.View())
 	if footer == "" {
 		t.Fatalf("this board has no key footer:\n%s", model.View())
 	}
 
-	want, got := keyTokens(herdFooter), keyTokens(footer)
+	want, got := herdBoardKeys, keyTokens(footer)
 	if len(want) != len(got) {
 		t.Fatalf("key bindings differ:\n herd: %v\n this: %v", want, got)
 	}

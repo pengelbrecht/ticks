@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -176,5 +177,106 @@ func TestNewClientRefusesAnUnconfiguredFactoryByName(t *testing.T) {
 	}
 	if _, err := NewClient("factory.example.com", "token", nil); err == nil {
 		t.Fatal("a scheme-less endpoint must be refused")
+	}
+}
+
+// workerGateFixture is one `PendingEntry` exactly as cloud/factory/src/run-room.ts
+// serialises it — every optional field populated, including the `epic` the
+// tracker's own entry has never had. It is the wire contract this package
+// decodes; keeping it verbatim is what proves the Go struct needs no change on
+// the deployed Worker.
+const workerGateFixture = `{
+  "id": "q1",
+  "tick_id": "bmo",
+  "epic": "3j4",
+  "agent_target": "wave-6",
+  "kind": "gate",
+  "awaiting": "approval",
+  "question": {
+    "id": "q1",
+    "header": "Merge",
+    "text": "merge wave 6?",
+    "options": [{"id": "approve", "label": "Approve"}, {"id": "reject", "label": "Reject"}],
+    "multi_select": true,
+    "allow_other": true
+  },
+  "ref": {"channel_id": "c1", "message_id": "m1"},
+  "created_at": "2026-08-22T05:59:00Z",
+  "not_before": "2026-08-22T06:09:00Z",
+  "resolution": {
+    "outcome": {"status": "answered", "text": "go", "option_ids": ["approve"]},
+    "answered_by": "telegram",
+    "telegram_user_id": "42",
+    "answered_at": "2026-08-22T06:10:00Z",
+    "applied_at": "2026-08-22T06:10:01Z"
+  }
+}`
+
+func TestGateDecodesTheWorkersPendingEntry(t *testing.T) {
+	var gate Gate
+	if err := json.Unmarshal([]byte(workerGateFixture), &gate); err != nil {
+		t.Fatalf("decoding the Worker's gate: %v", err)
+	}
+	if gate.ID != "q1" || gate.TickID != "bmo" || gate.Epic != "3j4" || gate.AgentTarget != "wave-6" {
+		t.Fatalf("identity fields did not land: %+v", gate)
+	}
+	if gate.Kind != GateApproval || gate.Awaiting != "approval" {
+		t.Fatalf("kind/awaiting did not land: %+v", gate)
+	}
+	if gate.Question.Text != "merge wave 6?" || gate.Question.Header != "Merge" ||
+		len(gate.Question.Options) != 2 || gate.Question.Options[0].ID != "approve" ||
+		!gate.Question.MultiSelect || !gate.Question.AllowOther {
+		t.Fatalf("question did not land: %+v", gate.Question)
+	}
+	if gate.CreatedAt != "2026-08-22T05:59:00Z" || gate.NotBefore != "2026-08-22T06:09:00Z" {
+		t.Fatalf("timestamps did not land: %+v", gate)
+	}
+	if !gate.Delivered() || gate.Ref.ChannelID != "c1" || gate.Ref.MessageID != "m1" {
+		t.Fatalf("delivery ref did not land: %+v", gate.Ref)
+	}
+	if !gate.Resolved() {
+		t.Fatal("a gate with a resolution must read as resolved")
+	}
+	if gate.Resolution.AnsweredBy != GateAnsweredByTelegram || gate.Resolution.TelegramUserID != "42" ||
+		gate.Resolution.Outcome.Status != "answered" || gate.Resolution.Outcome.Text != "go" ||
+		len(gate.Resolution.Outcome.OptionIDs) != 1 {
+		t.Fatalf("resolution did not land: %+v", gate.Resolution)
+	}
+}
+
+// TestGateReEncodesToTheSameWire is the byte-identical half: what the Worker
+// sent survives a round trip through the Go struct with the same field names
+// and no field dropped or invented.
+func TestGateReEncodesToTheSameWire(t *testing.T) {
+	var gate Gate
+	if err := json.Unmarshal([]byte(workerGateFixture), &gate); err != nil {
+		t.Fatalf("decoding the Worker's gate: %v", err)
+	}
+	encoded, err := json.Marshal(gate)
+	if err != nil {
+		t.Fatalf("re-encoding: %v", err)
+	}
+	var want, got any
+	if err := json.Unmarshal([]byte(workerGateFixture), &want); err != nil {
+		t.Fatalf("decoding the fixture generically: %v", err)
+	}
+	if err := json.Unmarshal(encoded, &got); err != nil {
+		t.Fatalf("decoding the round trip generically: %v", err)
+	}
+	if !reflect.DeepEqual(want, got) {
+		t.Fatalf("wire format drifted\n want: %s\n  got: %s", workerGateFixture, encoded)
+	}
+}
+
+// TestAnUndeliveredGateOmitsTheRef pins the one encoding subtlety: `ref` is
+// absent, not `null` or `{}`, until the question reaches the channel — which
+// is how the Worker writes it.
+func TestAnUndeliveredGateOmitsTheRef(t *testing.T) {
+	encoded, err := json.Marshal(Gate{ID: "q2", Kind: GateAsk, CreatedAt: "2026-08-22T05:59:00Z"})
+	if err != nil {
+		t.Fatalf("encoding: %v", err)
+	}
+	if strings.Contains(string(encoded), `"ref"`) {
+		t.Fatalf("an undelivered gate must not carry a ref: %s", encoded)
 	}
 }

@@ -46,7 +46,7 @@ type Loader struct {
 	Source Source
 	// Project narrows the board to one project; empty watches them all.
 	Project string
-	// HarnessBytes bounds the tail read; zero means DefaultHarnessBytes.
+	// HarnessBytes bounds the tail read; zero means defaultHarnessBytes.
 	HarnessBytes int
 	// Events and Dispatch bound those tails; zero takes the factory's own
 	// defaults.
@@ -96,7 +96,7 @@ func (l Loader) Load(ctx context.Context, focus string) (Snapshot, error) {
 	if focus != "" {
 		bytes := l.HarnessBytes
 		if bytes <= 0 {
-			bytes = DefaultHarnessBytes
+			bytes = defaultHarnessBytes
 		}
 		harness, err := l.Source.Harness(ctx, focus, bytes)
 		if err != nil {

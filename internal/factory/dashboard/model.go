@@ -7,8 +7,6 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
-
-	"github.com/pengelbrecht/ticks/internal/operator"
 )
 
 // DefaultRefreshInterval is how often the board re-reads the factory.
@@ -627,7 +625,7 @@ func (m *Model) focusFor(runID string) *Focus {
 // gates are the project's pending questions. The frame carries them at the top
 // level; a focused run's copy is the fallback for a factory deployed before
 // that field existed.
-func (m *Model) gates() []operator.Pending {
+func (m *Model) gates() []Gate {
 	if len(m.snap.Gates) > 0 {
 		return m.snap.Gates
 	}
@@ -689,7 +687,7 @@ func (m *Model) seedFolds() {
 	}
 }
 
-func pendingGates(gates []operator.Pending) int {
+func pendingGates(gates []Gate) int {
 	open := 0
 	for _, gate := range gates {
 		if !gate.Resolved() {
@@ -701,7 +699,7 @@ func pendingGates(gates []operator.Pending) int {
 
 // gateLine says which tick is waiting, and — once someone answers — whether the
 // phone or the terminal got there first (D5's first-wins arbitration).
-func gateLine(entry operator.Pending) string {
+func gateLine(entry Gate) string {
 	tick := entry.TickID
 	if tick == "" {
 		tick = entry.AgentTarget
@@ -719,9 +717,9 @@ func gateLine(entry operator.Pending) string {
 	}
 	answered := string(entry.Resolution.AnsweredBy)
 	switch entry.Resolution.AnsweredBy {
-	case operator.AnsweredByTelegram:
+	case GateAnsweredByTelegram:
 		answered = "phone"
-	case operator.AnsweredByTerminal:
+	case GateAnsweredByTerminal:
 		answered = "terminal"
 	}
 	return line + " · answered by " + answered

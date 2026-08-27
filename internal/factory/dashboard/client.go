@@ -10,15 +10,15 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/pengelbrecht/ticks/internal/operator"
 )
 
-// DefaultHarnessBytes is how much of the R2 harness tail one frame reads. It
-// is a screenful of scrollback, not a log dump: the board polls this every
-// couple of seconds, and the operator who wants the whole stream has
-// `tk cloud logs`.
-const DefaultHarnessBytes = 64 << 10
+// defaultHarnessBytes is what a Loader reads when its caller leaves
+// HarnessBytes zero — a screenful of scrollback, not a log dump. It is the
+// library's own fallback, not a published default: `tk factory dashboard`
+// owns the default for its `--tail-bytes` flag (defaultFactoryDashboardTailBytes
+// in cmd/tk/cmd/factory_dashboard.go), so the always-compiled root command
+// does not import this package to reset one flag.
+const defaultHarnessBytes = 64 << 10
 
 // Run is the factory's run index row, as `GET /api/observe` reports it.
 type Run struct {
@@ -112,17 +112,121 @@ type Stop struct {
 	RequestedAt string `json:"requested_at"`
 }
 
+// Gate is one pending question as the factory's Worker reports it, mirroring
+// `PendingEntry` in cloud/factory/src/run-room.ts.
+//
+// This is a WIRE type, not a borrowed tracker type. The board only ever
+// DECODES it out of `GET /api/observe`; it never registers, answers or stores
+// a question. The Worker is the other end, so the Worker's shape — not the
+// tracker's — is what this has to match, and the two differ: the Worker
+// carries an `epic` the tracker's own entry does not, because a chat serving
+// many projects has to name project + epic + tick. Field names are those the
+// deployed Worker already sends, so the wire format is byte-identical and no
+// Worker change is needed.
+type Gate struct {
+	ID     string `json:"id"`
+	TickID string `json:"tick_id,omitempty"`
+	// Epic is the epic the question was asked from. The Worker adds it; the
+	// tracker's entry has no such field.
+	Epic string `json:"epic,omitempty"`
+	// AgentTarget correlates an agent-relay question, which has no tick id.
+	AgentTarget string         `json:"agent_target,omitempty"`
+	Kind        GateKind       `json:"kind"`
+	Awaiting    string         `json:"awaiting,omitempty"`
+	Question    GateQuestion   `json:"question"`
+	Ref         GateMessageRef `json:"ref,omitzero"`
+	CreatedAt   string         `json:"created_at"`
+	NotBefore   string         `json:"not_before,omitempty"`
+	// Resolution is nil until the question is answered or ruled moot.
+	Resolution *GateResolution `json:"resolution,omitempty"`
+}
+
+// GateKind says whether a gate's answer is a note, a verdict, or a reply
+// relayed to an agent.
+type GateKind string
+
+const (
+	// GateAsk is a question whose answer becomes a note on the tick.
+	GateAsk GateKind = "ask"
+	// GateApproval is an approval gate: the answer is a verdict.
+	GateApproval GateKind = "gate"
+	// GateAgentRelay is a question answered back to a running agent.
+	GateAgentRelay GateKind = "agent_relay"
+)
+
+// GateAnsweredBy records which surface produced a resolution.
+type GateAnsweredBy string
+
+const (
+	// GateAnsweredByTelegram means the operator answered on the channel.
+	GateAnsweredByTelegram GateAnsweredBy = "telegram"
+	// GateAnsweredByTerminal means the answer came from a local surface.
+	GateAnsweredByTerminal GateAnsweredBy = "terminal"
+	// GateAnsweredByOutOfBand means nobody answered: the tick left the state
+	// it was waiting on, so the question is moot.
+	GateAnsweredByOutOfBand GateAnsweredBy = "out_of_band"
+)
+
+// GateQuestion is what the operator was asked.
+type GateQuestion struct {
+	ID     string `json:"id,omitempty"`
+	Header string `json:"header,omitempty"`
+	Text   string `json:"text"`
+	// Options carry only id and label on this wire: the Worker's
+	// `QuestionOption` has no description field, so nothing sends one.
+	Options     []GateOption `json:"options,omitempty"`
+	MultiSelect bool         `json:"multi_select,omitempty"`
+	AllowOther  bool         `json:"allow_other,omitempty"`
+}
+
+// GateOption is one offered answer.
+type GateOption struct {
+	ID    string `json:"id"`
+	Label string `json:"label"`
+}
+
+// GateMessageRef is the delivered channel message, zero until delivery.
+type GateMessageRef struct {
+	ChannelID string `json:"channel_id,omitempty"`
+	MessageID string `json:"message_id,omitempty"`
+}
+
+// IsZero reports whether the ref is unset.
+func (r GateMessageRef) IsZero() bool { return r == GateMessageRef{} }
+
+// GateResolution is how a question ended.
+type GateResolution struct {
+	Outcome        GateOutcome    `json:"outcome"`
+	AnsweredBy     GateAnsweredBy `json:"answered_by"`
+	TelegramUserID string         `json:"telegram_user_id,omitempty"`
+	AnsweredAt     string         `json:"answered_at"`
+	AppliedAt      string         `json:"applied_at,omitempty"`
+}
+
+// GateOutcome is the answer itself.
+type GateOutcome struct {
+	Status    string   `json:"status"`
+	Text      string   `json:"text,omitempty"`
+	OptionIDs []string `json:"option_ids,omitempty"`
+}
+
+// Delivered reports whether the question has reached the channel.
+func (g Gate) Delivered() bool { return !g.Ref.IsZero() }
+
+// Resolved reports whether the question has been answered or ruled moot.
+func (g Gate) Resolved() bool { return g.Resolution != nil }
+
 // Focus is everything the factory knows about the one run being watched.
 type Focus struct {
-	Run      Run                `json:"run"`
-	Phase    Phase              `json:"phase"`
-	Lease    *Lease             `json:"lease"`
-	Queued   []Queued           `json:"queued"`
-	Gates    []operator.Pending `json:"gates"`
-	Stop     *Stop              `json:"stop"`
-	Image    *Image             `json:"image"`
-	Progress *Progress          `json:"progress"`
-	Boot     Boot               `json:"boot"`
+	Run      Run       `json:"run"`
+	Phase    Phase     `json:"phase"`
+	Lease    *Lease    `json:"lease"`
+	Queued   []Queued  `json:"queued"`
+	Gates    []Gate    `json:"gates"`
+	Stop     *Stop     `json:"stop"`
+	Image    *Image    `json:"image"`
+	Progress *Progress `json:"progress"`
+	Boot     Boot      `json:"boot"`
 }
 
 // Refusal is one row of dispatch_log: what the deterministic policy decided
@@ -165,9 +269,9 @@ type Observation struct {
 	// Gates are the project's pending questions. They hang off the PROJECT
 	// rather than a run: a question outlives the run that asked it, and a
 	// factory with nothing running can still have one parked in front of it.
-	Gates        []operator.Pending `json:"gates"`
-	EventsDetail string             `json:"events_detail"`
-	Focus        *Focus             `json:"focus"`
+	Gates        []Gate `json:"gates"`
+	EventsDetail string `json:"events_detail"`
+	Focus        *Focus `json:"focus"`
 }
 
 // Harness is the tail of a run's R2 output stream.
