@@ -28,7 +28,7 @@ import (
 // container at run time to an edit at test time. The cases live in a file the
 // other side reads too, so a rule changed here and not there fails over there.
 
-const runnersConfigContractFile = "../../../cloud/factory/test/fixtures/runners-config-contract.json"
+const runnersConfigContractFile = "../../../contracts/runners-config-contract.json"
 
 type runnersConfigContract struct {
 	Image struct {

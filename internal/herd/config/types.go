@@ -281,7 +281,7 @@ type Sandbox struct {
 // the reason it validates everything else here: a repository must learn its
 // config is wrong from `tk` at author time, not from a delivery silently
 // refused three weeks later. `cloud/factory/src/webhook-sources.ts` is the
-// second reader, and `cloud/factory/test/fixtures/signal-source-cases.json`
+// second reader, and `contracts/signal-source-cases.json`
 // is the golden file both must agree on.
 //
 // Like [Sandbox], it deliberately does NOT get a format version of its own:
@@ -334,7 +334,7 @@ type SignalSource struct {
 // key", which is the version-gate incident of 2026-08-19 in miniature.
 //
 // `cloud/factory/src/sweeps.ts` is the second reader and the acting one;
-// `cloud/factory/test/fixtures/sweep-selection-contract.json` is the surface
+// `contracts/sweep-selection-contract.json` is the surface
 // both must agree on.
 //
 // Like [Signals] and [Sandbox] it deliberately does NOT get a format version of

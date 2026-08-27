@@ -47,7 +47,7 @@ func validTick(id, kind, parent string) Tick {
 	}
 }
 
-const trackerLayoutFile = "../../cloud/factory/test/fixtures/tracker-layout.json"
+const trackerLayoutFile = "../../contracts/tracker-layout.json"
 
 type trackerLayout struct {
 	RecordDir         string `json:"record_dir"`

@@ -27,7 +27,7 @@
 // constant crossing the Go/TS boundary needs a cross-implementation golden
 // test, because each suite is otherwise internally consistent while the two
 // halves disagree. The fixture is
-// cloud/factory/test/fixtures/tracker-layout.json and both suites read it.
+// contracts/tracker-layout.json and both suites read it.
 package trace
 
 import (

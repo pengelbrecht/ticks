@@ -1,0 +1,59 @@
+{
+  "why": [
+    "The per-tick worker boot contract has three readers and they must not drift:",
+    "cloud/sandbox/worker.sh (the container), internal/sandbox/worker.go (tk, and",
+    "what the repository's tests check), and cloud/factory/src/worker-boot.ts (the",
+    "control plane, which tells worker-dispatch.ts what to run and what its probe",
+    "must see). This file is what both suites pin themselves to, the same way",
+    "sandbox-image-cases.json pins the two readers of [sandbox].image — a fix that",
+    "lands in one language and not the other is the failure this repository has",
+    "already paid for once."
+  ],
+  "orchestrator_command": "/usr/local/bin/ticks-orchestrator",
+  "worker_command": "/usr/local/bin/ticks-worker",
+  "probe_arg": "--probe",
+  "probe_command": "/usr/local/bin/ticks-worker --probe",
+  "probe_marker": "ticks-worker-probe-ok",
+  "cancel_arg": "--cancel",
+  "cancel_command": "/usr/local/bin/ticks-worker --cancel",
+  "cancel_marker": "ticks-worker-cancel-requested",
+  "cancel_report_marker": "CANCELLED BY THE SUPERVISOR",
+  "worker_actor": "cloud:worker",
+  "branch_prefix": "tick/",
+  "branch_example": { "epic": "1vn", "tick": "tap", "branch": "tick/1vn/tap" },
+  "result_file_example": { "tick": "tap", "path": "RESULT-tap.md" },
+  "env": {
+    "tick": "TICKS_TICK",
+    "worker_branch": "TICKS_WORKER_BRANCH",
+    "worker_timeout": "TICKS_WORKER_TIMEOUT",
+    "worker_setup": "TICKS_WORKER_SETUP",
+    "worker_state_dir": "TICKS_WORKER_STATE_DIR",
+    "trace_id": "TICKS_TRACE_ID"
+  },
+  "trace": {
+    "why": [
+      "The trace id (tick hyi) is what joins 'a message arrived' to 'a container",
+      "did this'. It reaches a container as TICKS_TRACE_ID, and it heads that",
+      "container's own R2 log stream as a banner line.",
+      "",
+      "The banner is written by the CONTROL PLANE at dispatch, before the container",
+      "is addressed — not printed by the container. That is the whole point: the",
+      "container is the thing being diagnosed, and a banner a crashed container",
+      "never got far enough to print is a banner missing from exactly the log",
+      "anyone is reading. The container prints its own line too, which is",
+      "corroboration rather than the record, and it is why the marker below is",
+      "shared by all three readers instead of spelled twice.",
+      "",
+      "The trace id's FORMAT (prefix, width, pattern) is pinned in",
+      "tracker-layout.json, beside the tick record field it is written into."
+    ],
+    "banner_marker": "ticks-trace:",
+    "banner_example": "ticks-trace: tr_0123456789abcdef0123456789abcdef run=run_9 epic=1vn tick=tap"
+  },
+  "setup_modes": { "always": "always", "skip": "skip" },
+  "boundary": {
+    "tk_denied": "tk is not available to a worker agent",
+    "report_marker": "BOUNDARY VIOLATION ATTEMPTED"
+  },
+  "exit_codes": { "push": 9, "no_work": 10, "agent": 11 }
+}

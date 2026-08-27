@@ -115,7 +115,7 @@ type Tick struct {
 	// claim a chain that does not exist.
 	//
 	// The format is owned by internal/trace and pinned across languages by
-	// cloud/factory/test/fixtures/tracker-layout.json, because the control
+	// contracts/tracker-layout.json, because the control
 	// plane WRITES this field (cloud/factory/src/tracker-write.ts) into the
 	// record this package reads back.
 	TraceID      string     `json:"trace_id,omitempty"`
