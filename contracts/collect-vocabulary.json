@@ -1,0 +1,261 @@
+{
+  "why": [
+    "The collect verdict and status vocabulary has THREE implementations of one rule",
+    "set: internal/herd/collect (a local herdr worktree), internal/cloud/collect (a",
+    "remote branch, read from the laptop) and cloud/factory/src/worker-collect.ts (the",
+    "same remote, read from the Worker through GitHub's API).",
+    "",
+    "The first two were the SAME TYPE by import until epic 3j4 stopped the cloud path",
+    "importing ticks internals, so drift between them was impossible by construction.",
+    "They are now copies. The failure mode that creates is silent and it INVERTS A",
+    "VERDICT: re-spell `NEEDS_CONTEXT` or `ready-to-merge` in one place and a cloud run",
+    "and a herd run disagree about what happened to the same tick, with nothing failing",
+    "anywhere — the report just quietly means something different.",
+    "",
+    "So all three read this file, and a one-sided edit fails a build.",
+    "",
+    "MORE THAN THE CONSTANTS. The status line REGEXP is part of the contract, and a",
+    "fixture that pinned only the four status words would miss both of its traps:",
+    "",
+    "  1. `DONE_WITH_CONCERNS` must precede `DONE` in the alternation. Under the wrong",
+    "     order `STATUS: DONE_WITH_CONCERNS` parses as `DONE` — a verdict inversion, on",
+    "     the exact status a human most needs to see. Today that is defended TWICE: by",
+    "     the order, and by the `\\b` after the capture group (`_` is a word character,",
+    "     so `DONE\\b` cannot match inside `DONE_WITH_CONCERNS`). Because the two",
+    "     defences overlap, NO input distinguishes a re-ordered alternation on its own —",
+    "     which is exactly why `status_line_pattern` below pins the pattern text",
+    "     byte-for-byte, ordering included. Re-order it and all three builds go red even",
+    "     though behaviour has not changed yet. The `done_with_concerns_*` parse cases",
+    "     then catch the other half: they fail the moment the `\\b` guard is weakened,",
+    "     which is what makes a re-ordering dangerous.",
+    "",
+    "  2. The markdown `decoration` trim set. Workers write prose, and a status line",
+    "     inside a bullet or bolded is still a status line — but a set that grows or",
+    "     shrinks on one side only makes two implementations disagree about whether a",
+    "     report has a status at all, which is the `missing-result` verdict.",
+    "",
+    "READERS (all three must stay in this list):",
+    "  - internal/herd/collect/contract_test.go",
+    "  - internal/cloud/collect/contract_test.go",
+    "  - cloud/factory/test/collect-vocabulary.test.ts"
+  ],
+
+  "verdicts": {
+    "why": [
+      "The four verdicts, in the order the checks run: the first failing check wins.",
+      "All three implementations define all four, spelled exactly like this."
+    ],
+    "ready_to_merge": "ready-to-merge",
+    "no_commits": "no-commits",
+    "missing_result": "missing-result",
+    "boundary_violation": "boundary-violation"
+  },
+
+  "remote_only_verdicts": {
+    "why": [
+      "`unknown` means the durable evidence could not be READ — an unreachable remote,",
+      "a rate-limited API, a base commit this checkout does not have. It is never a",
+      "verdict ON the worker. Only the two implementations that read a REMOTE can fail",
+      "this way, so internal/herd/collect deliberately does not define it and its",
+      "contract test asserts that absence rather than ignoring it."
+    ],
+    "unknown": "unknown"
+  },
+
+  "statuses": {
+    "why": [
+      "The four statuses a worker's report may end with. Independent of the verdict:",
+      "a worker can commit, write a report and still report BLOCKED."
+    ],
+    "done": "DONE",
+    "done_with_concerns": "DONE_WITH_CONCERNS",
+    "needs_context": "NEEDS_CONTEXT",
+    "blocked": "BLOCKED"
+  },
+
+  "needs_human_statuses": {
+    "why": [
+      "The two statuses that are an escalation regardless of verdict — what",
+      "Report.NeedsHuman / needsHuman() flag. Dropping one here silently stops a human",
+      "being told."
+    ],
+    "statuses": ["BLOCKED", "NEEDS_CONTEXT"]
+  },
+
+  "status_line_pattern": {
+    "why": [
+      "The regexp source, byte-for-byte. Go's `regexp.MustCompile(...).String()` and",
+      "JavaScript's `RegExp.prototype.source` both return the pattern text, and the",
+      "syntax used here is common to both, so one string pins all three.",
+      "",
+      "This is what makes the DONE_WITH_CONCERNS-before-DONE ALTERNATION ORDER",
+      "enforceable at all — see `why` at the top of this file. Any edit to the pattern",
+      "in any one implementation fails three builds; if the edit is intended, change it",
+      "here and confirm the parse cases below still describe what you meant."
+    ],
+    "pattern": "^STATUS:[ \\t]*(DONE_WITH_CONCERNS|DONE|NEEDS_CONTEXT|BLOCKED)\\b[ \\t]*(?:[-–—:][ \\t]*)?(.*)$"
+  },
+
+  "decoration": {
+    "why": [
+      "The markdown a report line may be wrapped in, trimmed from both ends of the line",
+      "AND from both ends of the detail. Go holds it as a `strings.Trim` cutset; the",
+      "Worker holds it as a character class. The two cannot be compared as text, so it",
+      "is pinned BEHAVIOURALLY from both sides: every character in `trimmed` must be",
+      "stripped, and every character in `not_trimmed` must NOT be — a set that quietly",
+      "grows fails just as loudly as one that shrinks."
+    ],
+    "trimmed": " \t>-*#`",
+    "not_trimmed": "~_+=|/"
+  },
+
+  "parse_cases": {
+    "why": [
+      "INPUT LINE -> PARSED STATUS. `body` is the report text; `status`, `detail` and",
+      "`line` are what all three implementations' status parser must return for it.",
+      "An empty `status` means the report carries no recognisable status — which is the",
+      "`missing-result` verdict, so a case that stops matching is a verdict change too."
+    ],
+    "cases": [
+      {
+        "name": "a plain DONE",
+        "why": "The 99% path.",
+        "body": "STATUS: DONE\n",
+        "status": "DONE",
+        "detail": "",
+        "line": "STATUS: DONE"
+      },
+      {
+        "name": "done_with_concerns_with_detail",
+        "why": [
+          "THE MOST VALUABLE CASE IN THIS FILE. Under a weakened status regexp —",
+          "specifically a `DONE`-first alternation that has also lost its `\\b` guard —",
+          "this parses as status `DONE` with detail `_WITH_CONCERNS — the suite passes",
+          "...`, and the report silently means the opposite of what the worker wrote.",
+          "It is the exact status a human most needs to see."
+        ],
+        "body": "STATUS: DONE_WITH_CONCERNS — the suite passes but the migration is untested\n",
+        "status": "DONE_WITH_CONCERNS",
+        "detail": "the suite passes but the migration is untested",
+        "line": "STATUS: DONE_WITH_CONCERNS — the suite passes but the migration is untested"
+      },
+      {
+        "name": "done_with_concerns_bare",
+        "why": "The same inversion with no detail to hide behind: the status word is the whole payload.",
+        "body": "STATUS: DONE_WITH_CONCERNS\n",
+        "status": "DONE_WITH_CONCERNS",
+        "detail": "",
+        "line": "STATUS: DONE_WITH_CONCERNS"
+      },
+      {
+        "name": "done_with_concerns_in_a_blockquote_with_crlf",
+        "why": "The inversion again through the decoration trim and a CRLF report, which is how a Windows-authored report arrives.",
+        "body": "> STATUS: DONE_WITH_CONCERNS — mind the gap\r\n",
+        "status": "DONE_WITH_CONCERNS",
+        "detail": "mind the gap",
+        "line": "STATUS: DONE_WITH_CONCERNS — mind the gap"
+      },
+      {
+        "name": "a status word with a suffix is not a status",
+        "why": "The `\\b` guard, from the other side. Without it `DONEISH` parses as DONE.",
+        "body": "STATUS: DONEISH\n",
+        "status": "",
+        "detail": "",
+        "line": ""
+      },
+      {
+        "name": "NEEDS_CONTEXT with a colon separator",
+        "why": "The status a cloud run and a herd run must agree means the same thing, with the colon form of the separator.",
+        "body": "STATUS: NEEDS_CONTEXT: which remote owns the branch\n",
+        "status": "NEEDS_CONTEXT",
+        "detail": "which remote owns the branch",
+        "line": "STATUS: NEEDS_CONTEXT: which remote owns the branch"
+      },
+      {
+        "name": "BLOCKED inside a bolded bullet",
+        "why": "Workers write prose. A status line in a bullet, bolded, is still a status line — and BLOCKED is an escalation, so failing to see it strands a human.",
+        "body": "Some prose first.\n\n- **STATUS: BLOCKED — no credentials for the remote**\n",
+        "status": "BLOCKED",
+        "detail": "no credentials for the remote",
+        "line": "STATUS: BLOCKED — no credentials for the remote"
+      },
+      {
+        "name": "a hash-decorated heading",
+        "why": "`#` is in the trim set: a report that makes its status a heading still has a status.",
+        "body": "### STATUS: DONE\n",
+        "status": "DONE",
+        "detail": "",
+        "line": "STATUS: DONE"
+      },
+      {
+        "name": "backtick-wrapped",
+        "why": "`` ` `` is in the trim set.",
+        "body": "`STATUS: BLOCKED`\n",
+        "status": "BLOCKED",
+        "detail": "",
+        "line": "STATUS: BLOCKED"
+      },
+      {
+        "name": "tab separator with a hyphen",
+        "why": "Tabs are in both the trim set and the inline whitespace class; the hyphen is a separator, not part of the detail.",
+        "body": "STATUS:\tDONE_WITH_CONCERNS\t- flaky test on rerun\n",
+        "status": "DONE_WITH_CONCERNS",
+        "detail": "flaky test on rerun",
+        "line": "STATUS:\tDONE_WITH_CONCERNS\t- flaky test on rerun"
+      },
+      {
+        "name": "an en-dash separator",
+        "why": "The separator class carries all three dashes. Agents emit whichever their prose style produced.",
+        "body": "STATUS: DONE – shipped\n",
+        "status": "DONE",
+        "detail": "shipped",
+        "line": "STATUS: DONE – shipped"
+      },
+      {
+        "name": "the FINAL status line wins",
+        "why": [
+          "The contract is the LAST status line, because a report may quote the",
+          "template's four options above its own answer. If an implementation took the",
+          "first instead, this report would be read as NEEDS_CONTEXT — an escalation",
+          "the worker withdrew."
+        ],
+        "body": "Report as one of DONE, DONE_WITH_CONCERNS, NEEDS_CONTEXT, BLOCKED.\n\nSTATUS: NEEDS_CONTEXT — I thought I was stuck here\n\nThen I found the answer.\n\nSTATUS: DONE_WITH_CONCERNS — the last word is the one that counts\n",
+        "status": "DONE_WITH_CONCERNS",
+        "detail": "the last word is the one that counts",
+        "line": "STATUS: DONE_WITH_CONCERNS — the last word is the one that counts"
+      },
+      {
+        "name": "a decoration character outside the trim set",
+        "why": "The trim set pinned from the other side: `~` is not markdown decoration, so this line does not begin with STATUS: and is not a status line.",
+        "body": "~STATUS: DONE~\n",
+        "status": "",
+        "detail": "",
+        "line": ""
+      },
+      {
+        "name": "a status word that is not one of the four",
+        "why": "The vocabulary is closed. `SUCCESS` is not a status, and a report carrying only that has no status — the `missing-result` verdict.",
+        "body": "STATUS: SUCCESS\n",
+        "status": "",
+        "detail": "",
+        "line": ""
+      },
+      {
+        "name": "no status line at all",
+        "why": "A report that never says. Every field empty, and the verdict that follows is missing-result.",
+        "body": "The work is done and the branch is pushed.\n",
+        "status": "",
+        "detail": "",
+        "line": ""
+      },
+      {
+        "name": "an empty report",
+        "why": "The degenerate input, pinned so no implementation crashes or invents a status for it.",
+        "body": "",
+        "status": "",
+        "detail": "",
+        "line": ""
+      }
+    ]
+  }
+}
