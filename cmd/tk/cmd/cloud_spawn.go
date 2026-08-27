@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -14,7 +13,6 @@ import (
 
 	cloudlease "github.com/pengelbrecht/ticks/internal/cloud/lease"
 	cloudstate "github.com/pengelbrecht/ticks/internal/cloud/state"
-	"github.com/pengelbrecht/ticks/internal/tick"
 )
 
 var (
@@ -146,7 +144,7 @@ func runCloudSpawn(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	if err := cloudSpawnCheckWave(root, epicID, tickIDs); err != nil {
+	if err := cloudSpawnCheckWave(ctx, root, epicID, tickIDs); err != nil {
 		return err
 	}
 
@@ -281,31 +279,35 @@ func cloudSpawnWave(raw []string) ([]string, error) {
 // and pushes `tick/<epic>/<tick>`, so a tick from another epic would be
 // implemented against a base its own epic never chose and land on a branch
 // named after an epic it does not belong to.
-func cloudSpawnCheckWave(root, epicID string, tickIDs []string) error {
-	store := tick.NewStore(filepath.Join(root, ".tick"))
-	epic, err := store.Read(epicID)
+//
+// The tracker is read through the tk CLI (cloudReadTracker), in two calls
+// total: one `tk show`, one `tk list`. The wave is checked against the map
+// that second call returns, never with a tk call per named tick.
+func cloudSpawnCheckWave(ctx context.Context, root, epicID string, tickIDs []string) error {
+	tracker, err := cloudReadTracker(ctx, root, epicID)
 	if err != nil {
-		return NewExitError(ExitNotFound, "cannot dispatch epic %q: %v", epicID, err)
-	}
-	if epic.Type != tick.TypeEpic {
-		return NewExitError(ExitGeneric, "cannot dispatch %q: it is not an epic", epicID)
-	}
-	all, err := store.List()
-	if err != nil {
+		// A tk that ran and refused the lookup is the missing epic users
+		// already see as exit 4. A tk that could not be run at all is not a
+		// "not found" — it is an environment fault, and saying so is the
+		// difference between a fixable message and a bare non-zero exit.
+		if cloudTrackerEpicRefused(err) {
+			return NewExitError(ExitNotFound, "cannot dispatch epic %q: %v", epicID, err)
+		}
+		if cloudTrackerStageOf(err) == cloudTrackerStageEpic {
+			return NewExitError(ExitGeneric, "cannot dispatch epic %q: %v", epicID, err)
+		}
 		return NewExitError(ExitGeneric, "cannot inspect ticks for epic %q: %v", epicID, err)
 	}
-	byID := make(map[string]tick.Tick, len(all))
-	for _, item := range all {
-		byID[item.ID] = item
+	if !tracker.isEpic() {
+		return NewExitError(ExitGeneric, "cannot dispatch %q: it is not an epic", epicID)
 	}
 
 	outside := make([]string, 0)
 	for _, id := range tickIDs {
-		item, ok := byID[id]
-		if !ok {
+		if _, ok := tracker.lookup(id); !ok {
 			return NewExitError(ExitNotFound, "no tick %q in this checkout", id)
 		}
-		if !cloudIsDescendant(item, epicID, byID) {
+		if !tracker.isDescendant(id) {
 			outside = append(outside, id)
 		}
 	}
