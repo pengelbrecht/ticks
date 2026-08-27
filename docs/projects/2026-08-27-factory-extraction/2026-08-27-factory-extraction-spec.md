@@ -34,13 +34,16 @@ the skills — whether or not they will ever deploy a Cloudflare Worker.
 
 ## Goals
 
-1. The factory lives in its own repo, with its own release cadence, and depends
-   on ticks as a **published module** rather than as a sibling directory.
+1. The factory lives in its own repo with its own release cadence, and reaches
+   ticks through the **`tk` CLI** — the interface ticks already supports — not
+   through Go imports.
 2. Ticks gets smaller and stops knowing the factory exists.
 3. Both repos stay green at every step. No flag day.
-4. The cross-language contracts that currently prevent Go/TypeScript drift keep
+4. Ticks exposes no new public Go surface to serve this. Nothing leaves
+   `internal/`; nothing becomes a frozen API for one consumer's benefit.
+5. The cross-language contracts that currently prevent Go/TypeScript drift keep
    working after the split — they are load-bearing, not incidental.
-5. **No duplicated functionality survives the split.** Where the same job is done
+6. **No duplicated functionality survives the split.** Where the same job is done
    twice, extraction resolves it to one implementation. Where two runtimes
    genuinely force two implementations, they are held together by an executable
    contract, not by hope. See Finding 4.
@@ -170,21 +173,83 @@ Convenient consequence: `cloud/sandbox/Dockerfile` already `go install`s `tk` at
 a pinned ref from the public module proxy. **The image is already consuming
 ticks as a published module** — a working precedent for the whole direction.
 
-## Finding 3 — everything the factory needs is `internal/`
+## Finding 3 — the interface already exists: it is the `tk` CLI
 
-An external Go module physically cannot import `internal/…`. The factory-side
-packages import, by count:
+*(Revised 2026-08-27 after Peter's challenge: "couldn't ticfac simply interact
+with ticks through the tk CLI running in the various sandboxes it runs on?" It
+can, and the first draft of this section was wrong — it counted import edges
+without checking what they were for.)*
 
-`ticksrc` ×11 · `tick` ×9 · `operator` ×9 · `herd/config` ×7 ·
-`operator/telegram/fakebot` ×4 · `herd/collect` ×2 · `cloud/state` ×2 ·
-`styles` · `herd/gitcmd` · `herd/dashboard` · `github` · `gatewaytrace` ×1 each
+Go forbids an external module from importing a package under `internal/`, so at
+first glance the factory's ~50 import edges into ticks look like ~50 things
+needing promotion to a public Go API. They are not. Counted by what they
+actually do:
 
-Every one needs promotion to a public package or duplication. **This is the
-largest single piece of work in the project**, and it is work that has to happen
-in the ticks repo, before anything moves.
+| What the factory borrows | Edges | Disposition |
+|---|---|---|
+| `internal/ticksrc` — the credentials file | 11 | Phase 3 splits it regardless; ticfac writes its own |
+| `internal/operator` — `Pending` as a **wire type** in `dashboard/client.go:121,168` | 3 | ticfac defines its own wire struct; this was never a tracker call |
+| `internal/cloud/state`, `internal/gatewaytrace` | 3 | The factory's own packages — they move with it |
+| `internal/styles` (TUI theme), `internal/github` (device flow), `internal/herd/gitcmd`, `internal/herd/collect`, `internal/herd/dashboard` | 1 each | Small one-offs; see below |
 
-It is also the part with independent value: a public Go API for the tracker is
-what would let *anything* build on ticks, not just the factory.
+**None of them is the tracker.** The tracker touch lives in the thin command
+wrappers (`cmd/tk/cmd/cloud*.go`), and it is five symbols: `tick.NewStore`,
+`tick.Tick`, `tick.TypeEpic`, `tick.TypeTask`, `tick.StatusOpen` — open the
+store, read a tick, check its type and status.
+
+Every one of those already has a `tk … --json` equivalent. **36 `tk` commands
+support `--json`**, and the types are generated from JSON Schema in `schemas/`
+(`make codegen-go` / `codegen-ts`), so it is a maintained contract rather than
+scraped output.
+
+### The consistency argument, which is the strongest one
+
+The sandbox already does exactly this. `cloud/sandbox/required-tk-commands`
+declares the `tk` subcommands the container must have, and the image's last
+Dockerfile layer install-checks every one against the `tk` it just built. The
+container has never imported Go from ticks — it shells out.
+
+Having the container side shell out while the laptop side imports Go is **two
+answers to one question**. Picking the CLI makes them the same answer, and it is
+the answer already proven in production.
+
+### What this avoids
+
+Promoting packages out of `internal/` is a promise: once public, renaming a
+function is a breaking change for a downstream consumer. Phase 1 as originally
+drafted would have forced a decision about *which internals of ticks become a
+frozen surface* — a large, permanent commitment made to serve one consumer.
+
+The CLI is already that surface. It is versioned, tested, schema-backed and
+documented, and ticks already supports it for humans and for the sandbox.
+
+### The one-offs, each with an answer
+
+- **`internal/styles`** — a TUI theme. ticfac's dashboard is its own product
+  surface; give it its own theme rather than binding two products' visual
+  identity together.
+- **`internal/github`** — the device-flow login used by `factory setup`.
+  Duplicate it (it is small and stable) or shell to `gh`. Do NOT promote it: it
+  holds token exchange, and a frozen public API around credential handling is a
+  liability.
+- **`internal/herd/gitcmd`, `internal/herd/collect`** — git helpers. Either
+  ticfac carries its own, or they reach `tk` where an equivalent command exists.
+  Decide per call site; both are one edge.
+- **`internal/herd/dashboard`** — one reference, and the comment at the import
+  says it is deliberate. Check whether it survives at all once ticfac owns its
+  own dashboard.
+
+### The cost to keep an eye on
+
+Shelling out costs a process launch per call. Checked, and the hot path is fine:
+`internal/factory/dashboard/model.go:21` refreshes every 2s and reads the
+**factory's HTTP API**, not the local tracker; cost telemetry is 30s; the 1s
+display tick reads nothing. No `tk` invocation sits in a render loop.
+
+The rule for the phase: if a call site needs many ticks at once, use one batched
+`tk … --json` call, not a loop of small ones. If a genuine hot path appears
+later, that is the moment to consider a Go API — with a real measurement behind
+it, not in advance.
 
 ## Finding 4 — the two Telegram implementations are mutually exclusive
 
@@ -276,10 +341,12 @@ recommend renaming) and `tk ask`/`tk answer` · `internal/herd/relay` ·
 
 These are the actual deliverables. The move itself is the easy half.
 
-1. **A public Go API** — promote the packages in Finding 3 out of `internal/`.
-   Recommend `pkg/tick` (store), `pkg/runners` (the `.tick/runners.toml` model),
-   `pkg/operator` (channel client), `pkg/collect`, `pkg/gitcmd`. Semver from day
-   one; the factory pins a version.
+1. **A declared `tk` CLI dependency surface.** ticfac names the `tk … --json`
+   commands it relies on, in the same shape as
+   `cloud/sandbox/required-tk-commands`, and ticks treats that list as a
+   compatibility contract. No package leaves `internal/`. The five tracker
+   symbols the command wrappers use become `tk` calls; the one-offs (theme,
+   GitHub device flow, git helpers) are duplicated or dropped per Finding 3.
 
 2. **A published contract artifact** replacing the eight parity fixtures.
    The fixtures move to a versioned package both repos consume — a Go module and
@@ -321,11 +388,14 @@ until it is already consuming the public API from where it sits.
 **Phase 0 — tell the truth.** Fix the `docs/design/cloud-factory.md` status
 header. One line, and it is currently misleading every reader.
 
-**Phase 1 — publish the API, in place.** Promote `internal/` → `pkg/`, leaving
-shims behind. Move `DefaultHarnessBytes` out of `internal/factory/dashboard`.
-Factory code still lives in the ticks repo but imports only `pkg/…`. *Done when:*
-nothing under `cloud/factory` or `internal/factory` imports a ticks `internal/`
-package, and `go test ./...` is green.
+**Phase 1 — cut the Go dependency, in place.** Repoint the factory's tracker
+reads at `tk … --json`, resolve the one-off borrowings, move
+`DefaultHarnessBytes` out of `internal/factory/dashboard`, and give ticfac its
+own wire struct for `operator.Pending`. The factory still lives in this repo —
+it just stops importing ticks. Publish the required-command list and add a test
+that fails when ticks removes or renames one of them. *Done when:* nothing under
+`cloud/factory` or `internal/factory` imports a ticks `internal/` package, no
+package has been promoted out of `internal/`, and `go test ./...` is green.
 
 **Phase 2 — publish the contract.** Extract the eight parity fixtures into the
 versioned artifact and repoint both the Go tests and the TS tests at it.
@@ -352,11 +422,13 @@ run can prove the handover.
 factory jobs and files from ticks, shrink `embedded.go`. *Done when:* both repos
 green, `tk factory deploy` works from the new binary, and a sandbox image builds.
 
-**Phase 6 — cut over.** Release both. Document the install path. Delete the
-shims from Phase 1.
+**Phase 6 — cut over.** Release both. Document the install path. (No Phase 1
+shims to unwind — nothing was promoted.)
 
 Phases 1–4 are all independently valuable to ticks even if the extraction is
-abandoned — which is the property that makes this safe to start. Phase 4b is
+abandoned — which is the property that makes this safe to start. Phase 1 in
+particular now leaves ticks *unchanged*: it removes a consumer's reach into the
+internals rather than freezing those internals into a public API. Phase 4b is
 valuable on its own terms too: it removes a bot token from every operator's
 laptop and settles which process reads the bot.
 

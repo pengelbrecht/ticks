@@ -1,6 +1,6 @@
 {
   "id": "3j4",
-  "title": "Phase 1 — publish a public Go API, in place",
+  "title": "Phase 1 — cut the Go dependency: ticfac talks to ticks through tk",
   "description": "Everything the factory imports from ticks is internal/, which an external Go module physically cannot reach: ticksrc x11, tick x9, operator x9, herd/config x7, operator/telegram/fakebot x4, herd/collect x2, cloud/state x2, plus styles, herd/gitcmd, herd/dashboard, github, gatewaytrace. Promote what the factory needs out of internal/ (recommend pkg/tick, pkg/runners, pkg/questions, pkg/collect, pkg/gitcmd), leaving shims. Also move dashboard.DefaultHarnessBytes so cmd/tk/cmd/root.go:13 stops importing internal/factory/dashboard. Factory code does not move in this phase — it stays where it is and starts importing only pkg/. Semver from day one. LARGEST piece of work in the project, and valuable on its own: a public API is what lets anything build on ticks.",
   "status": "open",
   "priority": 1,
@@ -13,5 +13,5 @@
   "acceptance_criteria": "Nothing under cloud/factory or internal/factory imports a ticks internal/ package. cmd/tk/cmd/root.go does not import internal/factory/dashboard. go test ./... green. The public packages carry doc comments stating their compatibility promise.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-27T09:03:04.239767Z",
-  "updated_at": "2026-08-27T09:03:04.239767Z"
+  "updated_at": "2026-08-27T09:26:35.692677Z"
 }
