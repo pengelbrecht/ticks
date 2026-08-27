@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.31.1] - 2026-08-27
+
+### Fixed
+
+- **`tk herd` talks to herdr 0.8.2: the protocol pin moves 19 -> 20 (`internal/herd/client/protocol.go`)** — a `tk` built against protocol 19 refused an 0.8.2 server outright, and the failure read as a connection problem rather than a version mismatch. Re-verified live against 0.8.2: the full helper call set (`worktree.create`, `agent.start`/`prompt`/`list`, `pane.read`, `events.subscribe`, `session.snapshot`) answers unchanged on 20. The pin stays deliberately EXACT rather than becoming a floor — this client reads response shapes field by field, so "newer than tested" is not a safe default, and a forward-compatible range policy is a larger change that will ship separately. This is a patch release cut from `v0.31.0` carrying only this fix.
+
 ## [0.31.0] - 2026-08-18
 
 ### Added
