@@ -1,0 +1,21 @@
+{
+  "id": "i0o",
+  "title": "Final review of the Phase 2 diff",
+  "description": "Review the full epic diff. Four things specific to this phase:\n\n1. DOES DRIFT ACTUALLY FAIL? That is the entire deliverable. For EVERY contract this epic ships, break it on purpose in each direction and confirm a build goes red. A contract that cannot be shown failing is a comment with extra steps. The epic's own history is the argument: these fixtures exist because a comment saying 'mirrored from load.go' kept both suites green through a one-sided edit.\n\n2. THE POST-SPLIT CLAIM. Tick pvb chose a distribution mechanism that must work after the repos separate, not just today. Read it adversarially: what happens when the fetch fails, when the pinned ref does not exist, when someone runs the suite offline? A mechanism that SKIPS on failure is worse than the relative path it replaced, because it looks green.\n\n3. NO FIXTURE THEATRE. Tick o31 was explicitly allowed to decide 'leave it' for the palette and the key bindings. Check whether it added a contract that nobody needed — the bar was 'drift causes a problem someone notices', not 'drift is possible'. An unnecessary fixture is a maintenance cost and a false sense of coverage.\n\n4. THE DONE_WITH_CONCERNS ORDERING. In hn1's fixture, verify there is a case that FAILS under the wrong alternation order, not merely a case that passes under the right one. This is a silent verdict inversion on the exact status a human most needs to see, and it is the single most valuable assertion in the epic.\n\nRoute findings as new ticks under kka rather than fixing inline unless trivial.",
+  "status": "open",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "8yh",
+    "pvb",
+    "hn1",
+    "o31"
+  ],
+  "parent": "kka",
+  "role": "review",
+  "acceptance_criteria": "Every contract shipped by this epic is demonstrated failing on deliberate drift, in each direction, with the evidence recorded. The post-split distribution mechanism is confirmed to fail rather than skip when it cannot fetch. Any fixture that did not clear the necessity bar is called out. go test ./... and the factory vitest suite green.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-27T11:52:44.505734Z",
+  "updated_at": "2026-08-27T11:52:44.505734Z"
+}

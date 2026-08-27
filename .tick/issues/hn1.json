@@ -1,0 +1,14 @@
+{
+  "id": "hn1",
+  "title": "Put the collect vocabulary under contract — it has THREE implementations",
+  "description": "THE FINDING PHASE 1 HANDED THIS EPIC, and the most dangerous item in it.\n\nThe collect verdict and status strings are a contract between THREE implementations: internal/herd/collect (local runs), internal/cloud/collect (cloud runs, laptop side), and cloud/factory/src/worker-collect.ts (the Worker). Until Phase 1 the first two were the SAME TYPE by import, so drift between them was impossible by construction. Tick psh copied them, and they are now held together only by a comment.\n\nTHE FAILURE MODE IS SILENT AND IT INVERTS A VERDICT. If NEEDS_CONTEXT or ready-to-merge is re-spelled in one place, a cloud run and a herd run disagree about what happened to the same tick and NOTHING FAILS — the report just quietly means something different.\n\nSYMBOLS: Verdict, ReadyToMerge, NoCommits, MissingResult, BoundaryViolation, StatusBlocked, StatusNeedsContext, ParseStatus.\n\nAND MORE THAN THE CONSTANTS — this is the part a naive fixture misses. The statusLine REGEXP is part of the contract, including:\n- the DONE_WITH_CONCERNS-before-DONE alternation order. Get that wrong and DONE_WITH_CONCERNS parses as DONE. That is a verdict INVERSION, silently, on the exact status a human most needs to see.\n- the markdown decoration trim set.\nSo the fixture must be INPUT LINE -\u003e PARSED STATUS cases, not just a list of constant strings. Include the DONE_WITH_CONCERNS case explicitly and a case that would pass under the wrong alternation order.\n\nThe three implementations must all read it. Note that internal/herd/collect importing internal/cloud/collect in a test is LEGAL (the forbidden direction is the other way) and the psh implementer considered it and left it out deliberately rather than inverting the dependency in tests — weigh that against a shared fixture; the Go-to-TS half needs the fixture regardless, so a fixture that all three read is probably simpler than two mechanisms.",
+  "status": "open",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "kka",
+  "acceptance_criteria": "One fixture of input-line -\u003e parsed-status cases plus the verdict/status vocabulary, read by internal/herd/collect, internal/cloud/collect AND cloud/factory/src/worker-collect.ts. Re-spelling a status in ANY ONE of the three fails a build — demonstrated by doing it on purpose in each, three times. The DONE_WITH_CONCERNS-before-DONE ordering is covered by a case that fails under the wrong alternation. go test ./... and the factory vitest suite green.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-27T11:52:18.574531Z",
+  "updated_at": "2026-08-27T11:52:18.574531Z"
+}

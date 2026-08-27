@@ -1,0 +1,14 @@
+{
+  "id": "8yh",
+  "title": "Move the cross-language fixtures into ticks and repoint the Go side",
+  "description": "THE HOME QUESTION, decided here so the rest follows. Eight fixtures currently live in cloud/factory/test/fixtures/ and are read by BOTH sides — seven Go parity tests by relative path (../../../cloud/factory/test/fixtures/*.json) and the vitest suite directly. That is why the dependency runs backwards: core Go tests reach into the factory's test tree.\n\nThey belong in TICKS, because ticks owns every format being parsed: .tick/runners.toml, the tracker layout, the sandbox worker boot contract, message context. ticfac is the SECOND reader, not the owner. Put them under a contracts home in this repo — schemas/ already exists with a codegen pipeline and a fixtures/ subdir (schemas/fixtures/{api-responses,tick}.json), so evaluate that first rather than inventing a new directory. If schemas/ is wrong, say why.\n\nTHE EIGHT: runners-config-contract.json, signal-source-cases.json, sweep-policy-cases.json, sweep-selection-contract.json, sandbox-image-cases.json, worker-boot-contract.json, message-context.json, tracker-layout.json.\n\nRepoint these seven Go tests: internal/herd/config/{runners_config,signal,sweep}_parity_test.go, internal/sandbox/{image,worker}_parity_test.go, internal/operator/message_context_parity_test.go, internal/tick/tracker_layout_parity_test.go.\n\nDO NOT touch cloud/factory/test/** — the next tick owns the TS side and repoints it at the new home. Between the two ticks the TS suite reads a path that no longer exists; sequence them, do not overlap.\n\nREAD runners_config_parity_test.go's header before you start. It explains why these exist at all: a comment saying 'mirrored from load.go' was the one Go/TS contract with no cross-implementation test, and .tick/learnings.md records why a comment is not enough — each side stays internally consistent, so both suites stay green through a one-sided edit. That is the property you must not lose while moving them.",
+  "status": "open",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "kka",
+  "acceptance_criteria": "The eight fixtures live in one contracts home in this repo, with a README stating what they are and that BOTH languages read them. All seven Go parity tests read from the new location and pass. No Go test reads a path under cloud/factory/. go test ./... green. cloud/factory/test/** is untouched.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-27T11:51:51.416757Z",
+  "updated_at": "2026-08-27T11:51:51.416757Z"
+}
