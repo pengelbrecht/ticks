@@ -40,6 +40,10 @@ the skills — whether or not they will ever deploy a Cloudflare Worker.
 3. Both repos stay green at every step. No flag day.
 4. The cross-language contracts that currently prevent Go/TypeScript drift keep
    working after the split — they are load-bearing, not incidental.
+5. **No duplicated functionality survives the split.** Where the same job is done
+   twice, extraction resolves it to one implementation. Where two runtimes
+   genuinely force two implementations, they are held together by an executable
+   contract, not by hope. See Finding 4.
 
 ## Non-goals
 
@@ -105,10 +109,8 @@ an interface with optional capability interfaces (`Adopter`, `ContextualChannel`
 outside. It stays in ticks as the extension point; the factory registers against
 it.
 
-**Open decision for the factory's owner, not for this spec:** whether the Go
-Telegram is worth keeping at all once it lives beside a working TypeScript one.
-Move it rather than delete it here — retiring it is the new repo's call to make
-with its own context.
+**The Go Telegram does not move — it is superseded.** See Finding 4: the two
+implementations cannot coexist against one bot token, and the webhook wins.
 
 ### The two packages that genuinely do stay
 
@@ -184,6 +186,65 @@ in the ticks repo, before anything moves.
 It is also the part with independent value: a public Go API for the tracker is
 what would let *anything* build on ticks, not just the factory.
 
+## Finding 4 — the two Telegram implementations are mutually exclusive
+
+This is not ordinary duplication. The two cannot both run.
+
+| | Transport | Evidence |
+|---|---|---|
+| Go, `internal/operator/telegram/client.go` | `getUpdates` **long-polling** | *"a getUpdates consumer per token is a Bot API requirement (a second one gets 409)"* — `client.go:84` |
+| TypeScript, `cloud/factory/src/telegram.ts` | `setWebhook` | *"the Bot API allows a single reader per token, so `setWebhook` and `getUpdates` are mutually exclusive and the front door is the choice this deployment makes"* — module doc |
+
+**One bot token has exactly one reader.** Deploying the factory registers a
+webhook, which silently stops any local poller; starting the local poller against
+a webhooked bot fails with a 409. Today they do not collide only because the Go
+side has no users — which is luck, not design.
+
+### Resolution: the webhook wins; the poller is deleted, not moved
+
+1. **It is the one that runs.** The factory is deployed and consuming updates.
+2. **A poller needs a live process.** A laptop long-polling Telegram stops when
+   the lid closes — the exact failure the factory exists to remove. Shipping it
+   into the factory repo would be shipping the problem next to its own fix.
+3. **The choice is already made in the code.** The Worker module doc states the
+   front door explicitly. Moving the poller would relitigate a settled decision.
+
+So `internal/operator/telegram/**` (2,171 non-test + 1,852 test) is **retired**,
+not relocated. `tk channel` and `tk tell` keep their command surface but stop
+speaking Telegram: they become thin clients of the factory's API, which owns the
+bot. Consequences worth stating plainly:
+
+- **No bot token on the laptop.** A credential leaves the local machine
+  entirely — a security improvement that falls out for free.
+- **Remote answering requires a deployed factory.** That is the product line
+  already drawn: terminal answering is ticks and works offline; phone answering
+  is a cloud feature and needs the cloud.
+- **`internal/operator/markdownlite.go` stays** (it is the store's formatting,
+  used by the terminal path); `telegram/markdown.go` — Telegram-specific
+  escaping — goes with the transport.
+
+### The other duplication, and why it is different
+
+Three more places do the same job twice, and they must NOT be collapsed the same
+way, because two runtimes genuinely need two implementations:
+
+| Job | Go | TypeScript |
+|---|---|---|
+| Parse `.tick/runners.toml` | `internal/herd/config` | `cloud/factory/src/{toml,repo-config}.ts` |
+| Sandbox worker boot | `internal/sandbox/worker.go` | `cloud/factory/src/worker-boot.ts` + `cloud/sandbox/worker.sh` |
+| Message context / trace IDs | `internal/operator/context.go`, `internal/trace` | `cloud/factory/src/{message-context,trace}.ts` |
+
+The laptop cannot run TypeScript in a Worker and the Worker cannot run Go. These
+stay two implementations — but they are exactly what the eight parity fixtures in
+Finding 2b exist to hold together. **The rule this project enforces: duplicated
+behaviour is permitted only where two runtimes force it, and only when an
+executable contract fails a build on drift.** Anything else gets one
+implementation.
+
+That makes Phase 2 (publish the contract) load-bearing rather than hygiene: after
+the split it is the only thing standing between these three pairs and silent
+divergence.
+
 ## What moves
 
 | | Lines |
@@ -194,10 +255,13 @@ what would let *anything* build on ticks, not just the factory.
 | `internal/cloud/{collect,lease,state}` | 1,250 |
 | `internal/gatewaytrace/**` | 1,221 |
 | `cmd/tk/cmd/{factory,cloud}*.go` (+ tests) | ~9k |
-| `internal/operator/telegram/**`, `tk channel`, `tk tell`, `factory_operator.go` | ~7.5k incl. tests |
+| `tk channel`, `tk tell`, `factory_operator.go` — as factory-API clients | ~1.5k |
 | `docs/design/cloud-factory.md`, `docs/factory-credentials.md`, 16 `repo-wiki/` pages | ~5k |
 | `scripts/verify-factory-deploy.sh`, `bench_sandbox_start.py`, `bench_workers_ai_models.py`, `benchmarks/**` | ~1k |
 | CI: the `factory`, `sandbox` and `changes` jobs in `.github/workflows/ci.yml` | — |
+
+**Retired, not moved:** `internal/operator/telegram/**` (4,023 lines incl. test)
+— superseded by the Worker's webhook (Finding 4).
 
 ## What stays
 
@@ -276,6 +340,14 @@ authenticates after upgrading both sides.
 `tk`, with `tk factory` still resolving to the in-repo implementation.
 *Done when:* an external `tk-hello` binary on PATH is invocable as `tk hello`.
 
+**Phase 4b — one bot reader.** Repoint `tk channel` and `tk tell` at the
+factory's API and retire `internal/operator/telegram/**`. *Done when:* no Go
+code calls the Bot API, no bot token is read from a laptop, and answering from
+Telegram still resolves a parked question. This is the duplication fix (Finding
+4) and it is the one step that changes user-visible behaviour — it must land
+before the move, while both implementations are still in one tree and one test
+run can prove the handover.
+
 **Phase 5 — move.** Create the repo, move the files, wire its CI, remove the
 factory jobs and files from ticks, shrink `embedded.go`. *Done when:* both repos
 green, `tk factory deploy` works from the new binary, and a sandbox image builds.
@@ -284,7 +356,9 @@ green, `tk factory deploy` works from the new binary, and a sandbox image builds
 shims from Phase 1.
 
 Phases 1–4 are all independently valuable to ticks even if the extraction is
-abandoned — which is the property that makes this safe to start.
+abandoned — which is the property that makes this safe to start. Phase 4b is
+valuable on its own terms too: it removes a bot token from every operator's
+laptop and settles which process reads the bot.
 
 ## Risks
 
@@ -297,6 +371,11 @@ abandoned — which is the property that makes this safe to start.
   it is the one place the boundary stays untidy.
 - **Credential migration** (What gets built, 3). The only step that can break a
   user's live deployment. Needs a migration path, not a cut.
+- **Phase 4b is the only user-visible behaviour change in the project.** Remote
+  answering starts requiring a deployed factory. For anyone who had the local
+  poller working this is a regression in reach, traded for one bot reader and no
+  laptop credential. Nobody is in that position today (the Go transport has no
+  users), which is precisely why now is the cheapest moment to do it.
 - **The factory is being built *by* the factory.** Git log shows sustained
   tick-by-tick delivery through 2026-08. Extraction competes with active
   development; Phases 1–4 are non-disruptive, Phase 5 is not.
