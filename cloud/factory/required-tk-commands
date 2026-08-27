@@ -1,0 +1,44 @@
+# Every `tk` invocation the factory makes on tk itself — the subcommand AND
+# the flags — one per line. `<arg>` stands for a positional argument the
+# caller computes (a tick id).
+#
+# WHY THIS FILE EXISTS. The factory reaches the tracker by running `tk ...
+# --json` as a subprocess instead of importing ticks' Go packages. That makes
+# the tk command line a contract between two products, and an undeclared
+# contract is one ticks breaks by accident on a quiet Tuesday: rename a flag,
+# ship it, and the factory finds out in a container forty seconds into a run.
+#
+# DERIVED, not maintained by hand: it is exactly the argument lists of the
+# cloudTkJSON call sites in cmd/tk/cmd, read out of the source by
+# TestFactoryRequiredTkCommandsMatchTheCallSites. Adding a call site without
+# regenerating this file fails that test, and every line here is then really
+# executed against a real tk subprocess by
+# TestFactoryRequiredTkCommandsStillRun. A list nobody checks is a comment.
+#
+# `--all` IS THE FRAGILE ENTRY. `tk list` defaults to the invoking user's own
+# ticks, and an epic's descendants are owned by whoever filed them — a worker
+# container owns what it filed. Drop `--all` and the descendant walk silently
+# loses ticks and refuses legitimate waves: a correctness bug, not a crash.
+# TestFactoryListAllReachesTicksOwnedByAnyone asserts the flag's EFFECT, not
+# just that it is still accepted, so turning it into a no-op fails too.
+#
+# RELATION TO cloud/sandbox/required-tk-commands: deliberately a separate
+# file, not a merge and not a subset. That one is derived from the image's
+# shell scripts (entrypoint.sh, worker.sh, common.sh, preflight.sh) by
+# factory.EntrypointTkCommands, so it can only ever express "the container's
+# shell runs this" — it structurally cannot express "tk runs this from inside
+# tk", which is exactly what `show` and `list` are, and its one-command-per-
+# line format carries no flags at all. That structural gap is filed as tick
+# zkq and is not resolved here. The two files have no entry in common today;
+# if they ever should converge, zkq is where that decision belongs. Both are
+# read the same way by their tests: comments and blank lines dropped, the rest
+# is the list.
+#
+# NOT COVERED — JSON FIELD SHAPE. This file names commands and flags. A field
+# renamed, retyped or dropped INSIDE `--json` output would sail past every
+# test that reads this file: the invocation still exits 0 and still emits
+# valid JSON. Nothing here is a promise about the shape of that JSON. That
+# belongs to the later phase's cross-language contract artifact generated from
+# schemas/. Do not read this list as covering more than the command line.
+list --all --json
+show <arg> --json
