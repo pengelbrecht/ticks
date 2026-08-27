@@ -2,7 +2,7 @@
   "id": "4w3",
   "title": "Phase 0 — tell the truth about what the factory is",
   "description": "docs/design/cloud-factory.md:3-4 says 'Status: design exploration. Nothing here is implemented.' It is ~30k lines of production TypeScript, 13 applied D1 migrations, a live deployed Worker, and runs that cost real money. Anyone reading only the doc concludes nothing exists. Fix the header and add a short status section stating what is built, what is deployed, and what is written-but-never-run (repo-wiki/phase-2-live-verification.md records Phase 2 code as unit-tested but never exercised in the deployed factory). Smallest change in the project and the one currently misleading every reader.",
-  "status": "open",
+  "status": "closed",
   "priority": 1,
   "type": "epic",
   "owner": "noreply@anthropic.com",
@@ -10,5 +10,7 @@
   "acceptance_criteria": "docs/design/cloud-factory.md no longer claims nothing is implemented; it states what is built, what is deployed, and what is unverified, each with a pointer to evidence. No code changes.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-27T09:03:04.1941Z",
-  "updated_at": "2026-08-27T09:03:04.1941Z"
+  "updated_at": "2026-08-27T09:31:08.155751Z",
+  "closed_at": "2026-08-27T09:31:08.155751Z",
+  "closed_reason": "Completed: rewrote the cloud-factory.md status header. It claimed 'design exploration, nothing here is implemented' above ~29.5k lines of production TypeScript, 13 applied D1 migrations and a live deployed Worker. Now states what is built, what is verified against real runs, and what is written-but-never-exercised (Phase 2 observability, 404 on the live Worker per repo-wiki/phase-2-live-verification.md), plus a pointer to the extraction spec. Done directly rather than planned as an epic — it was a one-line problem wearing an epic's clothes."
 }

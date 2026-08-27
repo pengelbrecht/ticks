@@ -385,8 +385,10 @@ These are the actual deliverables. The move itself is the easy half.
 Strangler, not flag day. Ticks stays green throughout; the factory does not move
 until it is already consuming the public API from where it sits.
 
-**Phase 0 — tell the truth.** Fix the `docs/design/cloud-factory.md` status
-header. One line, and it is currently misleading every reader.
+**Phase 0 — tell the truth.** DONE 2026-08-27. The
+`docs/design/cloud-factory.md` header now states what is built, what is verified
+against real runs, and what is written-but-unexercised. It was tracked as an epic
+briefly; that was over-structuring a one-line problem, and it was simply done.
 
 **Phase 1 — cut the Go dependency, in place.** Repoint the factory's tracker
 reads at `tk … --json`, resolve the one-off borrowings, move

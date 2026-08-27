@@ -1,8 +1,31 @@
 # Cloud Factory: Schedule- and Event-Driven Orchestration on Cloudflare
 
-> **Status: design exploration.** Nothing here is implemented. This doc exists to
-> pressure-test the architecture against concrete use cases before any code is
-> written. The companion reading is
+> **Status: built and deployed, with one phase unverified.** This document began
+> as a design exploration and its header said so long after that stopped being
+> true. What is actually here, as of 2026-08-27:
+>
+> - **Built and running.** ~29.5k lines of production TypeScript across 46
+>   modules in `cloud/factory/src/` — Workflow lifecycle, the dispatch lease,
+>   signal ingestion, GitHub webhooks with signature verification, the AI
+>   Gateway proxy, R2 artifacts, D1 persistence, the Telegram bot, cron sweeps,
+>   the PR-review loop, CI remediation. Thirteen numbered D1 migrations have
+>   been applied. `tk factory deploy|setup|status|dashboard` and twelve
+>   `tk cloud` subcommands ship, backed by ~7.3k lines of Go.
+> - **Verified against real runs.** `cloud/factory/wrangler.toml` carries cost
+>   post-mortems from actual epics; `repo-wiki/phase-2-live-verification.md`
+>   records run history against real ticks.
+> - **Written but never exercised in the deployed factory.** Phase 2's
+>   observability surface is unit-tested and not live — see
+>   `repo-wiki/phase-2-live-verification.md` for what returns 404 today.
+>
+> **This document is also no longer where the factory is headed.** The factory is
+> being extracted into its own repo (`ticfac`); ticks becomes a terminal-first
+> product that the factory consumes through the `tk` CLI. Read
+> `docs/projects/2026-08-27-factory-extraction/2026-08-27-factory-extraction-spec.md`
+> alongside this. The architecture below still describes the system accurately;
+> the assumption that it lives in this repo does not.
+>
+> The companion reading is
 > [`skills/ticks/references/agent-runner.md`](../../skills/ticks/references/agent-runner.md)
 > (the orchestration contract every substrate must satisfy) and
 > [`cloud/worker/src/project-room.ts`](../../cloud/worker/src/project-room.ts)
