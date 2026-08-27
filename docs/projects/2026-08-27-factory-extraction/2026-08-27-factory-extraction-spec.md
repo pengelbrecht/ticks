@@ -39,8 +39,10 @@ the skills — whether or not they will ever deploy a Cloudflare Worker.
    through Go imports.
 2. Ticks gets smaller and stops knowing the factory exists.
 3. Both repos stay green at every step. No flag day.
-4. Ticks exposes no new public Go surface to serve this. Nothing leaves
-   `internal/`; nothing becomes a frozen API for one consumer's benefit.
+4. Ticks exposes no new surface to serve this — no public Go API, and no
+   plugin or dispatch mechanism. Nothing leaves `internal/`; `tk` never learns
+   that a factory exists. Two programs, one text interface, dependency pointing
+   one way.
 5. The cross-language contracts that currently prevent Go/TypeScript drift keep
    working after the split — they are load-bearing, not incidental.
 6. **No duplicated functionality survives the split.** Where the same job is done
@@ -361,17 +363,43 @@ These are the actual deliverables. The move itself is the easy half.
    namespaced read/write API and stops defining factory keys. **Decide before
    moving anything** — this touches real credentials on real machines.
 
-4. **A binary and command-surface decision.** Three options; recommend (b):
-   - **(a) Separate binary** (`tkf …`). Cleanest boundary, worst ergonomics,
-     breaks every doc and muscle memory.
-   - **(b) PATH-discovered subcommand** — a `tk-factory` binary that `tk factory
-     …` dispatches to, git-style. Ticks needs a small generic dispatcher (which
-     is useful independently); the factory repo ships the binary. Preserves the
-     command surface, keeps ticks unaware of what a factory is, and the repo
-     already has plugin/extension precedent (`plugins/herdr-ticks`,
-     `extensions/ticks-runner`).
-   - **(c) Factory repo imports ticks and ships a superset binary.** Rejected —
-     two binaries claiming `tk` is worse than either alternative.
+4. **`ticfac` is its own binary with its own name.** `ticfac deploy`,
+   `ticfac run`, `ticfac status`. No dispatch mechanism, no shim, no plugin
+   protocol — `tk` never learns that a factory exists.
+
+   *(Revised 2026-08-27 on Peter's steer: "don't overload tk — lean towards the
+   unix philosophy, composable tools with minimum dependencies." The earlier
+   draft proposed git-style PATH dispatch so `tk factory …` kept working from
+   outside the binary. That was wrong on both counts.)*
+
+   **The cost I cited for a separate binary was near-zero and I overstated it.**
+   The argument against it was "breaks every doc and all muscle memory". But
+   `tk factory` has NEVER SHIPPED — verified against every published tag,
+   including v0.31.1: zero `cmd/tk/cmd/factory*` files in any release. There are
+   no users to break and no installed docs to invalidate. The habit exists in one
+   repository's own working tree.
+
+   **And dispatch would have made ticks bigger to make it smaller.** A PATH
+   resolver, argument and exit-code passthrough, and a suggestion path that still
+   behaves for genuinely unknown commands — all of it new code in `tk`, existing
+   solely to serve a product that had just been removed from the repo for being
+   out of scope. Deleting a command file already removes the command with zero
+   edits elsewhere (`init()` self-registration, no central registry). That is the
+   whole mechanism required, and it already exists.
+
+   The composition happens where Unix puts it: **two independent programs, one
+   text interface.** `ticfac` runs `tk … --json` to read the tracker; `tk` runs
+   nothing. The dependency points one way and only one way.
+
+   Consequences, stated so they are not surprises:
+   - **The sandbox image installs two binaries** rather than one plus a shim.
+     `cloud/sandbox/required-tk-commands` splits: `tk sandbox …` stays a `tk`
+     dependency, `cloud branch` becomes a `ticfac` command the image gets from
+     `ticfac` itself. Two lists, each owned by the product that ships it.
+   - **`tk cloud …` does not survive as a `tk` command.** It becomes
+     `ticfac …`. Whether `cloud` survives as a SUBSTRATE NAME in
+     `.tick/runners.toml` is a separate question (Phase 6) and the answer is
+     probably yes — the file already names `herdr` without ticks owning it.
 
 5. **Its own `embedded.go`** in the new repo, carrying `cloud/factory` and
    `cloud/sandbox`. Ticks' root `embedded.go` keeps only `skills/`.
@@ -408,9 +436,11 @@ test, with the fixtures no longer read by relative path.
 and migrate existing files. *Done when:* a machine with a deployed factory still
 authenticates after upgrading both sides.
 
-**Phase 4 — the dispatcher.** Add generic PATH-based subcommand dispatch to
-`tk`, with `tk factory` still resolving to the in-repo implementation.
-*Done when:* an external `tk-hello` binary on PATH is invocable as `tk hello`.
+**Phase 4 — REMOVED.** This was "add git-style PATH subcommand dispatch to
+`tk`". It is deleted from the plan, not deferred: `ticfac` is its own binary
+(see *What gets built*, item 4), so no dispatch mechanism is needed and adding
+one would make ticks bigger in order to make it smaller. Phase numbering is
+left alone so existing references stay valid.
 
 **Phase 4b — one bot reader.** Repoint `tk channel` and `tk tell` at the
 factory's API and retire `internal/operator/telegram/**`. *Done when:* no Go
