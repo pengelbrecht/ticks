@@ -1,0 +1,17 @@
+{
+  "id": "ffy",
+  "title": "A tk build still compiles factory code — decide whether that is acceptable",
+  "description": "RAISED BY THE psh/fr1 IMPLEMENTER, and it is the honest 'did we actually achieve the goal' question for this epic.\n\nfr1 removed the root.go edge, which is exactly what its acceptance asked for. But cmd/tk/cmd/factory_dashboard.go still imports internal/factory/dashboard, so a tk build STILL compiles factory code. The epic's negative acceptance (nothing promoted out of internal/) holds; the broader reading — that a factory-free tk compiles no factory package at all — does not.\n\nTHE DECISION, not the mechanics, is the work here. Three readings, and they are genuinely different products:\n1. It does not matter until Phase 5. The factory command files leave the repo then and the question dissolves. Cheapest, and defensible — this epic never promised it.\n2. It matters now, because 'ticks is terminal-first' is the whole point of the project and a tk that compiles a Cloudflare deployment tool is not that. Would need a build tag or a CLI-driven boundary on the remaining cmd/tk/cmd/factory_*.go files.\n3. It matters for BINARY SIZE and dependency surface specifically — measure before deciding. Check what the factory packages actually pull into a tk build.\n\nDo the measurement first (option 3's step) even if the answer is option 1: 'we checked and it costs X' is a decision, 'we did not look' is not. If the answer is option 1, close this with that reasoning recorded and let Phase 5 handle it.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "46k"
+  ],
+  "parent": "3j4",
+  "acceptance_criteria": "The cost of factory code in a tk build is measured and recorded. A decision is made and written down: fix now, or defer to Phase 5 with the reasoning. If fix-now, a factory-free tk build compiles no internal/factory package and go test ./... stays green.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-27T09:54:04.275595Z",
+  "updated_at": "2026-08-27T09:54:04.275595Z"
+}
