@@ -2,7 +2,7 @@
   "id": "p41",
   "title": "Pin the cloud spawn exit codes with a test",
   "description": "FROM THE 82h REVIEW, finding F2. The strongest claim of Phase 1 is 'exit codes are unchanged after moving the tracker reads to a subprocess'. That claim is correct BY READING and is not pinned by a test.\n\nThe review looked: there are NO pre-existing tests asserting exit codes on these paths. TestCloudRunRefusesAnUnusableWaveBeforeSubmitting (cloud_test.go:871) and cloud_wave_test.go:290 assert refusal MESSAGES and that no submission was made — never GetExitCode. The only ExitNotFound assertion in the cloud suite is cloud_wave_test.go:520, on an unrelated no-manifests path.\n\nSo my own review brief was wrong: I told the reviewer to 'verify fidelity against the pre-existing tests' and those tests do not assert what I assumed.\n\nThe tk-SIDE behaviour IS pinned (TestCloudTkSelfExecAnswersLikeTk asserts 'tk show nope --json' returns ExitNotFound). What is unpinned is the MAPPING from that to the command's own exit code.\n\nTHE WORK: a small table test over tk cloud spawn — missing epic wants ExitNotFound, non-epic wants ExitGeneric — plus one asserting an unrunnable tk yields ExitGeneric with a message naming the binary and the argument list (not a misleading 'not found'). Three outcomes are kept structurally apart in cloudTkJSON (answered / refused / unrunnable); the test should prove all three, since collapsing them is exactly how an environment fault would start masquerading as a missing tick.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -10,5 +10,7 @@
   "acceptance_criteria": "A table test asserts GetExitCode for a missing epic (ExitNotFound) and a non-epic (ExitGeneric) on the cloud spawn path. A third case proves an unrunnable tk yields ExitGeneric with a message naming the binary and args. Deliberately breaking the mapping fails the test. go test ./... green.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-27T10:16:01.487486Z",
-  "updated_at": "2026-08-27T10:16:01.487486Z"
+  "updated_at": "2026-08-27T10:45:07.877175Z",
+  "closed_at": "2026-08-27T10:45:07.877175Z",
+  "closed_reason": "Completed: two tests in cloud_tk_test.go pin all three cloudTkJSON outcomes — refused (missing epic -\u003e ExitNotFound 4), answered-but-refused (non-epic -\u003e ExitGeneric 1), unrunnable (nonexistent binary -\u003e ExitGeneric with the binary path AND 'tk show epic1 --json' in the message). Proven by two independent mutations, each reverted: swapping the two exit codes made the cases fail in OPPOSITE directions, so neither passes by accident; collapsing the unrunnable branch into ExitNotFound — the exact masquerade the tick describes — failed all three assertions."
 }

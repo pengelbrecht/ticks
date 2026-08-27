@@ -383,9 +383,14 @@ These are the actual deliverables. The move itself is the easy half.
    resolver, argument and exit-code passthrough, and a suggestion path that still
    behaves for genuinely unknown commands — all of it new code in `tk`, existing
    solely to serve a product that had just been removed from the repo for being
-   out of scope. Deleting a command file already removes the command with zero
-   edits elsewhere (`init()` self-registration, no central registry). That is the
-   whole mechanism required, and it already exists.
+   out of scope. Deleting a command file already removes the command
+   (`init()` self-registration, no central registry) — with ONE hand-maintained
+   exception found while measuring `ffy`: `ResetFlags` in `cmd/tk/cmd/root.go`
+   lists every command's flag variables, so a removed command file breaks the
+   build there and nowhere else. Deleting the corresponding lines is the fix.
+   That correction does not change this decision: a few lines in a test helper
+   is still nothing next to a dispatch mechanism, and it is a cost the move pays
+   once either way.
 
    The composition happens where Unix puts it: **two independent programs, one
    text interface.** `ticfac` runs `tk … --json` to read the tracker; `tk` runs
