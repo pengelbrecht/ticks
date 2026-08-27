@@ -144,6 +144,30 @@ promised no promotion out of `internal/` and no `root.go` edge, both of which
 hold. This is the broader reading, and it is a Phase 5 obligation, not a Phase 1
 regression.
 
+## The two board copies: one pinned, one deliberately not (tick `o31`)
+
+Phase 1 turned four compiler-enforced agreements into comment-enforced ones. Two
+of them are the collect vocabulary (its own tick). The other two are both in
+`internal/factory/dashboard`, and `o31` ruled on them **differently on purpose** —
+the split is the useful part of the record.
+
+| Copy | Verdict | Why |
+|---|---|---|
+| The eight Catppuccin colours copied from `internal/styles` | **Uncontracted, deliberately** | Divergence is the intended outcome. Two products, two visual identities; a test pinning the values would fire on every legitimate restyle and re-create by convention the coupling the copy removed. |
+| The herd board's key sequence, frozen as `herdBoardKeys` | **Re-pinned** | Divergence is a defect an operator feels — one binary, two boards, the same key doing different things. |
+
+The key-binding pin is `cmd/tk/cmd/board_keys_test.go`: it renders **both**
+boards and diffs their real footers. It introduces no new dependency edge —
+`cmd/tk/cmd` already imports both boards to wire them into `tk`, and `tk` is the
+only place that ships both, so it is also the only honest place to assert they
+agree. The frozen literal stays in `internal/factory/dashboard/view_test.go` as
+the half that names which side moved and the half that survives if the board
+leaves the repo.
+
+The bar applied, and worth reusing: **a drift detector earns its place when
+divergence is a defect, not when divergence is possible.** An unnecessary
+fixture is a maintenance cost plus a false sense of coverage.
+
 ## Gotchas
 
 - **Eight CORE Go tests read fixtures out of `cloud/factory/test/fixtures/`** —
@@ -175,7 +199,9 @@ regression.
   sandbox worker boot, message context/trace IDs. Two runtimes genuinely force
   two implementations. The rule: duplicated behaviour is permitted only where
   runtimes force it, AND only with an executable contract that fails a build on
-  drift.
+  drift. That rule is about duplicated *behaviour*; the factory board's palette
+  is not in its scope, because the two copies are not meant to stay equal (see
+  the section above).
 
 ## Timeline
 - 2026-08-27 — boundary mapped, extraction scoped as project `a4n`, factory
@@ -184,3 +210,6 @@ regression.
 - 2026-08-27 — the cost of factory code in a `tk` build measured (0.72% of the
   binary for the edge in question, four packages of 337, no third-party module,
   no compile-time signal) and the fix deferred to the move, tick `ffy`.
+- 2026-08-27 — the two board copies ruled on, tick `o31`: the key bindings
+  re-pinned by a both-boards comparison in `cmd/tk/cmd/board_keys_test.go`, the
+  palette left uncontracted on purpose and the reasoning written at the copy.
