@@ -51,32 +51,72 @@ the skills — whether or not they will ever deploy a Cloudflare Worker.
   D1 `tickboard`, the `ProjectRoom`/`AgentHub` Durable Objects, the static asset
   server. It lives under `cloud/` and is *not* factory. The `deploy-cloud`
   release job deploys this, not the factory. It stays.
-- **Not extracting the operator channel.** See below — this is the finding that
-  most changes the shape of the work.
+- **Not extracting the question store.** The operator *transport* (Telegram)
+  goes; the durable park-a-question-answer-it-later machinery stays. See
+  Finding 1 — this is the split that most changes the shape of the work.
 
-## Finding 1 — this is three subsystems, not two
+## Finding 1 — the operator channel splits; it does not move whole
 
-The obvious split is "ticks | factory". The tree does not support it. There is a
-third subsystem tangled in the middle:
+*(Revised 2026-08-27 after Peter's steer: the operator channel is an unused
+experiment and belongs with the factory. That is right about the transport and
+wrong about the package — the two are fused under one name.)*
 
-**The operator channel** — `internal/operator/**` (5,700 lines), and the
-`tk ask` / `tk answer` / `tk channel` / `tk tell` commands.
+`internal/operator` is **two things wearing one name**:
 
-It reads as factory (Telegram, remote humans, `docs/operator-channel.md` sits
-next to the factory docs) but **local herd depends on it**:
+| | Lines (non-test) | What it is |
+|---|---|---|
+| `internal/operator/*.go` | 2,636 | A durable **question store**: an agent parks a question, a human resolves it later |
+| `internal/operator/telegram/**` | 3,064 | A **remote transport** — and the only `Channel` implemented (`cmd/tk/cmd/channel.go:37`) |
 
-- `internal/herd/relay/relay.go` uses ~18 symbols from `internal/operator`
-- `cmd/tk/cmd/tell.go` uses ~14
-- `cmd/tk/cmd/herd_wait.go` uses 7
+The question store is not remote plumbing. `cmd/tk/cmd/herd_wait.go:209-215`
+shows the no-channel path explicitly: with nothing configured, a blocked agent's
+question is *"parked for terminal answer with `tk answer <id> <answer>`"*.
+`cmd/tk/cmd/ask.go:22,47` says the same in as many words — a question resolves on
+*"EITHER surface — the phone or the terminal"*, where terminal means
+`tk answer` / `tk approve` / `tk reject`.
 
-Extracting it would break `tk tell` and `tk herd wait` on a laptop with no cloud
-anything. **The operator channel stays in ticks.** The factory consumes it.
+**That is the product.** An agent that can park a question instead of dying, and
+a human who answers it whenever they next look, is exactly what "optimised for
+the longest autonomous runs possible" means at a terminal. Removing it would make
+runs *shorter*, not more focused.
 
-Same story, smaller, for two more packages:
+The transport half is the experiment, and it should go — with one wrinkle worth
+knowing: **the factory already has its own Telegram**, `cloud/factory/src/telegram.ts`
+(606 lines, TypeScript, running in the Worker). The Go implementation (3,064
+lines + 4,454 of test) is the *local* side — a laptop talking to Telegram
+directly. They are genuinely different jobs, but only `cmd/tk/cmd/factory_operator.go`
+links them, and the Go one has no users.
 
-- `internal/sandbox/**` — `cmd/tk/cmd/herd_spawn.go:134` calls `sandbox.Setup`. Stays.
+### The split
+
+**Stays in ticks** — the question store. `Engine`, `Pending`, `Question`,
+`Outcome`, mapping, locking, `tk ask`, `tk answer`, and `internal/herd/relay`
+(which already degrades to the terminal path when no channel is configured).
+Recommend renaming the package to say what it is — `internal/parking` or
+`internal/questions` — since "operator" is what caused the confusion.
+
+**Goes to the factory** — `internal/operator/telegram/**`, `tk channel`,
+`tk tell` (which exits 4, "no channel configured", without a transport — it is
+pure transport), and `cmd/tk/cmd/factory_operator.go`.
+
+**The seam already exists.** `internal/operator/channel.go` defines `Channel` as
+an interface with optional capability interfaces (`Adopter`, `ContextualChannel`,
+`FormattedSender`, `AttachmentSender`). It was written to be implemented from
+outside. It stays in ticks as the extension point; the factory registers against
+it.
+
+**Open decision for the factory's owner, not for this spec:** whether the Go
+Telegram is worth keeping at all once it lives beside a working TypeScript one.
+Move it rather than delete it here — retiring it is the new repo's call to make
+with its own context.
+
+### The two packages that genuinely do stay
+
+Unchanged from the original finding, and both are small:
+
+- `internal/sandbox/**` — `cmd/tk/cmd/herd_spawn.go:134` calls `sandbox.Setup`.
 - `internal/wave` — `cmd/tk/cmd/graph.go` and `internal/herd/dashboard` call
-  `wave.Compute`. Stays.
+  `wave.Compute`.
 
 ## Finding 2 — the dependency arrow already points both ways
 
@@ -154,14 +194,16 @@ what would let *anything* build on ticks, not just the factory.
 | `internal/cloud/{collect,lease,state}` | 1,250 |
 | `internal/gatewaytrace/**` | 1,221 |
 | `cmd/tk/cmd/{factory,cloud}*.go` (+ tests) | ~9k |
+| `internal/operator/telegram/**`, `tk channel`, `tk tell`, `factory_operator.go` | ~7.5k incl. tests |
 | `docs/design/cloud-factory.md`, `docs/factory-credentials.md`, 16 `repo-wiki/` pages | ~5k |
 | `scripts/verify-factory-deploy.sh`, `bench_sandbox_start.py`, `bench_workers_ai_models.py`, `benchmarks/**` | ~1k |
 | CI: the `factory`, `sandbox` and `changes` jobs in `.github/workflows/ci.yml` | — |
 
 ## What stays
 
-`cloud/worker/**` (the board) · `internal/operator/**` and `ask`/`answer`/
-`channel`/`tell` · `internal/sandbox/**` and `tk sandbox` · `internal/wave` ·
+`cloud/worker/**` (the board) · the question store (`internal/operator/*.go`,
+recommend renaming) and `tk ask`/`tk answer` · `internal/herd/relay` ·
+`internal/sandbox/**` and `tk sandbox` · `internal/wave` ·
 `internal/tick` · `internal/herd/**` · `internal/github` · `internal/styles` ·
 `internal/ticksrc` · `schemas/**` · `Makefile`, `package.json`, `install.sh`,
 `.goreleaser.yaml` (all already factory-free).
