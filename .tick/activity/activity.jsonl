@@ -2176,3 +2176,5 @@
 {"ts":"2026-08-27T09:34:05.129146Z","tick":"46k","action":"create","actor":"claude:orchestrator","epic":"3j4","data":{"priority":1,"title":"Declare the tk commands the factory depends on, and guard them","type":"task"}}
 {"ts":"2026-08-27T09:34:05.176257Z","tick":"82h","action":"create","actor":"claude:orchestrator","epic":"3j4","data":{"priority":1,"title":"Final review of the Phase 1 diff","type":"task"}}
 {"ts":"2026-08-27T09:34:05.224965Z","tick":"75b","action":"create","actor":"claude:orchestrator","epic":"3j4","data":{"priority":1,"title":"Close out Phase 1: PR, CI gate, retro, then plan Phase 2","type":"task"}}
+{"ts":"2026-08-27T09:46:22.127828Z","tick":"zkq","action":"create","actor":"claude:orchestrator","data":{"priority":2,"title":"required-tk-commands cannot express tk subcommands that tk itself invokes","type":"task"}}
+{"ts":"2026-08-27T09:46:22.17635Z","tick":"uqe","action":"create","actor":"claude:orchestrator","data":{"priority":3,"title":"tk self-invocation pays the update check","type":"task"}}
