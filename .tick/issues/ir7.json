@@ -2,7 +2,7 @@
   "id": "ir7",
   "title": "Repoint tk tell at the factory endpoint",
   "description": "cmd/tk/cmd/tell.go (317 lines) currently speaks Telegram directly through internal/operator/telegram. Repoint it at the endpoint tick 5zy built. tk tell keeps its name and its command surface; only the transport underneath changes.\n\nPRESERVE THE EXIT-CODE CONTRACT. tell.go:66 documents 'exit code 4: no channel configured (one explanatory line is printed to stderr)'. After this change the equivalent states are richer — no factory configured, factory unreachable, unauthorised, factory has no Telegram — and 5zy was asked to keep them distinguishable. Map them deliberately and document the mapping where tell.go documents its codes today. Collapsing them into one 'could not send' is the failure to avoid: 'I have not set this up' and 'the network is down' are different problems for the user.\n\nA tell is DEAF by design — .tick/learnings.md records that a reply to a tk tell reaches no consumer, so a tell must never end in a reply-inviting call to action. That property must survive the transport change; nothing about going through the factory should make a tell look answerable.\n\nSCOPE: cmd/tk/cmd/tell.go and its tests. Do NOT delete internal/operator/telegram — a later tick owns that, and it must stay compiling until tk channel is repointed too.",
-  "status": "open",
+  "status": "closed",
   "priority": 1,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -13,5 +13,7 @@
   "acceptance_criteria": "tk tell sends through the factory endpoint and no longer imports internal/operator/telegram. The distinguishable failure states are mapped to exit codes and documented where tell.go documents them today. A tell still cannot invite a reply. go test ./cmd/... green.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-28T13:05:49.648261Z",
-  "updated_at": "2026-08-28T13:05:49.648261Z"
+  "updated_at": "2026-08-28T14:10:46.671836Z",
+  "closed_at": "2026-08-28T14:10:46.671836Z",
+  "closed_reason": "Cancelled. 'Repoint tk tell at the factory endpoint' assumed tk tell survives in ticks and calls the factory. It does neither: tell.go exits 4 without a channel and its only channel is Telegram, so it is entirely a remote-notification feature and leaves with the transport. Replaced by a relocation tick."
 }
