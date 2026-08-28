@@ -148,3 +148,24 @@ must parse with the READER's grammar and report every line it would newly AUTHOR
 
 **Problem:** A config format bump hard-broke older binaries. **Rule:** A version gate cannot be
 retrofitted into a released binary — ship it a release before the format needs it.
+
+## A verification tick's RESULT file is its deliverable — say so, or it will not be committed
+
+2026-08-28, twice in one wave (ticks `i0o`, `i61`). Both workers finished
+correctly, reverted every experimental edit, left a clean tree — and did **not**
+commit `RESULT-<id>.md`, each reasoning that a clean source tree means there is
+nothing to commit. That is right about source and wrong about the report.
+
+`tk herd collect` reads the branch. An uncommitted RESULT makes the tick report
+`no-commits`, which is **indistinguishable from a worker that did nothing**. In
+both cases the pane said `done` and the durable layer said nothing had landed.
+
+This is a task-description defect, not a worker defect. Any tick whose output is
+evidence rather than code must say in as many words: *commit
+`RESULT-<id>.md` even when no source file changed — the report is the
+deliverable.*
+
+Corollary, and the reason this was caught at all: a herdr pane reporting `done`
+means the agent is idle at a prompt, not that the task is complete. One of the
+two had spawned its own background agent and gone idle waiting for it. Only the
+durable check distinguishes "finished" from "parked".
