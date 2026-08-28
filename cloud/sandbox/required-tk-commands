@@ -7,7 +7,9 @@
 # build reads it too — the last layer of the Dockerfile runs every line against
 # the tk it just built, so an image whose tk predates one of these fails to
 # build instead of booting a container that dies mid-run with "unknown command".
+answer
 cloud branch
+list
 sandbox environment
 sandbox image
 sandbox model
