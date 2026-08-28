@@ -1,0 +1,17 @@
+{
+  "id": "pim",
+  "title": "Repoint or retire tk channel",
+  "description": "cmd/tk/cmd/channel.go (634 lines) is pairing and setup for the local Telegram transport — bot token entry, operator identity mapping, webhook-vs-polling choice. Once the Worker owns the bot, most of that job moves to the factory, which already registers the webhook itself (registerTelegramWebhook in cloud/factory/src/telegram.ts).\n\nDECIDE WHICH THIS IS, and the answer may well be 'mostly delete':\n- Does tk channel survive as a thin client that configures the FACTORY's channel (and if so, is that not just factory configuration, belonging to ticfac)?\n- Or does it retire entirely, with pairing done wherever the factory is deployed?\n\nchannel.go:37 says 'channelTelegram is the only channel implemented today'. If Telegram leaves, a command whose only channel is gone has little left. Weigh that honestly rather than preserving the command because it exists.\n\nWHAT MUST NOT BE LOST: .tick/operators.json maps operator identities and is read by more than this command. Whatever happens to tk channel, that mapping and its readers keep working — check who reads it before touching anything.\n\nSCOPE: cmd/tk/cmd/channel.go and its tests. Do NOT delete internal/operator/telegram — the next tick owns that.",
+  "status": "open",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "5zy"
+  ],
+  "parent": "9oy",
+  "acceptance_criteria": "A decision is recorded with its reasoning: tk channel survives as a factory client, or retires. If it retires, everything that read .tick/operators.json still works and the removal is complete rather than a stub. If it survives, it no longer imports internal/operator/telegram. go test ./cmd/... green.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-28T13:05:49.755977Z",
+  "updated_at": "2026-08-28T13:05:49.755977Z"
+}

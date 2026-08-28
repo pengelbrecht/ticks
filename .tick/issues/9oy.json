@@ -2,6 +2,7 @@
   "id": "9oy",
   "title": "Phase 4b — one bot reader: retire the Go Telegram poller",
   "description": "THE DUPLICATION FIX, and the only user-visible behaviour change in the project. One bot token has exactly one reader. internal/operator/telegram/client.go:84 long-polls getUpdates and says so ('a second one gets 409'); cloud/factory/src/telegram.ts registers a webhook and says 'setWebhook and getUpdates are mutually exclusive and the front door is the choice this deployment makes'. They do not collide today only because the Go side has no users. Retire internal/operator/telegram/** (2,171 non-test + 1,852 test) and repoint tk channel and tk tell at the factory's API. telegram/markdown.go goes with the transport; internal/operator/markdownlite.go STAYS (it is the store's formatting, used by the terminal path). MUST land before the move, while both implementations are in one tree and one test run can prove the handover. Consequence to state in the release notes: remote answering now requires a deployed factory; terminal answering is unaffected and still works offline.",
+  "notes": "2026-08-28 15:05 - SCOPING CORRECTION FOUND WHILE PLANNING (2026-08-28). This epic's description says 'repoint tk channel and tk tell at the factory's API'. THAT API DOES NOT EXIST.\n\nThe factory has /api/channels/telegram/webhook — INBOUND, Telegram calling it. Its outbound helpers (sendTelegramReport, deliverTelegramQuestion) are called internally from index.ts by the run lifecycle; there is no HTTP route a laptop can POST a message to. Grep for a tell/notify/message POST route returns nothing.\n\nSo the phase is not 'delete the poller and repoint two commands'. It is 'BUILD the outbound endpoint, then repoint, then delete'. That is a bigger phase than scoped, and building an authenticated outbound message route on a deployed Worker is the part with real design in it — not the deletion.\n\nAlso confirmed while checking: internal/operator/telegram is 2,171 non-test lines across four files (channel 756, client 848, factory 460, markdown 107), and cmd/tk/cmd/{channel,tell}.go are 634 + 317. The deletion half is mechanical; the endpoint half is not.",
   "status": "open",
   "priority": 1,
   "type": "epic",
@@ -13,5 +14,5 @@
   "acceptance_criteria": "No Go code calls the Telegram Bot API. No bot token is read from a laptop. Answering from Telegram still resolves a parked question end to end, proven against the fake bot or a live factory. tk answer at a terminal still resolves a parked question with no factory deployed and no network.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-27T09:03:24.631584Z",
-  "updated_at": "2026-08-27T09:03:24.631584Z"
+  "updated_at": "2026-08-28T13:05:04.420829Z"
 }

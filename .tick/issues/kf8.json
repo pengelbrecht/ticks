@@ -1,0 +1,18 @@
+{
+  "id": "kf8",
+  "title": "Delete internal/operator/telegram",
+  "description": "The deletion, once nothing imports it. 2,171 non-test lines across four files — channel.go 756, client.go 848, factory.go 460, markdown.go 107 — plus 1,852 lines of test.\n\nWHAT STAYS, and getting this wrong breaks the terminal path: internal/operator/*.go is the QUESTION STORE and it stays. Only internal/operator/telegram/** goes. internal/operator/markdownlite.go STAYS — it is the store's formatting, used by the terminal path; telegram/markdown.go is Telegram-specific escaping and goes with the transport.\n\nCheck the Channel interface (internal/operator/channel.go) survives as the extension point. It has optional capability interfaces (Adopter, ContextualChannel, FormattedSender, AttachmentSender) and was written to be implemented from outside. With no implementation left in the tree it may look dead — it is not; it is the seam. If you conclude otherwise, say so rather than deleting it.\n\nAlso expect internal/operator/telegram/fakebot to go, and check what used it: the epic's earlier survey counted four import edges to it from factory-side code.\n\nRUN TICK 1fd'S OFFLINE GUARD AFTER THE DELETION. That test exists precisely to prove this deletion did not take the terminal path with it.",
+  "status": "open",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "ir7",
+    "pim"
+  ],
+  "parent": "9oy",
+  "acceptance_criteria": "internal/operator/telegram/** is gone and nothing imports it. internal/operator/*.go including markdownlite.go and the Channel interface remain. Tick 1fd's offline park-and-resolve test passes after the deletion. No stub or commented-out remnant left behind. go test ./... green.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-28T13:05:49.840966Z",
+  "updated_at": "2026-08-28T13:05:49.840966Z"
+}
