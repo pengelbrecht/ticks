@@ -13,7 +13,8 @@
     "test:cloud": "./e2e/run-cloud-tests.sh",
     "codegen": "node scripts/codegen.mjs",
     "codegen:check": "node scripts/codegen.mjs --check",
-    "prebuild": "pnpm run codegen"
+    "prebuild": "pnpm run codegen",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@lit/context": "^1.1.6",
