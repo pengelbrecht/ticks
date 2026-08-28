@@ -1,0 +1,14 @@
+{
+  "id": "3c2",
+  "title": "Give the factory a CLI-based delivery loop for parked questions",
+  "description": "REPLACES the cancelled endpoint tick. The factory reaches into ticks through the tk CLI; ticks never reaches out. Zero Go coupling in either direction.\n\nWHAT ALREADY EXISTS, so build on it rather than beside it:\n  tk list --awaiting     finds parked questions\n  .tick/pending          holds the entries\n  tk answer \u003cid\u003e \u003canswer\u003e resolves one, and 'the question answered is the oldest one still open on the tick'\n  tk ask --collect        prints every settled question as a JSON line and drains it\n\nRead tk ask/answer --help before designing — the surface is richer than it looks and an orchestrator/pane relay is answered by the question id rather than the tick id, which matters for routing.\n\nTHE LOOP: discover parked questions, deliver each to Telegram with its project/epic/tick context, and write the human's reply back with tk answer. The Worker already owns the bot and its webhook, so inbound answers arrive there; this closes the other half.\n\nDESIGN QUESTIONS THAT ARE THE ACTUAL WORK:\n- WHERE DOES IT RUN? The Worker cannot exec tk. So this is either the factory's Go side on a machine that has both, or a sandbox-side loop. Decide and say why. This is the question that determines whether the feature is 'reachable when your laptop is closed' — which is the entire point of the factory — so a design that only works while a laptop is awake has missed it.\n- CONTEXT. contracts/message-context.json pins the project/epic/tick shape across languages. Reuse it; do not invent a second message shape.\n- IDEMPOTENCY. A question must not be delivered twice, and a retried answer must not double-resolve. tk answer resolves the OLDEST open question on a tick — understand what that means for concurrent delivery before relying on it.\n- FAILURE. tk unreachable, factory unreachable, Telegram unconfigured are three different facts. Keep them apart.\n\nSCOPE: the factory side only. Do NOT touch cmd/tk/cmd/** or internal/operator/** — sibling ticks own those.",
+  "status": "open",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "9oy",
+  "acceptance_criteria": "The factory discovers parked questions via the tk CLI, delivers them with contract-conforming context, and resolves them via tk answer. Where it runs is decided in writing, with the laptop-closed requirement addressed. Duplicate delivery and double-resolution are both prevented and tested. The three failure states are distinguishable. Factory suite green; no new Go import from ticks.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-28T14:11:21.211203Z",
+  "updated_at": "2026-08-28T14:11:21.211203Z"
+}
