@@ -8,12 +8,13 @@
   "owner": "noreply@anthropic.com",
   "blocked_by": [
     "kf8",
-    "1fd"
+    "1fd",
+    "2f8"
   ],
   "parent": "9oy",
   "role": "review",
   "acceptance_criteria": "The offline terminal path is verified by hand, not just by test. The failure states are confirmed distinguishable. No Go code calls the Bot API and no laptop reads a bot token. Nothing that should have stayed was deleted, and nothing deleted was left as a stub. go test ./... and the factory suite green.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-28T13:05:49.900927Z",
-  "updated_at": "2026-08-28T13:05:49.900927Z"
+  "updated_at": "2026-08-28T14:11:27.174346Z"
 }
