@@ -10,7 +10,7 @@ import {
   type TrackerReader,
 } from "../src/tick-membership";
 
-import layout from "./fixtures/tracker-layout.json";
+import layout from "../../../contracts/tracker-layout.json";
 
 /**
  * The tracker as GitHub would serve it: one JSON record per tick at one

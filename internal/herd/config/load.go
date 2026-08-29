@@ -101,7 +101,7 @@ var (
 	// Re-implemented in cloud/factory/src/repo-config.ts, because the control
 	// plane must know which image to boot before a container exists to read
 	// anything. The two are pinned to one file rather than to each other:
-	// cloud/factory/test/fixtures/runners-config-contract.json, asserted from
+	// contracts/runners-config-contract.json, asserted from
 	// runners_config_parity_test.go here and repo-config.test.ts there. Edit
 	// this pattern and that fixture together, or the other side goes red.
 	imagePattern = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._/-]*(:[A-Za-z0-9._-]+)?(@sha256:[a-f0-9]{64})?$`)
@@ -281,7 +281,7 @@ func validateOrchestration(cfg *Config, md toml.MetaData, add addFunc) {
 		add("orchestration.socket", "must not be empty (omit the key to resolve $HERDR_SOCKET_PATH, then ~/.config/herdr/herdr.sock)")
 	}
 	// The bound the control plane re-enforces at dispatch; pinned with the
-	// image pattern in cloud/factory/test/fixtures/runners-config-contract.json.
+	// image pattern in contracts/runners-config-contract.json.
 	if md.IsDefined("orchestration", "max_parallel") && o.MaxParallel < 1 {
 		add("orchestration.max_parallel", fmt.Sprintf("must be >= 1, got %d", o.MaxParallel))
 	}
@@ -626,7 +626,7 @@ func undecodedKeys(md toml.MetaData) []string {
 // The patterns and enums a declared webhook source is held to. Mirrored in
 // cloud/factory/src/webhook-sources.ts, which is the reader that ACTS on a
 // declaration; the golden cases both must agree on live in
-// cloud/factory/test/fixtures/signal-source-cases.json.
+// contracts/signal-source-cases.json.
 //
 // signalSecretPattern is the load-bearing one. `.tick/runners.toml` is a
 // tracked file, so the declaration names a Worker secret BINDING and never a

@@ -8,9 +8,11 @@
     "deploy": "wrangler deploy",
     "tail": "wrangler tail",
     "mint-token": "node scripts/mint-factory-token.mjs",
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "contracts:check": "node scripts/contracts.mjs check",
+    "contracts:sync": "node scripts/contracts.mjs sync",
+    "typecheck": "pnpm contracts:check && tsc --noEmit",
+    "test": "pnpm contracts:check && vitest run",
+    "test:watch": "pnpm contracts:check && vitest"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.21.3",

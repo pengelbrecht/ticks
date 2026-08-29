@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import contract from "./fixtures/sweep-selection-contract.json";
-import parityCases from "./fixtures/sweep-policy-cases.json";
+import contract from "../../../contracts/sweep-selection-contract.json";
+import parityCases from "../../../contracts/sweep-policy-cases.json";
 import {
   CLOSED_STATUS,
   SWEEP_GATES,
@@ -147,7 +147,7 @@ budget_usd = 1
 });
 
 /**
- * The shared parity cases (`test/fixtures/sweep-policy-cases.json`), run
+ * The shared parity cases (`contracts/sweep-policy-cases.json`), run
  * against this reader.
  *
  * `internal/herd/config/sweep_parity_test.go` runs the same file against the

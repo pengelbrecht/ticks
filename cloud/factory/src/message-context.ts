@@ -13,7 +13,7 @@
  * `withContext`, so the answer to "which repo is this about?" is in the message
  * rather than in the reader's memory of which run they started last.
  *
- * The exact line is pinned by test/fixtures/message-context.json, which
+ * The exact line is pinned by contracts/message-context.json, which
  * internal/operator/message_context_parity_test.go checks too: the local
  * Telegram channel composes the same line into the same chat, and a drift
  * between the two is invisible to both suites.

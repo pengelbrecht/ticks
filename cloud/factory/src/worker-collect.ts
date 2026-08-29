@@ -35,6 +35,32 @@ export type WorkerVerdict =
   | "unknown";
 
 /**
+ * The verdict strings as VALUES, so the vocabulary has one spelling per name in
+ * this module rather than a literal at each `return` (tick hn1).
+ *
+ * This is the third implementation of a rule set `internal/herd/collect` and
+ * `internal/cloud/collect` also implement, and the failure mode of three copies
+ * is silent: re-spell one and a cloud run and a herd run disagree about what
+ * happened to the same tick with nothing failing anywhere. Two things stop that
+ * here. `satisfies Record<string, WorkerVerdict>` makes a re-spelling a TYPE
+ * error — in either direction, since editing the union above orphans the value
+ * below and editing a value below leaves the union unsatisfied. And
+ * `test/collect-vocabulary.test.ts` checks these against
+ * `contracts/collect-vocabulary.json`, the file the two Go implementations read.
+ *
+ * `unknown` is the one entry with no twin in `internal/herd/collect`: only an
+ * implementation reading a REMOTE can fail to read the evidence at all. The
+ * contract records it under `remote_only_verdicts` for that reason.
+ */
+export const WORKER_VERDICTS = {
+  readyToMerge: "ready-to-merge",
+  noCommits: "no-commits",
+  missingResult: "missing-result",
+  boundaryViolation: "boundary-violation",
+  unknown: "unknown",
+} as const satisfies Record<string, WorkerVerdict>;
+
+/**
  * The line `cloud/sandbox/worker.sh` prepends to `RESULT-<tick>.md` when its
  * boundary guard caught the agent trying to write tracker state (tick dxk).
  *
@@ -107,8 +133,15 @@ const DECORATION = /^[ \t>\-*#`]+|[ \t>\-*#`]+$/g;
 /**
  * Matches a report's status line. `DONE_WITH_CONCERNS` is first in the
  * alternation so it is never truncated to `DONE`.
+ *
+ * Exported so `test/collect-vocabulary.test.ts` can compare `.source` against
+ * `contracts/collect-vocabulary.json`, which the two Go implementations compare
+ * `regexp.String()` against. The pattern text — the alternation ORDER included
+ * — is the contract, not just the four status words: get the order wrong and a
+ * weakened regexp reads `DONE_WITH_CONCERNS` as `DONE`, which inverts the
+ * verdict on the exact status a human most needs to see.
  */
-const STATUS_LINE =
+export const STATUS_LINE =
   /^STATUS:[ \t]*(DONE_WITH_CONCERNS|DONE|NEEDS_CONTEXT|BLOCKED)\b[ \t]*(?:[-–—:][ \t]*)?(.*)$/;
 
 /**
@@ -279,7 +312,7 @@ export async function collectFromGithub(env: Env, project: string, task: WorkerT
     tick_id: task.tick_id,
     branch: task.branch,
     base_sha: task.base_sha,
-    verdict: "unknown",
+    verdict: WORKER_VERDICTS.unknown,
     branch_exists: false,
     commits: 0,
     result_path: resultFile(task.tick_id),
@@ -294,7 +327,7 @@ export async function collectFromGithub(env: Env, project: string, task: WorkerT
   const compare = await compareBranch(env, project, task.base_sha, task.branch);
   if (!compare.ok) {
     if (compare.missing) {
-      report.verdict = "no-commits";
+      report.verdict = WORKER_VERDICTS.noCommits;
       report.detail = `${task.branch} does not exist on origin (or ${task.base_sha} is unresolvable)`;
       return report;
     }
@@ -314,7 +347,7 @@ export async function collectFromGithub(env: Env, project: string, task: WorkerT
     report.status_detail = parsed.detail;
     report.status_line = parsed.line;
   } else if (!contents.missing) {
-    report.verdict = "unknown";
+    report.verdict = WORKER_VERDICTS.unknown;
     report.detail = contents.detail;
     return report;
   }
@@ -325,23 +358,23 @@ export async function collectFromGithub(env: Env, project: string, task: WorkerT
 }
 
 function verdictFor(r: WorkerReport): WorkerVerdict {
-  if (!r.branch_exists || r.commits === 0) return "no-commits";
-  if (!r.result_exists || r.status === "") return "missing-result";
-  if (r.boundary_files.length > 0) return "boundary-violation";
-  return "ready-to-merge";
+  if (!r.branch_exists || r.commits === 0) return WORKER_VERDICTS.noCommits;
+  if (!r.result_exists || r.status === "") return WORKER_VERDICTS.missingResult;
+  if (r.boundary_files.length > 0) return WORKER_VERDICTS.boundaryViolation;
+  return WORKER_VERDICTS.readyToMerge;
 }
 
 function detailFor(r: WorkerReport): string {
   switch (r.verdict) {
-    case "no-commits":
+    case WORKER_VERDICTS.noCommits:
       return r.branch_exists
         ? `${r.branch} has no commits beyond ${r.base_sha.slice(0, 8)}`
         : `${r.branch} does not exist on origin`;
-    case "missing-result":
+    case WORKER_VERDICTS.missingResult:
       return r.result_exists
         ? `${r.result_path} on ${r.branch} has no recognisable STATUS: line`
         : `${r.result_path} is missing from ${r.branch}`;
-    case "boundary-violation":
+    case WORKER_VERDICTS.boundaryViolation:
       return `${r.branch} touches ${r.boundary_files.join(", ")}, which the orchestrator owns`;
     default:
       return `${r.branch} is ready to merge (${r.commits} commit${r.commits === 1 ? "" : "s"})`;

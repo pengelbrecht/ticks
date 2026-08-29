@@ -23,6 +23,7 @@ orchestrator sandbox, watches it, enforces the budgets and finalizes — see
 | `src/gateway.ts` | The run's model path (D17): routing through the operator's AI Gateway, run/tick metadata, gateway-log cost telemetry, and the run-token kill switch. |
 | `src/auth.ts` | Single-tenant bearer auth (D16) — mint, salted PBKDF2 hash, constant-time verify, route middleware. |
 | `scripts/mint-factory-token.mjs` | Operator-side mint/rotate tool for hand rotation. Imports `src/auth.ts`. `tk factory deploy` mints in Go instead — see "Mint and rotate". |
+| `scripts/contracts.mjs`, `contracts.pin.json` | How this bundle gets the repo-root `contracts/` fixtures its vitest suite asserts against — an offline `pnpm contracts:check` gate chained into `pnpm test` and `pnpm typecheck`, plus the pinned-version `pnpm contracts:sync` that takes over once this bundle is extracted into its own repository. Rationale and the extraction checklist: `CONTRACTS.md`. |
 | `migrations/` | D1 migrations, applied by `tk factory deploy` before it deploys. |
 | `src/run-room.ts` | `RunRoom` DO — one per project: the dispatch lease, the pending-question (gate) store, the submission queue and the stop record. Reconcile alarms land later. |
 | `src/run-workflow.ts` | `RunWorkflow` — one durable instance per run: boot, watch, budgets, clean stop, finalize. Everything below it is disposable; this is not. |

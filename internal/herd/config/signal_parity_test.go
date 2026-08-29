@@ -24,7 +24,7 @@ import (
 // The direction that matters is `refused`: a reader that ACCEPTS a declaration
 // the other refuses is a fail-open door, which is why no case relies on one
 // side being more permissive than the other.
-const signalParityCases = "../../../cloud/factory/test/fixtures/signal-source-cases.json"
+const signalParityCases = "../../../contracts/signal-source-cases.json"
 
 type signalParityCase struct {
 	Name     string   `json:"name"`

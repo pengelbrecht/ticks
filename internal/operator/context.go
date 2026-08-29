@@ -3,7 +3,7 @@ package operator
 import "strings"
 
 // The pieces of the project/epic/tick line, named so the parity test can pin
-// them against cloud/factory/test/fixtures/message-context.json rather than
+// them against contracts/message-context.json rather than
 // only comparing whole lines.
 const (
 	messageContextSeparator  = " · "
@@ -46,7 +46,7 @@ func (c MessageContext) IsZero() bool { return c.Line() == "" }
 // It is PLAIN TEXT, like everything else crossing [Channel.Send]: transports
 // escape it and may wrap it in their own emphasis, but they do not re-derive
 // it. The exact string is pinned by
-// cloud/factory/test/fixtures/message-context.json, because the Worker composes
+// contracts/message-context.json, because the Worker composes
 // the same line for the same chat.
 func (c MessageContext) Line() string {
 	parts := make([]string, 0, 3)

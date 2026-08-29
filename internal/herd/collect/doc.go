@@ -27,6 +27,18 @@
 // both. [Report.NeedsHuman] flags the two statuses that are an escalation
 // regardless of verdict.
 //
+// # The vocabulary is a contract with two other implementations
+//
+// internal/cloud/collect reads a remote branch from the laptop and
+// cloud/factory/src/worker-collect.ts reads the same remote from the Worker.
+// The first was this package's values BY IMPORT until epic 3j4; all three are
+// copies now, and a re-spelling in one of them would make a cloud run and a
+// herd run silently disagree about the same tick. contracts/collect-vocabulary.json
+// is what stops that: all three read it, and contract_test.go is this
+// package's end. It pins the status line REGEXP as well as the words, because
+// the DONE_WITH_CONCERNS-before-DONE alternation order and the markdown
+// decoration set are as much a part of the vocabulary as the words are.
+//
 // Every check runs on every call, so a report whose verdict is [MissingResult]
 // still carries BoundaryFiles: the single verdict label is the first failing
 // check in the documented order, never a reason evidence went missing.

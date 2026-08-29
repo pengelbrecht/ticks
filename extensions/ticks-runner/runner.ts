@@ -12,6 +12,7 @@ import {
 	type ChildTkWrapper,
 	type TickReadOnlyFriction,
 } from "./boundary.ts";
+import { parseStatus } from "./collect-vocabulary.ts";
 import { loadRunnerConfig, type ConfiguredCommand, type RunnerConfig } from "./config.ts";
 import {
 	buildDashboardModel,
@@ -123,12 +124,20 @@ export type AgentOutcome = {
 	artifacts?: string[];
 };
 
+/**
+ * Reads the FINAL status line of `output`, per `contracts/collect-vocabulary.json`
+ * (tick pyj) — not merely its final line. This used to inspect only the last
+ * non-blank line with a colon/en-dash-blind regex, so a report that quoted
+ * `STATUS: NEEDS_CONTEXT: ...` (colon separator) or `STATUS: DONE – shipped`
+ * (en-dash) parsed here but not in collect, and any output printed after the
+ * status line (a sign-off, a blank line) made the run read as reporting
+ * nothing at all. `./collect-vocabulary.ts` is shared with `recovery.ts` and
+ * pinned against the same contract the three collect implementations read.
+ */
 function protocolLine(output: string): { status: AgentProtocolStatus; detail: string } | undefined {
-	const finalLine = output.split(/\r?\n/).map((line) => line.trim()).filter(Boolean).at(-1);
-	if (!finalLine) return undefined;
-	const match = finalLine.match(/^STATUS:\s*(DONE_WITH_CONCERNS|DONE|NEEDS_CONTEXT|BLOCKED)(?:\s*(?:—|-)\s*(.*))?$/);
-	if (!match) return undefined;
-	return { status: match[1] as AgentProtocolStatus, detail: match[2]?.trim() ?? "" };
+	const parsed = parseStatus(output);
+	if (!parsed.status) return undefined;
+	return { status: parsed.status as AgentProtocolStatus, detail: parsed.detail };
 }
 
 function observationOnly(detail: string): boolean {

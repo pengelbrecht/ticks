@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import contract from "./fixtures/worker-boot-contract.json";
+import contract from "../../../contracts/worker-boot-contract.json";
 import {
   ORCHESTRATOR_COMMAND,
   WORKER_ACTOR,

@@ -51,7 +51,7 @@ import type { Env } from "./index";
  *
  * Mirrored rather than imported, because the minting happens where the commit
  * happens and the commit happens here. Pinned from both languages by
- * `test/fixtures/tracker-layout.json` — an id this side minted outside Go's
+ * `contracts/tracker-layout.json` — an id this side minted outside Go's
  * alphabet would be a tick `tk` accepts today and may not tomorrow.
  */
 export const TICK_ID_ALPHABET = "abcdefghijklmnopqrstuvwxyz0123456789";

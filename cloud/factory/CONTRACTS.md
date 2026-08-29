@@ -1,0 +1,195 @@
+# How the factory gets `contracts/`
+
+The factory's vitest suite asserts against the cross-language contracts in the
+repository root `contracts/` directory — the same files the Go parity tests
+read. `contracts/README.md` says what they are and why a one-sided edit is the
+thing they exist to catch. This file says how the **TypeScript** side gets hold
+of them, today and after the factory is extracted into its own repository.
+
+Implementation: `contracts.pin.json` and `scripts/contracts.mjs`.
+
+## The problem this solves
+
+Today the factory lives inside the ticks repository, so `contracts/` is three
+directories up and a relative import is the whole mechanism:
+
+```ts
+import layout from "../../../contracts/tracker-layout.json";
+```
+
+After the extraction the factory is a separate repository. There is no `../../..`
+that reaches ticks, and the contracts are still owned by ticks — the Go readers
+stay there, and so does at least one TypeScript reader that is **not** moving
+(`extensions/ticks-runner`). So `contracts/` will permanently have consumers on
+both sides of the split. The directory does not move; a copy has to travel.
+
+The requirement is not that a copy exists. It is that **a Go/TS divergence
+fails a build after the split** — which means the copy has to be pinned to a
+known ticks version and verified, and every way that verification can fail has
+to be loud.
+
+## What was chosen
+
+**Vendor a copy of the pinned `ticks` module version into the consuming
+repository's root `contracts/`, verified on every test run by an offline
+digest check.**
+
+Two commands, and the split between them is the entire safety argument:
+
+| | `pnpm contracts:check` | `pnpm contracts:sync` |
+|---|---|---|
+| when | every `pnpm test`, every `pnpm typecheck`, its own CI step | only when a human bumps the pin |
+| network | **never** | required |
+| on failure | exit 1 | exit 1, writes nothing |
+
+`check` is the gate and it makes no network call, so **no network failure can
+turn a test run green by skipping.** `sync` is the only thing that needs the
+proxy, and it is not on the test path, so a proxy outage can only make a
+deliberate pin bump fail — never make a test run lie.
+
+### Why the module proxy, and why a pin
+
+`cloud/sandbox/Dockerfile` already consumes ticks as a published,
+version-pinned artifact: it `go install`s `tk` at `TK_SOURCE_REF` through the
+public Go module proxy, and the checksum database verifies what it got. The
+image is *already* a downstream consumer of a pinned ticks version.
+
+`contracts:sync` is the same shape — same public proxy, same module, a pinned
+version — rather than a second, differently-shaped mechanism. A Go module zip
+contains the module's non-Go files too, so `contracts/*.json` is in it. The
+per-file sha256 digests recorded in `contracts.pin.json` give the check its
+guarantee without needing a Go toolchain in the consuming repository's CI.
+
+### Why the copy lands at the repository root
+
+The vendored copy goes to the **consuming repository's root** `contracts/`,
+which is exactly where the ticks copy sits relative to `cloud/factory`. That is
+deliberate: `../../../contracts/<name>.json` resolves to the right file in both
+worlds, so **the extraction does not touch a single test file.** Thirteen
+imports stay as they are.
+
+### Why not the alternatives
+
+**Fetch at test time from a pinned ref.** Rejected. It makes the test suite
+network-dependent, which is a standing cost paid on every run for a check that
+changes only when someone bumps a pin — and it puts a network call on the path
+that must fail closed, which is precisely where you least want one. The moment
+it is network-dependent, somebody offline adds a fallback, and the fallback is
+the silent no-op the requirement forbids.
+
+**Publish an npm package alongside the `schemas` codegen.** Rejected on two
+counts. It needs publishing infrastructure and a registry identity that this
+project does not have and would have to maintain, for nine JSON files. And it
+diverges from the precedent already in the tree: the sandbox image consumes
+ticks through the module proxy, and a second distribution channel for the same
+repository is a second thing to keep in step. Note also that `contracts/README.md`
+argues against filing these under `schemas/` at all — there is nothing to
+generate from them.
+
+**A git submodule.** Rejected. It pins, but it is verified by nothing except
+git, and the standard failure mode is an un-initialised submodule producing an
+empty directory. An empty `contracts/` must be an error, and with a submodule
+it is a very quiet one.
+
+### What `check` actually asserts
+
+1. `contracts.pin.json` exists, parses, and names a known mode.
+2. The set of contracts pinned is **exactly** the set the test suite imports.
+   Both directions are fatal: a contract imported but not pinned is one nothing
+   vendors or verifies; a contract pinned but not imported is a fixture with a
+   single reader, which `contracts/README.md` is explicit detects nothing. This
+   is what stops the file list rotting into a no-op as contracts are added.
+3. Every pinned file is present in `contracts/` and parses as JSON.
+4. **In `pinned` mode only:** every file's sha256 matches the digest recorded
+   for the pinned version.
+
+Step 4 is skipped in `workspace` mode on purpose. Today there is exactly one
+copy of each contract on disk and the Go parity tests read those same bytes, so
+a digest would add nothing a second reader does not already provide — while
+forcing a re-pin commit alongside every legitimate contract edit. That is the
+same objection `contracts/README.md` raises against filing these under
+`schemas/`: a gate that produces no output turns a real rule into a ritual.
+
+## Failure behaviour, stated plainly
+
+This is the part that matters, so it is enumerated rather than implied. **No
+path through `scripts/contracts.mjs` warns and continues.**
+
+| situation | what happens |
+|---|---|
+| offline, `pnpm test` | **passes**, and correctly so — `check` never touches the network, and the vendored files are checked in |
+| offline, `pnpm contracts:sync` | exit 1, names the proxy, writes nothing; the on-disk vendor is left intact |
+| pinned ref does not exist | exit 1 on HTTP 404/410, explaining that the ref must be a *resolved module version* (a tag or pseudo-version), not a branch or short sha |
+| proxy returns any other error | exit 1 with the status code |
+| network drops mid-fetch | exit 1; files are staged in memory and written only after **every** pinned file resolved, so a half-updated `contracts/` cannot be left behind |
+| pinned version has no `contracts/` dir, or is missing one file | exit 1 naming the missing files, **nothing written** — a partial vendor is exactly the half-updated state these fixtures exist to prevent |
+| a vendored file was edited locally | exit 1 on digest mismatch, on the next `pnpm test` |
+| `contracts/` absent or empty | exit 1 |
+| `contracts.pin.json` deleted | exit 1 |
+| a new contract import added without pinning it | exit 1 |
+| a pinned contract no longer imported | exit 1 |
+| archive is corrupt or uses an unexpected compression method | exit 1 |
+
+The one row worth dwelling on is the first: **offline test runs pass.** That is
+the reason vendoring was chosen over fetch-at-test-time. The check still runs
+offline and still fails on a tampered or missing file — it is not skipped, it is
+answerable without a network. The only thing that needs the network is the act
+of adopting a new ticks version, which is a deliberate, online act by a person.
+
+## What the extraction phase must do
+
+The mechanism is in the tree and passing today in `workspace` mode. Extraction
+turns it on. In order:
+
+1. **Publish a ticks version containing `contracts/`.** A tag is simplest; a
+   pseudo-version for an unreleased commit works too. `contracts:sync` resolves
+   through the module proxy, so the version must be *resolvable* — `go list -m
+   github.com/pengelbrecht/ticks@<commit>` prints the pseudo-version to use. A
+   branch name or a short sha is **not** resolvable and `sync` will 404 and say
+   so.
+2. **Keep `cloud/factory` two levels below the new repository's root**, or
+   change `REPO_ROOT` in `scripts/contracts.mjs` *and* the thirteen
+   `../../../contracts/...` imports together. Keeping the position is free and
+   means no test file changes.
+3. **Edit `contracts.pin.json`:** set `"mode": "pinned"` and `"ref"` to the
+   version from step 1. Leave `files` alone unless readers changed — `check`
+   verifies it against the imports and will tell you if it is wrong.
+4. **Run `pnpm contracts:sync`.** It writes `contracts/` at the new repository's
+   root and fills in `digests`. Commit `contracts/` **and**
+   `contracts.pin.json` together — the digests are meaningless apart from the
+   files they describe.
+5. **Check `contracts/` in.** Do not gitignore it. Vendoring is what makes
+   offline test runs work; a gitignored directory would force a network fetch
+   on every fresh clone and re-open exactly the failure mode this design
+   rejects.
+6. **Carry the CI step.** `.github/workflows/ci.yml` runs `pnpm contracts:check`
+   as its own named step in the `factory` job. Reproduce it in the new
+   repository's CI. `pnpm test` and `pnpm typecheck` chain the same check, so it
+   is belt-and-braces rather than the only line of defence — but a named step is
+   what makes a contracts problem legible in a CI log instead of surfacing as a
+   module-resolution error inside vitest.
+7. **Decide how the pin gets bumped.** Nothing here bumps it automatically, by
+   design: an automatic bump would silently adopt a contract change, and the
+   whole point is that adopting one is a visible act whose parity tests then run.
+   A scheduled job that bumps `ref` and opens a PR is the right shape — the PR
+   goes red if ticks changed a rule the factory has not followed, which is the
+   divergence-fails-a-build requirement, discharged.
+
+### What stays in ticks
+
+`contracts/` itself, its `README.md`, the Go parity tests, and
+`extensions/ticks-runner`'s readers. Ticks is the **owner**: contracts are
+authored there and read in place, with no mechanism involved. Nothing in
+`scripts/contracts.mjs` affects them, and the ticks-side readers do not need it.
+This mechanism is one-directional — it exists solely so a consumer that has left
+the repository can still be held to the same files.
+
+## Adding a contract to the factory
+
+1. Land the JSON in ticks `contracts/` with its Go reader (see
+   `contracts/README.md`).
+2. Add the TypeScript reader importing `../../../contracts/<name>.json`.
+3. Add the file name to `files` in `contracts.pin.json`. `pnpm contracts:check`
+   fails until you do, and names the file.
+4. In `pinned` mode, also `pnpm contracts:sync` — the pinned version has to be
+   one that actually contains the new file.

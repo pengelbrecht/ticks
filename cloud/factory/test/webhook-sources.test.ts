@@ -18,7 +18,7 @@ import {
   sourceSignal,
   type RegisteredSource,
 } from "../src/webhook-sources";
-import parityCases from "./fixtures/signal-source-cases.json";
+import parityCases from "../../../contracts/signal-source-cases.json";
 
 /**
  * Generic webhook sources (tick 0vb) — the general case behind GitHub (vuz)

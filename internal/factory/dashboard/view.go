@@ -17,6 +17,29 @@ import (
 // neither wants — a palette change made for the tracker's TUI would silently
 // restyle a deployed factory's board, and vice versa. If the two drift apart
 // later that is the correct outcome, not a bug to reconcile.
+//
+// DELIBERATELY UNCONTRACTED (tick o31). Phase 1 left four ticks-to-factory
+// agreements enforced by comments rather than by the compiler, and o31 was the
+// decision about what to do with them. This one gets nothing: no fixture, no
+// parity test, no drift detector — on purpose, and the absence is the answer
+// rather than an oversight.
+//
+// The reason is the paragraph above taken seriously. A drift detector is worth
+// having when divergence is a DEFECT. Here divergence is the design: either
+// product may restyle itself, and a test asserting these eight values still
+// match internal/styles would fire on a legitimate change every time and be
+// silenced every time. That is worse than no test — it teaches a reader that
+// the values are load-bearing across the boundary when the whole point is that
+// they are not, and it re-creates by convention exactly the coupling the copy
+// was made to remove. Nothing downstream reads these as data; they are colours
+// on one board's own screen, and the failure mode of drift is that two
+// products look slightly different, which is what two products are allowed to
+// do.
+//
+// Contrast the key bindings, the other surface o31 ruled on: there divergence
+// is a defect an operator feels, so it IS pinned (see doc.go). Copy plus a
+// comment is the right answer here, and the eight lines below are that answer,
+// not a stopgap waiting on Phase 2's contract artifact.
 const (
 	colorRed     = lipgloss.Color("#F38BA8") // Red
 	colorGreen   = lipgloss.Color("#A6E3A1") // Green

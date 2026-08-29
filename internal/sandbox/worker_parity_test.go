@@ -20,7 +20,7 @@ import (
 // that all start cleanly and are all discarded by a probe looking for a word
 // none of them prints.
 
-const workerContractFile = "../../cloud/factory/test/fixtures/worker-boot-contract.json"
+const workerContractFile = "../../contracts/worker-boot-contract.json"
 
 type workerContract struct {
 	OrchestratorCommand string `json:"orchestrator_command"`

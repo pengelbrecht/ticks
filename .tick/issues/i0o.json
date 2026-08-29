@@ -1,0 +1,24 @@
+{
+  "id": "i0o",
+  "title": "Final review of the Phase 2 diff",
+  "description": "Review the full epic diff. Four things specific to this phase:\n\n1. DOES DRIFT ACTUALLY FAIL? That is the entire deliverable. For EVERY contract this epic ships, break it on purpose in each direction and confirm a build goes red. A contract that cannot be shown failing is a comment with extra steps. The epic's own history is the argument: these fixtures exist because a comment saying 'mirrored from load.go' kept both suites green through a one-sided edit.\n\n2. THE POST-SPLIT CLAIM. Tick pvb chose a distribution mechanism that must work after the repos separate, not just today. Read it adversarially: what happens when the fetch fails, when the pinned ref does not exist, when someone runs the suite offline? A mechanism that SKIPS on failure is worse than the relative path it replaced, because it looks green.\n\n3. NO FIXTURE THEATRE. Tick o31 was explicitly allowed to decide 'leave it' for the palette and the key bindings. Check whether it added a contract that nobody needed — the bar was 'drift causes a problem someone notices', not 'drift is possible'. An unnecessary fixture is a maintenance cost and a false sense of coverage.\n\n4. THE DONE_WITH_CONCERNS ORDERING. In hn1's fixture, verify there is a case that FAILS under the wrong alternation order, not merely a case that passes under the right one. This is a silent verdict inversion on the exact status a human most needs to see, and it is the single most valuable assertion in the epic.\n\nRoute findings as new ticks under kka rather than fixing inline unless trivial.",
+  "notes": "2026-08-27 14:37 - runner-state: substrate=herdr kind=claude branch=tick/i0o worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-i0o workspace=wGV base=244c9d5aa53c8dad21beb0a838eb835df5a8107b agent=tick-i0o pane=wGV:p1 session=f6168f09-e259-40d1-9dd5-1e8589818933",
+  "status": "closed",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "8yh",
+    "pvb",
+    "hn1",
+    "o31"
+  ],
+  "parent": "kka",
+  "role": "review",
+  "acceptance_criteria": "Every contract shipped by this epic is demonstrated failing on deliberate drift, in each direction, with the evidence recorded. The post-split distribution mechanism is confirmed to fail rather than skip when it cannot fetch. Any fixture that did not clear the necessity bar is called out. go test ./... and the factory vitest suite green.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-27T11:52:44.505734Z",
+  "updated_at": "2026-08-28T13:03:06.168223Z",
+  "closed_at": "2026-08-28T13:03:06.168223Z",
+  "closed_reason": "Completed: reviewed the full Phase 2 diff and returned an honest DONE_WITH_CONCERNS rather than a confident pass. Items 2 (post-split mechanism fails rather than skips), 3 (no fixture theatre) and 4 (the alternation ordering) fully verified with reproducible evidence. Item 1 verified for only 2 of 9 contracts and it SAID SO — the other seven had confirmed two-sided readers but were never individually broken, which is the same 'readers exist so it must work' assumption this epic was created to remove. That refusal to overclaim is what produced tick i61."
+}

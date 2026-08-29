@@ -44,7 +44,7 @@
  * to catch.
  *
  * What keeps that from decaying into a check that quietly stopped checking is
- * `test/fixtures/tracker-layout.json`: the path and field names below are
+ * `contracts/tracker-layout.json`: the path and field names below are
  * pinned to Go's `internal/tick` store from both suites, so a tracker layout
  * change fails a test rather than turning every verdict into `unreadable`.
  */
@@ -59,7 +59,7 @@ import type { Env } from "./index";
  * Where Go's `tick.Store` keeps one tick per file (`internal/tick/store.go`,
  * `issuesDir`/`path`), and the three fields this module reads out of one.
  *
- * Pinned by `test/fixtures/tracker-layout.json` from both languages. See the
+ * Pinned by `contracts/tracker-layout.json` from both languages. See the
  * header: an unreadable tracker is an allowed wave, so a silent layout drift
  * would not surface as an error here — it would surface as a check that never
  * refuses anything again.

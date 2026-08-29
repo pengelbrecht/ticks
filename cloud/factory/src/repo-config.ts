@@ -149,7 +149,7 @@ export function githubRepoConfig(env: Env): RepoConfigReader {
  * an image reference is a name, never a place to hide a shell fragment.
  *
  * Mirrored is not the same as tied together, which is why the two are both
- * pinned to `test/fixtures/runners-config-contract.json` (tick h3p) — asserted
+ * pinned to `contracts/runners-config-contract.json` (tick h3p) — asserted
  * from `test/repo-config.test.ts` here and
  * `internal/herd/config/runners_config_parity_test.go` there. Edit this
  * pattern or the bound without editing that fixture and Go's suite goes red,
@@ -213,7 +213,7 @@ export type DeclaredImage = {
  * each worker — a wave dispatched wider than this would only book containers
  * whose claim gets refused.
  *
- * Pinned with the image pattern in `test/fixtures/runners-config-contract.json`.
+ * Pinned with the image pattern in `contracts/runners-config-contract.json`.
  */
 export function declaredMaxParallel(source: string): number | null {
   const root = parseToml(source);

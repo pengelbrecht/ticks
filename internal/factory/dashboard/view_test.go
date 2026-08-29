@@ -31,14 +31,26 @@ func footerOf(view string) string {
 
 // herdBoardKeys is `tk herd dashboard`'s footer, in its order. It was read
 // live from that board's rendered footer until the factory stopped importing
-// ticks internals (epic 3j4); the value below is that same sequence, frozen.
+// packages that stay in ticks (epic 3j4); the value below is that same
+// sequence, frozen.
 //
-// The requirement it pins is unchanged and is this board's own acceptance
-// criterion: an operator who has driven the herd board drives this one. What
-// changed is who enforces it — a rebinding in the herd board no longer fails
-// this test, so the two boards agreeing is now a decision someone makes rather
-// than a fact the compiler keeps. That is the price of the extraction, and it
-// is the same trade the palette above makes.
+// The requirement it pins is this board's own acceptance criterion: an
+// operator who has driven the herd board drives this one.
+//
+// WHO ENFORCES IT. Between epic 3j4 and tick o31, nobody did — a rebinding in
+// the herd board did not fail anything, and the agreement was carried by this
+// comment. o31 decided that was not good enough, because unlike the palette
+// below it a divergence here is not a legitimate outcome: it is two boards in
+// one binary where the same key means different things, which an operator
+// notices by pressing it. The real comparison now lives in
+// cmd/tk/cmd/board_keys_test.go, which renders BOTH boards and diffs their
+// footers — `tk` already imports both, so it costs no new dependency edge.
+//
+// This literal stays as the second half of the pin, for two reasons: it fails
+// on a change to THIS board alone (naming which side moved, which a diff of
+// two live footers cannot), and it is the guard that survives if the factory
+// board ever leaves this repo and the parity test goes with the commands.
+// Change it only together with the parity test — see the note there.
 var herdBoardKeys = []string{"j/k", "enter", "g/G", "r", "q", "read-only"}
 
 func TestKeyBindingsAreTheHerdBoards(t *testing.T) {

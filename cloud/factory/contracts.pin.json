@@ -1,0 +1,19 @@
+{
+  "$comment": "How the factory gets contracts/. Read cloud/factory/CONTRACTS.md before editing. `mode` is flipped to \"pinned\" by the repo-extraction phase; `files` is the set of contracts the factory's vitest suite imports and must equal it exactly.",
+  "mode": "workspace",
+  "module": "github.com/pengelbrecht/ticks",
+  "ref": null,
+  "proxy": "https://proxy.golang.org",
+  "files": [
+    "collect-vocabulary.json",
+    "message-context.json",
+    "runners-config-contract.json",
+    "sandbox-image-cases.json",
+    "signal-source-cases.json",
+    "sweep-policy-cases.json",
+    "sweep-selection-contract.json",
+    "tracker-layout.json",
+    "worker-boot-contract.json"
+  ],
+  "digests": {}
+}

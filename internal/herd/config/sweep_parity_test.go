@@ -24,7 +24,7 @@ import (
 // though tk never fires a sweep. Without it, a repository that declared one
 // would fail EVERY tk command with "sweeps: unknown key" — the version-gate
 // incident of 2026-08-19 in miniature.
-const sweepParityCases = "../../../cloud/factory/test/fixtures/sweep-policy-cases.json"
+const sweepParityCases = "../../../contracts/sweep-policy-cases.json"
 
 type sweepParityCase struct {
 	Name     string   `json:"name"`
@@ -79,7 +79,7 @@ func TestSweepPolicyParityWithTheFactoryReader(t *testing.T) {
 // clamped against a deployment ceiling on the factory side, and a value one
 // reader knows and the other does not is a clamp that cannot be computed.
 func TestSweepVocabulariesMatchTheContract(t *testing.T) {
-	const contractFile = "../../../cloud/factory/test/fixtures/sweep-selection-contract.json"
+	const contractFile = "../../../contracts/sweep-selection-contract.json"
 	body, err := os.ReadFile(contractFile)
 	if err != nil {
 		t.Fatalf("read %s: %v", contractFile, err)

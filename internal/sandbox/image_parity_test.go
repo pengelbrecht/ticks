@@ -28,7 +28,7 @@ import (
 // asserted in cloud/factory/test/repo-config.test.ts, which is why no case
 // below relies on it.
 
-const parityCases = "../../cloud/factory/test/fixtures/sandbox-image-cases.json"
+const parityCases = "../../contracts/sandbox-image-cases.json"
 
 type imageParityCase struct {
 	Name    string `json:"name"`

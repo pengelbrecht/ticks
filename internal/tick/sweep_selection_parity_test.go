@@ -23,7 +23,7 @@ import (
 // person is holding this" are pinned, from here and from
 // cloud/factory/test/sweep-contract.test.ts.
 
-const sweepContractFile = "../../cloud/factory/test/fixtures/sweep-selection-contract.json"
+const sweepContractFile = "../../contracts/sweep-selection-contract.json"
 
 type sweepContract struct {
 	Fields struct {

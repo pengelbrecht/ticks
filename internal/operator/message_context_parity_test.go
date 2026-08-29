@@ -18,7 +18,7 @@ import (
 // conversation have stopped naming a project the same way. Hence the fixture,
 // checked from here and from cloud/factory/test/message-context.test.ts.
 
-const messageContextFixture = "../../cloud/factory/test/fixtures/message-context.json"
+const messageContextFixture = "../../contracts/message-context.json"
 
 type messageContextFile struct {
 	Separator  string `json:"separator"`

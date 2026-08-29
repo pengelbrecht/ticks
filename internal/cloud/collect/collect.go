@@ -15,9 +15,9 @@
 // same rules, for the Workflow-hosted orchestrator.
 //
 // The verdicts and statuses were the herd package's BY IMPORT until epic 3j4
-// stopped this path importing ticks internals; they are now copies, and the
-// agreement they encode is held by a comment rather than by the compiler. See
-// [Verdict] for the drift risk that creates and what is meant to fix it.
+// stopped this path importing ticks internals; they are copies now. What holds
+// them together is contracts/collect-vocabulary.json, which all three
+// implementations read — see [Verdict].
 //
 // One verdict is added: [Unknown], for evidence that could not be READ. A
 // remote that will not answer is not a worker that failed, exactly as
@@ -52,9 +52,17 @@ import (
 // here drifts from its twin, a cloud run and a herd run silently disagree
 // about what "ready to merge" or "needs context" means for the same tick, and
 // nothing fails loudly. Never rename or re-spell one of these without
-// changing all three. This pair belongs in the cross-language contract
-// artifact the Phase 2 epic publishes; until it exists, this comment is the
-// only thing holding them together.
+// changing all three.
+//
+// # What enforces that (tick hn1)
+//
+// contracts/collect-vocabulary.json. All three implementations read it —
+// contract_test.go here, internal/herd/collect/contract_test.go, and
+// cloud/factory/test/collect-vocabulary.test.ts — so a one-sided edit fails a
+// build instead of shipping. It pins more than these constants: the status
+// line REGEXP is in it too, byte-for-byte, because the
+// DONE_WITH_CONCERNS-before-DONE alternation order and the markdown
+// decoration set are as much a part of the vocabulary as the words are.
 type Verdict string
 
 // The verdicts, in the order the checks run: the first failing check wins.

@@ -21,7 +21,7 @@ import { inboxFor, type Draft, type Signal, type SignalInbox } from "../src/sign
 import { TELEGRAM_WEBHOOK_PATH } from "../src/telegram";
 import { type TrackerWriteResult, type TrackerWriter } from "../src/tracker-write";
 import { type RunWorkflowInstance, type RunWorkflowParams } from "../src/runs";
-import layout from "./fixtures/tracker-layout.json";
+import layout from "../../../contracts/tracker-layout.json";
 
 /**
  * Draft-tick triage (tick la9): the human gate between "something arrived" and

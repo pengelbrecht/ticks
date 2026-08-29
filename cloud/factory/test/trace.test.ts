@@ -32,8 +32,8 @@ import {
   traceBanner,
 } from "../src/trace";
 import { workerBootEnv, WORKER_TRACE_ID_ENV } from "../src/worker-boot";
-import layout from "./fixtures/tracker-layout.json";
-import contract from "./fixtures/worker-boot-contract.json";
+import layout from "../../../contracts/tracker-layout.json";
+import contract from "../../../contracts/worker-boot-contract.json";
 
 /**
  * Trace ids from the front door (D20, tick hyi).

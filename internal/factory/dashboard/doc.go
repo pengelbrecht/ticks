@@ -6,11 +6,17 @@
 //
 // It is the cloud counterpart to `tk herd dashboard` and deliberately mirrors
 // it: same keys, same fold behaviour, same posture. An operator who has driven
-// the herd board drives this one. That agreement used to be enforced by a test
-// that rendered the herd board's own footer; since epic 3j4 stopped this
-// package importing ticks internals it is pinned as a frozen list instead, so
-// a rebinding over there is now a decision someone has to carry across rather
-// than a build failure.
+// the herd board drives this one. That agreement is enforced by a test that
+// renders both boards and diffs their footers — it used to live in this
+// package, and since epic 3j4 stopped this package importing packages that
+// stay in ticks it lives in cmd/tk/cmd/board_keys_test.go, the one place that
+// ships both boards. A rebinding on either side is a build failure again. The
+// frozen herdBoardKeys list in view_test.go is the other half of that pin, the half
+// that survives if this board ever leaves the repo.
+//
+// The palette in view.go is the deliberate opposite: it is a copy of the
+// tracker TUI's colours that is free to drift, and nothing pins it. The
+// reasoning is at that copy.
 //
 // # Read-only, in two senses
 //

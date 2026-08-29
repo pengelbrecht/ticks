@@ -15,7 +15,7 @@
  * answer and then prints {@link WORKER_PROBE_MARKER} — and this module is
  * where the control plane reads it rather than inventing a second spelling.
  * The two languages and the shell are pinned together by
- * `test/fixtures/worker-boot-contract.json`, checked from both suites.
+ * `contracts/worker-boot-contract.json`, checked from both suites.
  *
  * ONE IMAGE, TWO ROLES. On Cloudflare an image belongs to the containers
  * application rather than to a boot (tick x3v), so a worker container is the
@@ -98,7 +98,7 @@ export const WORKER_STATE_DIR_ENV = "TICKS_WORKER_STATE_DIR";
  * container's R2 stream (`artifacts.ts`), because a container that dies before
  * it prints anything is exactly the one being read.
  *
- * Pinned across the three readers by `test/fixtures/worker-boot-contract.json`
+ * Pinned across the three readers by `contracts/worker-boot-contract.json`
  * — `internal/sandbox.EnvTraceID` and `cloud/sandbox/common.sh` are the other
  * two.
  */
