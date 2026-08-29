@@ -1,0 +1,20 @@
+{
+  "id": "ovs",
+  "title": "Final review of the Phase 4b diff",
+  "description": "Review the full epic diff. This phase is the ONLY user-visible behaviour change in the extraction, so the review bar is different from the others.\n\n1. IS THE TERMINAL PATH GENUINELY UNTOUCHED? Run tick 1fd's offline guard yourself. Then go further: with no channel configured and no network, park a question and resolve it from the terminal. The product claim is 'terminal answering is ticks and works offline'. Verify it rather than trusting the test.\n\n2. ARE THE FAILURE STATES STILL DISTINGUISHABLE? tk tell used to exit 4 for 'no channel configured'. Now there are several ways to fail — not configured, unreachable, unauthorised, no Telegram at the factory. Confirm a user can tell them apart. Collapsing them into one message is the regression this phase is most likely to ship, and it is invisible in a passing test suite.\n\n3. DID ANYTHING ELSE LEAVE WITH THE TRANSPORT? The question store, markdownlite, the Channel interface and .tick/operators.json readers must all survive. Check for stubs and commented-out remnants — a deletion half-done is worse than not started.\n\n4. ONE BOT READER. Confirm no Go code calls the Telegram Bot API any more, and that no bot token is read from a laptop. That was the point.\n\nRoute findings as new ticks rather than fixing inline unless trivial.",
+  "status": "open",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "kf8",
+    "1fd",
+    "2f8"
+  ],
+  "parent": "9oy",
+  "role": "review",
+  "acceptance_criteria": "The offline terminal path is verified by hand, not just by test. The failure states are confirmed distinguishable. No Go code calls the Bot API and no laptop reads a bot token. Nothing that should have stayed was deleted, and nothing deleted was left as a stub. go test ./... and the factory suite green.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-28T13:05:49.900927Z",
+  "updated_at": "2026-08-28T14:11:27.174346Z"
+}
