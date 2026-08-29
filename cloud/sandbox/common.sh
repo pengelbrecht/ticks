@@ -977,3 +977,322 @@ run_preflight() {
 	tk sandbox environment --root "$workdir" ||
 		die $EXIT_PREFLIGHT "environment pre-flight failed — the failing check is named above; fix it or correct .tick/runners.toml"
 }
+
+# ---------------------------------------------------------------------------
+# Parked-question delivery (tick 3c2)
+#
+# WHERE THIS RUNS, and why. The Worker cannot exec tk — it is a Cloudflare
+# process with no filesystem and no `tk` binary — so the only place that can
+# turn "a tick is parked awaiting a human" into "a message on Telegram" is
+# somewhere that has BOTH a real checkout with `.tick/pending` on disk AND a
+# `tk` binary. That is this container, and it is the orchestrator boot
+# specifically (called from entrypoint.sh's main, never from worker.sh): a
+# worker's harness runs behind the boundary guard above with no `tk` on its
+# PATH at all, so it cannot originate or resolve a question either. The
+# orchestrator's own harness is what calls `tk ask`, and this sweep is what
+# gets that question a phone rather than a silent exit 4.
+#
+# WHY A SWEEP, NOT A BACKGROUND LOOP. `tk ask` no longer blocks waiting for a
+# channel — after epic 9oy there is no in-process Telegram channel at all, so
+# an unconfigured ask returns immediately with the tick parked and exit 4. A
+# question can therefore sit in `.tick/pending` across container boots with
+# nothing watching it. But an epic's orchestrator container is NOT a single
+# long-lived process: the control plane boots it again for every phase (run,
+# reconcile, wave, closeout) over the epic's life. Each boot is an
+# opportunity to check in, so this runs once per boot, before the harness
+# starts, rather than as a poll loop racing it. That is what makes the
+# feature reachable with the laptop closed: no process has to stay alive
+# between a question being parked and a human seeing it, because the next
+# scheduled boot delivers it, and the one after that collects the answer.
+#
+# THE OLDEST-OPEN INVARIANT. `tk answer <tick> <words>` resolves whichever
+# question is oldest and still open on that tick — it has no way to target a
+# specific question id (that addressing exists only for an agent-relay
+# question, a different kind this sweep does not touch). So if two questions
+# were ever live on one tick at once, an answer meant for the newer one would
+# land on the older one instead. This code never lets that happen: delivery
+# only ever registers the SINGLE oldest unresolved question per tick with the
+# factory (questions_oldest_open_per_tick), so at most one question per tick
+# is ever awaiting a Telegram answer. `tk answer` targeting "oldest open" is
+# therefore always targeting the one this sweep delivered. The next question
+# on that tick, if any, is only registered once the first one is resolved and
+# gone.
+#
+# IDEMPOTENCY. Delivery never keeps its own "did I already send this" state —
+# it re-POSTs the current oldest-open question every boot. The factory's
+# RunRoom is what makes that safe: a POST /pending with an id already
+# registered comes back "already_registered" and is a no-op once a Telegram
+# ref exists, so a repeated boot cannot double-send. That also makes a lost
+# reply self-healing: if the factory registered the question but never
+# reached Telegram, the entry still has no ref, and the NEXT boot's retry is
+# indistinguishable from the first attempt.
+#
+# THE THREE FAILURE STATES. Kept apart in the log line, on purpose, because a
+# human debugging a stuck question needs to know which one to fix:
+#   - "no factory bridge configured" / "not an owner/repo pair" — TICKS_FACTORY_URL,
+#     TICKS_FACTORY_TOKEN or TICKS_FACTORY_PROJECT is absent or malformed.
+#     Degraded mode, not a bug: the question stays answerable at a terminal.
+#   - "tk is not on PATH" — this container's own tk is missing or broken.
+#   - "factory unreachable" (empty/000 status) vs a real HTTP status the
+#     factory answered with (403 not enrolled, 503 Telegram down, or
+#     anything else) — a network problem and a factory-side refusal are
+#     different repairs and are never folded into one message.
+# None of these is fatal to the boot: a run whose questions cannot be
+# delivered this boot still proceeds, exactly as it always has when no
+# operator channel is configured.
+#
+# NOT COVERED, on purpose. Agent-relay questions (PendingAgentRelay, answered
+# by question id rather than tick id) are a different addressing scheme for a
+# live pane/orchestrator relay and are left to that mechanism. And this reads
+# `.tick/pending/*.json` directly — the one piece of the tracker's on-disk
+# format with no schemas/ contract and no cross-language drift test (tick
+# zkq's finding about required-tk-commands applies here too: the format is
+# read, not invoked, so no test can pin it the way EntrypointTkCommands pins a
+# command line). A future field rename on the Go side is a real drift risk
+# this sweep cannot detect; it degrades to skipping the malformed entry rather
+# than crashing the boot.
+# ---------------------------------------------------------------------------
+
+# deliver_parked_questions is the sweep's one entry point: collect any answers
+# Telegram already has, then deliver whatever is still open. Collect runs
+# first so a question answered since the last boot is applied — and stops
+# being "open" — before delivery decides what is still owed a message.
+deliver_parked_questions() {
+	local pending_dir="$workdir/.tick/pending"
+	[[ -d $pending_dir ]] || return 0
+
+	if [[ -z $factory_url || -z $factory_token ]]; then
+		say "questions: no factory bridge configured (TICKS_FACTORY_URL/TICKS_FACTORY_TOKEN) — any parked question waits for a terminal tk answer"
+		return 0
+	fi
+	local owner="${factory_project%%/*}" repo="${factory_project#*/}"
+	if [[ -z $factory_project || -z $owner || -z $repo || $owner == "$factory_project" ]]; then
+		warn "questions: TICKS_FACTORY_PROJECT ('${factory_project}') is not an owner/repo pair — any parked question waits for a terminal tk answer"
+		return 0
+	fi
+	if ! command -v tk >/dev/null 2>&1; then
+		warn "questions: tk is not on PATH — cannot discover or resolve parked questions this boot"
+		return 0
+	fi
+	if ! command -v curl >/dev/null 2>&1; then
+		warn "questions: no curl in the container — cannot reach the factory to deliver or collect parked questions"
+		return 0
+	fi
+	if ! command -v jq >/dev/null 2>&1; then
+		warn "questions: no jq in the container — cannot read .tick/pending to deliver or collect parked questions"
+		return 0
+	fi
+
+	local questions_pending_url="${factory_url%/}/api/projects/${owner}/${repo}/pending"
+
+	questions_collect_answers "$pending_dir" "$questions_pending_url"
+
+	# The tk CLI is the discovery step proper (tk list --awaiting=): it is the
+	# tracker's own live answer to "which ticks need a human", so a tick that
+	# moved on out of band (closed, or awaiting something else) since its
+	# question was parked is never delivered a now-pointless message. A pending
+	# entry the tracker itself no longer considers awaiting is left on disk for
+	# a later `tk ask --collect` or `tk answer` to reconcile; this sweep only
+	# decides what to put in front of a human right now.
+	local awaiting_ids
+	if ! awaiting_ids="$(questions_awaiting_tick_ids)"; then
+		warn "questions: tk list --awaiting refused — skipping delivery this boot (will retry next boot)"
+		return 0
+	fi
+	questions_deliver_oldest "$pending_dir" "$questions_pending_url" "$awaiting_ids"
+}
+
+# questions_awaiting_tick_ids is the tk-CLI discovery step: every tick id `tk`
+# currently considers awaiting a human, one per line. A non-zero return means
+# tk itself refused the call — distinct from a successful, empty answer (no
+# tick is awaiting anything right now), which is not an error.
+questions_awaiting_tick_ids() {
+	local raw
+	raw="$(cd "$workdir" && tk list --awaiting= --json 2>/dev/null)" || return 1
+	jq -r '.ticks[]?.id // empty' <<<"$raw" 2>/dev/null
+}
+
+# questions_pending_files prints the entries directory's *.json files, one per
+# line, skipping the consumer/apply lock files (which have no .json suffix)
+# and an empty directory.
+questions_pending_files() {
+	local dir="$1" f
+	for f in "$dir"/*.json; do
+		[[ -f $f ]] && printf '%s\n' "$f"
+	done
+}
+
+# questions_oldest_open_per_tick prints one compact JSON object per tick that
+# currently has an unresolved, non-agent-relay question: the OLDEST such
+# question on that tick, by created_at. This is the set delivery may ever
+# register with the factory — see the oldest-open invariant above.
+questions_oldest_open_per_tick() {
+	local dir="$1"
+	local -a files=()
+	local f
+	while IFS= read -r f; do files+=("$f"); done < <(questions_pending_files "$dir")
+	((${#files[@]} > 0)) || return 0
+	jq -c -s '
+		map(select(.resolution == null and .kind != "agent_relay" and ((.tick_id // "") != "")))
+		| group_by(.tick_id)
+		| map(min_by(.created_at))
+		| .[]
+	' "${files[@]}" 2>/dev/null
+}
+
+# questions_epic_for_tick mirrors cmd/tk/cmd/channel_context.go's
+# tickMessageContext: an epic names itself as the epic and carries no separate
+# tick; anything else's epic is its parent. A tick record that cannot be read
+# (or has no parent) contributes no epic, exactly as the Go side degrades.
+questions_epic_for_tick() {
+	local tick_id="$1" file ttype parent
+	file="$workdir/.tick/issues/${tick_id}.json"
+	[[ -f $file ]] || return 0
+	ttype="$(jq -r '.type // empty' "$file" 2>/dev/null)" || return 0
+	if [[ $ttype == "epic" ]]; then
+		printf '%s' "$tick_id"
+		return 0
+	fi
+	parent="$(jq -r '.parent // empty' "$file" 2>/dev/null)" || return 0
+	printf '%s' "$parent"
+}
+
+# questions_deliver_oldest registers the single oldest open question per tick
+# with the factory's RunRoom (notify=telegram), which is what actually posts
+# to the chat and records the message ref. Re-registering an id the factory
+# already has is the retry path, not a bug: already_registered (409) with a
+# ref means Telegram already has it, and the same response with no ref means
+# the previous attempt never reached Telegram and this one tries again.
+questions_deliver_oldest() {
+	local dir="$1" url="$2" awaiting_ids="$3"
+	local entry id tick_id kind awaiting question epic payload body status
+
+	while IFS= read -r entry; do
+		[[ -n $entry ]] || continue
+		id="$(jq -r '.id // empty' <<<"$entry")"
+		tick_id="$(jq -r '.tick_id // empty' <<<"$entry")"
+		kind="$(jq -r '.kind // empty' <<<"$entry")"
+		awaiting="$(jq -r '.awaiting // empty' <<<"$entry")"
+		question="$(jq -c '.question' <<<"$entry")"
+		if [[ -z $id || -z $tick_id || -z $kind || -z $question || $question == "null" ]]; then
+			warn "questions: skipping a malformed pending entry (id=${id:-?}) — .tick/pending's shape may have drifted"
+			continue
+		fi
+		if ! grep -qxF "$tick_id" <<<"$awaiting_ids"; then
+			# tk itself no longer considers this tick awaiting — it moved on
+			# out of band since the question was parked. Nothing to deliver;
+			# a later tk ask --collect or tk answer reconciles the entry.
+			say "questions: $tick_id ($id) is no longer awaiting per tk list — not delivering"
+			continue
+		fi
+		epic="$(questions_epic_for_tick "$tick_id")"
+
+		payload="$(jq -n \
+			--arg id "$id" --arg tick_id "$tick_id" --arg epic "$epic" \
+			--arg kind "$kind" --arg awaiting "$awaiting" --argjson question "$question" \
+			'{id: $id, tick_id: $tick_id, kind: $kind, notify: "telegram", question: $question}
+			 + (if $epic == "" then {} else {epic: $epic} end)
+			 + (if $awaiting == "" then {} else {awaiting: $awaiting} end)')"
+
+		body="$(mktemp "${TMPDIR:-/tmp}/ticks-question-deliver.XXXXXX")"
+		status="$(curl -sS -o "$body" -w '%{http_code}' --max-time 20 \
+			-H "Authorization: Bearer $factory_token" -H 'Content-Type: application/json' \
+			--data-binary "$payload" "$url" 2>/dev/null)"
+		case "$status" in
+		"" | 000)
+			warn "questions: factory unreachable while delivering $id ($tick_id) — will retry next boot"
+			;;
+		2*)
+			say "questions: delivered $id ($tick_id) to Telegram"
+			;;
+		409)
+			say "questions: $id ($tick_id) is already registered with the factory"
+			;;
+		503)
+			warn "questions: the factory could not reach Telegram for $id ($tick_id) (HTTP 503): $(head -c 300 "$body")"
+			;;
+		403)
+			warn "questions: the factory does not recognise ${factory_project} for $id ($tick_id) (HTTP 403) — is the project enrolled?"
+			;;
+		*)
+			warn "questions: the factory refused $id ($tick_id) (HTTP $status): $(head -c 300 "$body")"
+			;;
+		esac
+		rm -f "$body"
+	done < <(questions_oldest_open_per_tick "$dir")
+}
+
+# questions_collect_answers applies whatever Telegram has already answered.
+# One GET fetches every entry the factory knows about for this project; each
+# local open question is checked against it by id, and a resolved match is
+# written back onto the tick with `tk answer`, which is what turns a phone
+# reply into the tick's `[human]` note (or verdict) and clears awaiting.
+#
+# `tk answer` targets the oldest open question on the tick, never this id
+# directly — safe here only because of the oldest-open invariant: the only id
+# that can ever come back resolved is the one delivery registered, and that is
+# always the tick's oldest open question by construction.
+questions_collect_answers() {
+	local dir="$1" url="$2"
+	local -a files=()
+	local f
+	while IFS= read -r f; do files+=("$f"); done < <(questions_pending_files "$dir")
+	((${#files[@]} > 0)) || return 0
+
+	local body status remote
+	body="$(mktemp "${TMPDIR:-/tmp}/ticks-question-collect.XXXXXX")"
+	status="$(curl -sS -o "$body" -w '%{http_code}' --max-time 20 \
+		-H "Authorization: Bearer $factory_token" \
+		"${url}?include_resolved=true" 2>/dev/null)"
+	case "$status" in
+	"" | 000)
+		warn "questions: factory unreachable while checking for Telegram answers — will retry next boot"
+		rm -f "$body"
+		return 0
+		;;
+	2*) ;;
+	*)
+		warn "questions: the factory refused the pending list (HTTP $status): $(head -c 300 "$body")"
+		rm -f "$body"
+		return 0
+		;;
+	esac
+	remote="$(cat "$body")"
+	rm -f "$body"
+
+	local entry id tick_id resolution
+	local -a answer_args
+	jq -c 'select(.resolution == null and .kind != "agent_relay" and ((.tick_id // "") != ""))' "${files[@]}" 2>/dev/null |
+		while IFS= read -r entry; do
+			id="$(jq -r '.id // empty' <<<"$entry")"
+			tick_id="$(jq -r '.tick_id // empty' <<<"$entry")"
+			[[ -n $id && -n $tick_id ]] || continue
+
+			resolution="$(jq -c --arg id "$id" '
+				(.pending // [])[]? | select(.id == $id and .resolution != null) | .resolution
+			' <<<"$remote")"
+			[[ -n $resolution && $resolution != "null" ]] || continue
+
+			answer_args=()
+			while IFS= read -r a; do
+				[[ -n $a ]] && answer_args+=("$a")
+			done < <(jq -r '
+				if ((.outcome.option_ids // []) | length) > 0
+				then .outcome.option_ids[]
+				else (.outcome.text // empty)
+				end
+			' <<<"$resolution")
+			if ((${#answer_args[@]} == 0)); then
+				warn "questions: the factory resolved $id ($tick_id) with no usable answer text — leaving it parked"
+				continue
+			fi
+
+			local rc=0
+			(cd "$workdir" && tk answer "$tick_id" "${answer_args[@]}") >/dev/null 2>&1 || rc=$?
+			case "$rc" in
+			0) say "questions: applied the Telegram answer to $tick_id ($id)" ;;
+			4) say "questions: $tick_id ($id) was already answered locally — nothing to do" ;;
+			*) warn "questions: tk answer $tick_id refused (exit $rc) — will retry next boot" ;;
+			esac
+		done
+}

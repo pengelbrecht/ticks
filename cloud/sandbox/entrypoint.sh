@@ -670,6 +670,17 @@ main() {
 	fi
 	cd "$workdir" || die $EXIT_CLONE "cannot enter $workdir"
 	verify_tk
+	# Every boot of an epic's orchestrator is a chance to deliver a question
+	# `tk ask` parked on an earlier boot, and to collect whatever Telegram has
+	# already answered (see the Parked-question delivery section of
+	# common.sh for the full design: why this runs here, the oldest-open
+	# invariant, and the three failure states it keeps apart). A review checks
+	# out a hostile PR's tree rather than its own, so it never reads that
+	# checkout's .tick/pending or phones home with this container's factory
+	# credential — the same carve-out the setup/preflight skip below makes.
+	if [[ $phase != "review" ]]; then
+		deliver_parked_questions
+	fi
 	# The model is settled and proved BEFORE provisioning, setup and the
 	# pre-flight: those are the slow, expensive steps, and a run that cannot
 	# make a model call is over whether or not its toolchain installed.
