@@ -434,6 +434,20 @@ The two herdr-specific edits to the shared template are the branch-name statemen
 
 The `## How this fits` paragraph is the one part `tk herd spawn` cannot render, because it is knowledge only the orchestrator has. Put it in the tick's description when it matters.
 
+## The orchestrator is an agent too
+
+Workers cannot stall on a permission prompt, because `tk herd spawn` compiles their kind's full-auto template into the argv. The orchestrator has no such protection: it is launched by hand, in a pane, and a long autonomous run stalls on *it* — not on the fleet. Field-observed 2026-08-30 across repeated long runs, in both shapes herdr can distinguish:
+
+- **`blocked`** — the orchestrator's own harness raised an approval or question UI. When the UI is a tool-permission prompt, the cause is almost always the launch: the orchestrator was started without its kind's full-auto template.
+- **`idle`** — the orchestrator voluntarily ended its turn with an actionable frontier: it asked "should I continue?", summarized instead of dispatching, or stopped after a close. This is the stall instinct (`agent-runner.md` → *Discipline rules*) landing in a pane.
+
+Two rules follow:
+
+- **Launch the orchestrator with its kind's full-auto template** ([`herdr-kinds.md`](herdr-kinds.md)), exactly as `tk herd spawn` does for workers. A `blocked` orchestrator showing a permission prompt means the template did not land — fix the launch rather than answering prompts for the rest of the run.
+- **Diagnose the shape before acting on a stalled run.** `herdr agent explain <orchestrator-agent>` names the signal. `blocked` holds a real question: read the pane, answer it there, and note what planning should have settled (it lands in the retro's interrupt audit). `idle` with dispatchable work needs only a nudge — `herdr agent prompt` with "the frontier is actionable: continue per run-continuously" resumes the run with the rule freshly recent.
+
+The substrate sees both shapes as pushed `pane.agent_status_changed` events, so orchestrator supervision is automatable from outside the orchestrator's own loop — a frontier predicate plus a plugin hook that nudges an idle orchestrator and relays a blocked one to the operator channel. That mechanism is specified in the ticks repo's [`docs/design/orchestrator-continuation.md`](../../../docs/design/orchestrator-continuation.md); until it ships, the mission-control board is the operator's early warning, and the two rules above are manual.
+
 ## Current limitations
 
 - **No native boundary enforcement.** See [Boundary](#boundary); the pre-merge `.tick/` check — which `tk herd collect` performs — carries the invariant alone.
