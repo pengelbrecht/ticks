@@ -1,7 +1,6 @@
 package operator
 
 import (
-	"context"
 	"strings"
 	"testing"
 	"time"
@@ -130,107 +129,5 @@ func TestApplyNoteCarriesDecisionTime(t *testing.T) {
 	}
 	if stale := appliedAt.Local().Format(noteTimestampLayout); strings.Contains(tk.Notes, stale) {
 		t.Errorf("notes carry the apply time %q instead:\n%s", stale, tk.Notes)
-	}
-}
-
-// TestConsumerStampsEventSenderID pins provenance honesty: the id written onto
-// the resolution is the sender of the event, not the id the run was configured
-// with. The transport already drops everyone else, so the two agree in
-// practice — but the note says "this person decided", and it should be true
-// because it was read off the decision.
-func TestConsumerStampsEventSenderID(t *testing.T) {
-	store := NewPendingStore(t.TempDir())
-	channel := NewFakeChannel()
-	consumer := NewConsumer(store, channel)
-	consumer.TelegramUserID = "424242"
-
-	ref, err := channel.AskDeliver(context.Background(), Question{ID: "q1", Text: "Which region?"})
-	if err != nil {
-		t.Fatalf("AskDeliver: %v", err)
-	}
-	if err := store.Save(Pending{ID: "q1", TickID: "abc", Kind: PendingAsk, Ref: ref}); err != nil {
-		t.Fatalf("Save: %v", err)
-	}
-
-	resolved, matched, err := consumer.Route(context.Background(), Event{
-		Kind:     EventAnswer,
-		Ref:      ref,
-		Text:     "eu-west-1",
-		SenderID: "515151",
-	})
-	if err != nil || !matched {
-		t.Fatalf("Route: matched=%v err=%v", matched, err)
-	}
-	if got := resolved.Resolution.TelegramUserID; got != "515151" {
-		t.Errorf("telegram_user_id = %q, want the event's sender 515151", got)
-	}
-}
-
-// TestConsumerFallsBackToBoundUserID keeps a sender-less event (a transport
-// that does not report one) stamped with the configured operator rather than
-// with nothing at all.
-func TestConsumerFallsBackToBoundUserID(t *testing.T) {
-	store := NewPendingStore(t.TempDir())
-	channel := NewFakeChannel()
-	consumer := NewConsumer(store, channel)
-	consumer.TelegramUserID = "424242"
-
-	ref, err := channel.AskDeliver(context.Background(), Question{ID: "q1", Text: "Which region?"})
-	if err != nil {
-		t.Fatalf("AskDeliver: %v", err)
-	}
-	if err := store.Save(Pending{ID: "q1", TickID: "abc", Kind: PendingAsk, Ref: ref}); err != nil {
-		t.Fatalf("Save: %v", err)
-	}
-
-	resolved, matched, err := consumer.Route(context.Background(), Event{Kind: EventAnswer, Ref: ref, Text: "eu-west-1"})
-	if err != nil || !matched {
-		t.Fatalf("Route: matched=%v err=%v", matched, err)
-	}
-	if got := resolved.Resolution.TelegramUserID; got != "424242" {
-		t.Errorf("telegram_user_id = %q, want the configured operator 424242", got)
-	}
-}
-
-// TestConsumerPreservesRemoteAnswerProvenance pins the cloud bridge's return
-// path: a terminal answer was arbitrated by RunRoom, so the local waiter must
-// carry that provenance through instead of relabelling it as Telegram.
-func TestConsumerPreservesRemoteAnswerProvenance(t *testing.T) {
-	store := NewPendingStore(t.TempDir())
-	channel := NewFakeChannel()
-	consumer := NewConsumer(store, channel)
-	consumer.TelegramUserID = "424242"
-
-	ref, err := channel.AskDeliver(context.Background(), Question{
-		ID:      "q1",
-		Text:    "Ship it?",
-		Options: GateOptions(),
-	})
-	if err != nil {
-		t.Fatalf("AskDeliver: %v", err)
-	}
-	if err := store.Save(Pending{ID: "q1", TickID: "abc", Kind: PendingGate, Ref: ref, Question: Question{
-		ID:      "q1",
-		Text:    "Ship it?",
-		Options: GateOptions(),
-	}}); err != nil {
-		t.Fatalf("Save: %v", err)
-	}
-
-	resolved, matched, err := consumer.Route(context.Background(), Event{
-		Kind:       EventOptionPress,
-		Ref:        ref,
-		OptionIDs:  []string{OptionApprove},
-		SenderID:   "515151",
-		AnsweredBy: AnsweredByTerminal,
-	})
-	if err != nil || !matched {
-		t.Fatalf("Route: matched=%v err=%v", matched, err)
-	}
-	if got := resolved.Resolution.AnsweredBy; got != AnsweredByTerminal {
-		t.Errorf("answered_by = %q, want terminal", got)
-	}
-	if got := resolved.Resolution.TelegramUserID; got != "" {
-		t.Errorf("telegram_user_id = %q, want it empty for terminal provenance", got)
 	}
 }

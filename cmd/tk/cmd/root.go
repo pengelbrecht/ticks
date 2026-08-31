@@ -255,6 +255,15 @@ func ExecuteArgs(args []string) error {
 	return ExecuteArgsContext(context.Background(), args)
 }
 
+// commandContext returns the command's context, falling back to Background so a
+// command invoked without one still runs.
+func commandContext(cmd *cobra.Command) context.Context {
+	if ctx := cmd.Context(); ctx != nil {
+		return ctx
+	}
+	return context.Background()
+}
+
 // ExecuteArgsContext is ExecuteArgs with a caller-supplied context. The context
 // is propagated to commands via cmd.Context(), which lets callers (tests) stop
 // long-running commands such as 'tk board'.
@@ -574,22 +583,9 @@ func ResetFlags() {
 	boardDev = false
 	boardHost = "127.0.0.1"
 
-	// Reset channel flags
-	channelSetupToken = ""
-	channelSetupAPIBase = ""
-	channelSetupTimeout = defaultPairTimeout
-	channelStatusOffline = false
-	channelSetupReclaim = false
+	// Reset factory webhook flags
 	factoryWebhookDelete = false
 	factoryWebhookStatus = false
-	channelStatusCheck = false
-	channelStatusAPIBase = ""
-	tellChannel = channelTelegram
-	tellFormat = false
-	tellFile = ""
-	tellCaption = ""
-	tellAs = ""
-	tellAbout = ""
 
 	// Reset ask flags
 	askQuestion = ""
@@ -600,8 +596,6 @@ func ResetFlags() {
 	askCollect = false
 	askWait = false
 	askEscalateAfter = 0
-	askPhoto = ""
-	askCaption = ""
 
 	// Reset answer flags
 	answerFrom = ""

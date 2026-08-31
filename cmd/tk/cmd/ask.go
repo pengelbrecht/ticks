@@ -14,27 +14,21 @@ import (
 
 	"github.com/pengelbrecht/ticks/internal/github"
 	"github.com/pengelbrecht/ticks/internal/operator"
-	"github.com/pengelbrecht/ticks/internal/operator/telegram"
 )
 
-// `tk ask` is the blocking half of the operator surface: it parks a question on
-// a tick, delivers it to the operator's channel, and waits for an answer from
-// EITHER surface — the phone or the terminal.
+// `tk ask` parks a question on a tick so it can be answered from the
+// terminal — `tk approve` / `tk reject` for a gate, or `tk answer` for a
+// plain question.
 //
 // Everything that turns an answer into tick state (the `[human]` note, the
 // cleared awaiting, a gate's verdict and its activity entry) belongs to
-// [operator.Engine]. This command only decides what to ask, who runs the poll
-// loop, and what to print; reimplementing any of the resolution rules here is
-// how `tk ask`, `tk answer` and the dashboard drift apart.
+// [operator.Engine]. This command only decides what to ask and what to print;
+// reimplementing any of the resolution rules here is how `tk ask`, `tk
+// answer` and the dashboard drift apart.
 const (
-	// askDefaultTimeout is how long a question waits before the run gives up
-	// and leaves it parked for a human to find later.
+	// askDefaultTimeout is how long `tk ask --collect --wait` waits for an
+	// answer before giving up and leaving the question parked.
 	askDefaultTimeout = 10 * time.Minute
-
-	// askSettleTimeout bounds the final channel edit. It runs on a context
-	// detached from the wait, because the most important message to settle is
-	// the one whose wait just expired.
-	askSettleTimeout = 15 * time.Second
 
 	// askGateApprove is the --gate value that turns the question into an
 	// approval gate: approve/reject buttons, and an answer that is a verdict.
@@ -43,9 +37,9 @@ const (
 	askGateNone = "none"
 
 	// Values of the resolved_by field in --json output. They name the SURFACE
-	// the answer came from, which is what a caller branches on: "telegram" is
-	// the operator's device, "terminal" is anything local — `tk approve`, the
-	// TUI, the dashboard.
+	// the answer came from: "telegram" is an external bridge that resolved
+	// the entry directly, "terminal" is anything local — `tk answer`, `tk
+	// approve`/`tk reject`, the dashboard.
 	askResolvedTelegram = "telegram"
 	askResolvedTerminal = "terminal"
 
@@ -57,15 +51,13 @@ const (
 
 var askCmd = &cobra.Command{
 	Use:   "ask <id>",
-	Short: "Ask the operator a question and block until it is answered",
-	Long: `Ask the operator a question, park it on a tick, and block until it is answered.
+	Short: "Park a question on a tick for the operator to answer",
+	Long: `Park a question on a tick, for the operator to answer from the terminal.
 
-The question is delivered to the configured operator channel (Telegram today)
-and parked on the tick at the same time, so it can be answered on either
-surface: a reply on the phone, or ` + "`tk approve`" + ` / ` + "`tk reject`" + ` in a terminal.
-Whichever lands first ends the wait. The answer becomes a note on the tick
-(` + "`--from human`" + `), or a verdict with --gate approve, and the channel message is
-edited to show what was decided.
+The question is registered on the tick and left there for a human to find —
+` + "`tk list --awaiting`" + ` surfaces it — and answered with ` + "`tk approve`" + ` /
+` + "`tk reject`" + ` (--gate approve) or ` + "`tk answer`" + ` (a plain question). The answer
+becomes a note on the tick (` + "`--from human`" + `), or a verdict with --gate approve.
 
 The question comes from --question, or from stdin as JSON with --json:
 
@@ -76,54 +68,40 @@ The question comes from --question, or from stdin as JSON with --json:
    "multi": false, "allow_other": false}
 
 Option ids are derived from the labels ("Deep Green" -> "deep-green") unless the
-option carries an explicit "id". "multi" delivers a toggle keyboard committed
-with Done; "allow_other" adds an Other… button that asks for free text and
-resolves the same question.
-
-Approving a picture:
-  --photo <path>     deliver a local image as the gate itself, with the
-                     approve/reject buttons under it. Requires --gate approve.
-  --caption <text>   the text shown with the photo; it is the question when
-                     --question is omitted
-
-  tk ask abc123 --photo shots/board.png --gate approve --caption "New board OK?"
-
-The photo gate blocks, resolves and edits exactly like a text gate — the same
-verdict, the same [human] note, and the same flags (--timeout, --async,
---escalate-after) compose with it.
+option carries an explicit "id".
 
 Not blocking:
-  --async            register, deliver, and print the question id, then exit
+  --async            register the question, print its id, and return
   --collect          print every settled question as a JSON line and drain it
   --collect --wait   also block on the questions still open
-  --escalate-after   hold channel delivery for a grace window; local surfaces
-                     (tk answer, the dashboard) see the question immediately,
-                     so answering in time means the phone is never disturbed
+  --escalate-after   record a delayed-escalation window on the entry; local
+                     surfaces (tk answer, the dashboard) see the question
+                     immediately regardless
 
 Output:
-  text mode  the answer, and nothing else, on stdout (--async: the question id)
+  --async    the question id, and nothing else, on stdout
   --json     {"id", "tick_id", "answer", "option_ids",
               "resolved_by": telegram|terminal, "telegram_user_id"}
   --collect  one JSON object per line, in the order the questions were asked
 
 Examples:
   tk ask abc123 --question "Which region should this deploy to?"
-  tk ask abc123 --question "Ship it?" --gate approve --timeout 30m
+  tk ask abc123 --question "Ship it?" --gate approve
   tk ask abc123 --question "Which region?" --async --escalate-after 5m
   tk ask --collect --wait --timeout 30m
   echo '{"question":"Pick one","options":[{"label":"A"},{"label":"B"}]}' | tk ask abc123 --json
 
 Exit codes:
-  0  answered (on either surface)
+  0  registered (--async), or every --collect question settled
   2  usage error
   3  not in a git repository
-  4  exit code 4: no operator channel is configured. The question is still
-     registered and the tick still parked awaiting a human — degraded mode is
-     the same park-and-surface behaviour as before a channel existed.
+  4  exit code 4: the question is parked but nobody is waiting for it in this
+     process — a plain (non-async) ask never blocks; answer it with tk answer,
+     or drain it later with tk ask --collect [--wait]
   5  project detection failed (the origin remote could not be read)
-  7  exit code 7: the timeout expired. Giving up waiting is not an answer: the
-     tick stays awaiting and the question is left OPEN on disk, so a later
-     tk answer — or a later run — still settles it.`,
+  7  exit code 7: --collect --wait timed out. Giving up waiting is not an
+     answer: the tick stays awaiting and the question is left OPEN on disk, so
+     a later tk answer — or a later run — still settles it.`,
 	Args:          cobra.MaximumNArgs(1),
 	SilenceErrors: true,
 	SilenceUsage:  true,
@@ -139,21 +117,17 @@ var (
 	askCollect       bool
 	askWait          bool
 	askEscalateAfter time.Duration
-	askPhoto         string
-	askCaption       string
 )
 
 func init() {
 	askCmd.Flags().StringVar(&askQuestion, "question", "", "the question to ask the operator")
 	askCmd.Flags().BoolVar(&askJSON, "json", false, "read the question from stdin as JSON and print the answer as JSON")
-	askCmd.Flags().DurationVar(&askTimeout, "timeout", askDefaultTimeout, "how long to wait for an answer before giving up (exit 7; the question stays open)")
+	askCmd.Flags().DurationVar(&askTimeout, "timeout", askDefaultTimeout, "with --collect --wait: how long to wait for an answer before giving up (exit 7; the question stays open)")
 	askCmd.Flags().StringVar(&askGate, "gate", askGateNone, "gate kind: approve (verdict, approve/reject buttons) or none")
-	askCmd.Flags().BoolVar(&askAsync, "async", false, "register and deliver the question, print its id, and return without waiting")
+	askCmd.Flags().BoolVar(&askAsync, "async", false, "register the question, print its id, and return without erroring")
 	askCmd.Flags().BoolVar(&askCollect, "collect", false, "print settled questions as JSON lines and drain them (takes no tick id)")
 	askCmd.Flags().BoolVar(&askWait, "wait", false, "with --collect: also block on the questions still open")
-	askCmd.Flags().DurationVar(&askEscalateAfter, "escalate-after", 0, "hold channel delivery for this long; local surfaces see the question at once")
-	askCmd.Flags().StringVar(&askPhoto, "photo", "", "deliver this local image as the gate itself, with the approve/reject buttons under it (requires --gate approve)")
-	askCmd.Flags().StringVar(&askCaption, "caption", "", "the text shown with --photo (defaults the question when --question is omitted)")
+	askCmd.Flags().DurationVar(&askEscalateAfter, "escalate-after", 0, "record a delayed-escalation window on the entry; local surfaces see the question at once")
 
 	rootCmd.AddCommand(askCmd)
 }
@@ -169,24 +143,12 @@ type askOptions struct {
 	Question operator.Question
 	// Gate makes the answer a verdict instead of a note.
 	Gate bool
-	// Photo is a local image delivered as the gate itself: the approve/reject
-	// buttons hang under the picture. Requires Gate.
-	Photo string
-	// Caption is the text shown with Photo.
-	Caption string
-	// Async registers and delivers the question and returns without waiting.
+	// Async registers the question and returns without erroring.
 	Async bool
-	// NotBefore holds channel delivery until this instant (--escalate-after).
-	// Local surfaces see the parked question immediately regardless.
+	// NotBefore records a delayed-escalation window on the entry
+	// (--escalate-after). Local surfaces see the parked question immediately
+	// regardless.
 	NotBefore time.Time
-	// Timeout bounds the wait. Zero means [askDefaultTimeout].
-	Timeout time.Duration
-	// PollInterval overrides the wait/delivery cadence. Zero means the
-	// operator package default; tests shorten it.
-	PollInterval time.Duration
-	// Stderr receives non-fatal warnings (an applied answer whose channel edit
-	// failed). Nil discards them.
-	Stderr io.Writer
 }
 
 // askResult is what the command prints. The JSON field names are the machine
@@ -200,11 +162,6 @@ type askResult struct {
 	OptionIDs      []string `json:"option_ids,omitempty"`
 	ResolvedBy     string   `json:"resolved_by,omitempty"`
 	TelegramUserID string   `json:"telegram_user_id,omitempty"`
-
-	// consumer reports whether this run held the repository's single channel
-	// poll loop. It is not part of the output — it exists so the
-	// single-consumer rule is observable.
-	consumer bool
 }
 
 // askCollected is one settled question, printed as a JSON line by --collect.
@@ -236,7 +193,6 @@ func runAsk(cmd *cobra.Command, args []string) error {
 			Wait:    askWait,
 			Timeout: askTimeout,
 			Out:     cmd.OutOrStdout(),
-			Stderr:  cmd.ErrOrStderr(),
 		}); err != nil {
 			return askError(cmd, err)
 		}
@@ -248,7 +204,7 @@ func runAsk(cmd *cobra.Command, args []string) error {
 		return askError(cmd, err)
 	}
 
-	question, err := askQuestionFrom(cmd, gate, askCaption)
+	question, err := askQuestionFrom(cmd, gate)
 	if err != nil {
 		return askError(cmd, err)
 	}
@@ -272,12 +228,8 @@ func runAsk(cmd *cobra.Command, args []string) error {
 		TickID:    id,
 		Question:  question,
 		Gate:      gate,
-		Photo:     askPhoto,
-		Caption:   askCaption,
 		Async:     askAsync,
 		NotBefore: notBefore,
-		Timeout:   askTimeout,
-		Stderr:    cmd.ErrOrStderr(),
 	})
 	if err != nil {
 		return askError(cmd, err)
@@ -291,13 +243,7 @@ func runAsk(cmd *cobra.Command, args []string) error {
 		fmt.Fprintln(cmd.OutOrStdout(), string(data))
 		return nil
 	}
-	if askAsync {
-		// The id is the whole point of not waiting: it is what `tk ask
-		// --collect` prints back and what names the entry in .tick/pending.
-		fmt.Fprintln(cmd.OutOrStdout(), res.ID)
-		return nil
-	}
-	fmt.Fprintln(cmd.OutOrStdout(), res.Answer)
+	fmt.Fprintln(cmd.OutOrStdout(), res.ID)
 	return nil
 }
 
@@ -319,16 +265,11 @@ func askValidateFlags(args []string) error {
 				"--collect gathers answers to questions already asked: drop --question/--json")
 		case askEscalateAfter != 0:
 			return NewExitError(ExitUsage, "--escalate-after applies to asking a question, not to --collect")
-		case askPhoto != "" || askCaption != "":
-			return NewExitError(ExitUsage, "--photo/--caption deliver a question: they mean nothing to --collect")
 		}
 		return nil
 	}
-	if err := askValidatePhotoFlags(); err != nil {
-		return err
-	}
 	if askWait {
-		return NewExitError(ExitUsage, "--wait applies to --collect only (a plain tk ask already blocks)")
+		return NewExitError(ExitUsage, "--wait applies to --collect only")
 	}
 	if len(args) != 1 {
 		return NewExitError(ExitUsage,
@@ -340,43 +281,17 @@ func askValidateFlags(args []string) error {
 	return nil
 }
 
-// askValidatePhotoFlags keeps --photo to the one shape this epic settled: an
-// approval gate.
+// askFlow registers the question and reports where it landed.
 //
-// A photo with a plain ask would raise questions this epic deliberately left
-// open — what a free-text answer to a picture means, whether the picture is the
-// question or context for one — and answering them by accident here is worse
-// than a usage error that says so.
-func askValidatePhotoFlags() error {
-	if len(askCaption) > captionMaxLen {
-		return NewExitError(ExitUsage,
-			"--caption is %d bytes, over the %d the channel can show with a file",
-			len(askCaption), captionMaxLen)
-	}
-	if askPhoto == "" {
-		if askCaption != "" {
-			return NewExitError(ExitUsage, "--caption is the text shown with --photo: it means nothing without one")
-		}
-		return nil
-	}
-	if strings.ToLower(strings.TrimSpace(askGate)) != askGateApprove {
-		return NewExitError(ExitUsage,
-			"--photo delivers an approval gate: pass --gate %s (a photo on a plain ask is not supported yet)", askGateApprove)
-	}
-	return nil
-}
-
-// askFlow registers the question, delivers it, and blocks until either surface
-// settles it.
+// Registration parks the tick and writes the pending entry FIRST: an ask is
+// answerable from the terminal (or by whatever else resolves the pending
+// entry) the moment it lands on disk, regardless of what this call returns.
 //
-// The order is deliberate: the entry and the parked tick come FIRST, before the
-// channel is even looked up, so an unconfigured or broken channel degrades to
-// exactly what the tracker did before channels existed — a tick a human can
-// find with `tk list --awaiting`.
+// A plain ask reports [askParkedError] (exit 4): it never blocks waiting for
+// an answer — the terminal and `tk ask --collect [--wait]` are what settle a
+// parked question. --async reports success instead, since printing the id for
+// a later `tk ask --collect` is the whole point of not waiting.
 func askFlow(ctx context.Context, opts askOptions) (askResult, error) {
-	if opts.Timeout <= 0 {
-		opts.Timeout = askDefaultTimeout
-	}
 	engine := operator.NewEngine(opts.Root)
 	if _, err := engine.Ticks().Read(opts.TickID); err != nil {
 		return askResult{}, NewExitError(ExitNotFound, "failed to read tick: %v", err)
@@ -386,366 +301,31 @@ func askFlow(ctx context.Context, opts askOptions) (askResult, error) {
 	if opts.Gate {
 		kind = operator.PendingGate
 	}
-	registration := operator.Registration{
+	pending, err := engine.Register(operator.Registration{
 		TickID:    opts.TickID,
 		Kind:      kind,
 		Question:  opts.Question,
 		NotBefore: opts.NotBefore,
-	}
-
-	if opts.Photo != "" {
-		return askPhotoFlow(ctx, engine, registration, opts)
-	}
-
-	// Register parks the tick AND writes the pending entry, recording the
-	// awaiting value it parked as the baseline for out-of-band detection.
-	// Never set awaiting separately here.
-	pending, err := engine.Register(registration)
-	if err != nil {
-		return askResult{}, NewExitError(ExitIO, "%v", err)
-	}
-	registered := askResult{ID: pending.ID, TickID: pending.TickID}
-
-	channel, channelConfig, err := askChannel()
-	if err != nil {
-		return registered, err
-	}
-	if channel == nil {
-		return registered, askParkedError(pending)
-	}
-	labelChannel(channel, tickMessageContext(engine.Ticks(), pending.TickID))
-
-	return askSettleFlow(ctx, engine, channel, channelConfig, pending, opts)
-}
-
-// askPhotoFlow is the gated-attachment shape of an ask: the picture IS the
-// question, and the buttons hang under it.
-//
-// The order is inverted from the text flow on purpose. A gate under a photo only
-// exists once the upload has a message ref, so the channel comes first and the
-// entry is written with [operator.Engine.RegisterDelivered] — already delivered,
-// which is what stops the consumer from posting a duplicate text question on its
-// next sweep. From there nothing is special: the consumer adopts the ref, a press
-// routes by it, and Await/Apply settle the verdict exactly as they do for a text
-// gate.
-//
-// Degraded mode is unchanged: with no channel configured there is nothing to
-// upload to, so the question is registered and the tick parked exactly as a text
-// ask would leave them, and the run exits 4.
-func askPhotoFlow(ctx context.Context, engine *operator.Engine, registration operator.Registration, opts askOptions) (askResult, error) {
-	channel, channelConfig, err := askChannel()
-	labelChannel(channel, tickMessageContext(engine.Ticks(), registration.TickID))
-	if err != nil || channel == nil {
-		pending, regErr := engine.Register(registration)
-		if regErr != nil {
-			return askResult{}, NewExitError(ExitIO, "%v", regErr)
-		}
-		registered := askResult{ID: pending.ID, TickID: pending.TickID}
-		if err != nil {
-			return registered, err
-		}
-		return registered, askParkedError(pending)
-	}
-
-	if !operator.SupportsAttachments(channel) {
-		pending, regErr := engine.Register(registration)
-		if regErr != nil {
-			return askResult{}, NewExitError(ExitIO, "%v", regErr)
-		}
-		registered := askResult{ID: pending.ID, TickID: pending.TickID}
-		return registered, askParkedError(pending)
-	}
-	// --photo names the presentation, so the kind is explicit rather than
-	// resolved from the extension: a .webp screenshot asked for as a photo is
-	// sent as one.
-	ref, err := channel.(operator.AttachmentSender).SendAttachment(ctx, operator.Attachment{
-		Path:    opts.Photo,
-		Caption: opts.Caption,
-		Kind:    operator.KindPhoto,
-		Gate:    true,
 	})
 	if err != nil {
-		return askResult{}, NewExitError(ExitGeneric, "delivering the photo gate to the %s channel: %v", channelTelegram, err)
-	}
-
-	pending, err := engine.RegisterDelivered(registration, ref)
-	if err != nil {
 		return askResult{}, NewExitError(ExitIO, "%v", err)
 	}
-	return askSettleFlow(ctx, engine, channel, channelConfig, pending, opts)
-}
 
-// askSettleFlow is what every ask does once the question is registered and the
-// channel is open: return the id without waiting (--async), or block until one
-// of the two surfaces settles it.
-func askSettleFlow(
-	ctx context.Context,
-	engine *operator.Engine,
-	channel operator.Channel,
-	channelConfig operator.ChannelConfig,
-	pending operator.Pending,
-	opts askOptions,
-) (askResult, error) {
 	registered := askResult{ID: pending.ID, TickID: pending.TickID}
-
 	if opts.Async {
-		if err := askDeliverNow(ctx, engine, channel, channelConfig, pending); err != nil {
-			return registered, err
-		}
 		return registered, nil
 	}
-
-	applied, wasConsumer, err := askAwait(ctx, engine, channel, channelConfig, pending, opts)
-	if err != nil {
-		registered.consumer = wasConsumer
-		return registered, err
-	}
-
-	res := askResultFrom(applied)
-	res.ID, res.TickID, res.consumer = pending.ID, pending.TickID, wasConsumer
-	return res, nil
+	return registered, askParkedError(pending)
 }
 
-// askChannel opens the configured operator channel, reporting a nil channel
-// when none is configured.
-//
-// A missing channel is not an error here: it is degraded mode, and only the
-// caller knows whether that is fatal (a blocking ask has nobody to ask) or
-// merely lossy (a collect can still drain answers into tick state).
-func askChannel() (operator.Channel, operator.ChannelConfig, error) {
-	if factoryOperatorEnvConfigured() {
-		remote, configured, remoteErr := factoryOperatorChannel("")
-		if remoteErr == nil && configured {
-			return remote, operator.ChannelConfig{}, nil
-		}
-	}
-	config, err := operator.LoadOperatorConfig()
-	if err != nil {
-		return nil, operator.ChannelConfig{}, NewExitError(ExitIO, "loading operator config: %v", err)
-	}
-	channelConfig, ok := config.Channel(channelTelegram)
-	if !ok {
-		remote, configured, remoteErr := factoryOperatorChannel("")
-		if remoteErr == nil && configured {
-			return remote, operator.ChannelConfig{}, nil
-		}
-		return nil, operator.ChannelConfig{}, nil
-	}
-	channel, err := telegram.NewChannel(channelConfig)
-	if err != nil {
-		return nil, channelConfig, NewExitError(ExitGeneric, "opening the %s channel: %v", channelTelegram, err)
-	}
-	return channel, channelConfig, nil
-}
-
-// askDeliverNow posts questions whose escalation window has passed and returns.
-//
-// Delivery belongs to the elected consumer, so an async run only does it when
-// nobody else holds the role. When someone does, this is a no-op on purpose:
-// their next sweep picks the entry up, and opening a second transport to race
-// them would be how one question reaches the operator twice.
-func askDeliverNow(
-	ctx context.Context,
-	engine *operator.Engine,
-	channel operator.Channel,
-	channelConfig operator.ChannelConfig,
-	pending operator.Pending,
-) error {
-	lock, err := engine.Pending().AcquireConsumer()
-	if err != nil {
-		if errors.Is(err, operator.ErrConsumerBusy) {
-			return nil
-		}
-		return NewExitError(ExitIO, "%v", err)
-	}
-	defer func() { _ = lock.Release() }()
-
-	consumer := operator.NewConsumer(engine.Pending(), channel)
-	consumer.TelegramUserID = channelConfig.UserID
-
-	deliverCtx, cancel := context.WithTimeout(ctx, askSettleTimeout)
-	defer cancel()
-	if err := consumer.Deliver(deliverCtx); err != nil {
-		if _, ok := isFactoryChannel(channel); ok {
-			return askParkedError(pending)
-		}
-		return NewExitError(ExitGeneric, "delivering to the %s channel: %v", channelTelegram, err)
-	}
-	return nil
-}
-
-// askConsumer starts this run's attempt at the repository's single channel poll
-// loop and returns a stop function: it waits for the loop to exit and reports
-// whether this run held the consumer role.
-//
-// Losing the election is the normal case, not a failure: the winner delivers
-// this run's questions too and writes the resolutions it is waiting for.
-// Opening a second Events stream would fight it for the operator's updates. A
-// fatal channel failure cancels the run, because an answer can no longer
-// arrive on a dead channel.
-func askConsumer(
-	ctx context.Context,
-	cancel context.CancelFunc,
-	engine *operator.Engine,
-	channel operator.Channel,
-	telegramUserID string,
-	interval time.Duration,
-) func() (bool, error) {
-	consumer := operator.NewConsumer(engine.Pending(), channel)
-	consumer.TelegramUserID = telegramUserID
-	consumer.Interval = interval
-
-	done := make(chan error, 1)
-	go func() {
-		err := consumer.Run(ctx)
-		if err != nil && !errors.Is(err, operator.ErrConsumerBusy) {
-			cancel()
-		}
-		done <- err
-	}()
-
-	return func() (bool, error) {
-		err := <-done
-		switch {
-		case err == nil:
-			return true, nil
-		case errors.Is(err, operator.ErrConsumerBusy):
-			return false, nil
-		default:
-			return false, NewExitError(ExitGeneric, "the %s channel failed: %v", channelTelegram, err)
-		}
-	}
-}
-
-// askAwait runs the poll loop (or defers to whoever already does), blocks until
-// the question is settled, and edits the channel message to match.
-//
-// It returns the applied resolution and whether this run held the consumer
-// role. A timeout comes back as an [ExitTimeout] error AFTER the message has
-// been settled — the operator's phone must not keep showing a live question
-// nobody is listening to.
-func askAwait(
-	ctx context.Context,
-	engine *operator.Engine,
-	channel operator.Channel,
-	channelConfig operator.ChannelConfig,
-	pending operator.Pending,
-	opts askOptions,
-) (operator.Applied, bool, error) {
-	runCtx, cancel := context.WithTimeout(ctx, opts.Timeout)
-	defer cancel()
-
-	// Exactly one process per repository talks to the transport.
-	stop := askConsumer(runCtx, cancel, engine, channel, channelConfig.UserID, opts.PollInterval)
-
-	// Await watches both surfaces and applies whatever settles the question —
-	// including reporting an out-of-band resolution. Do not apply it again.
-	applied, awaitErr := engine.Await(runCtx, pending.ID, opts.PollInterval)
-	cancel()
-	wasConsumer, consumerErr := stop()
-	if consumerErr != nil {
-		if _, ok := isFactoryChannel(channel); ok {
-			return operator.Applied{}, wasConsumer, askParkedError(pending)
-		}
-		return operator.Applied{}, wasConsumer, consumerErr
-	}
-
-	timedOut := false
-	if awaitErr != nil {
-		if !errors.Is(awaitErr, context.DeadlineExceeded) {
-			return operator.Applied{}, wasConsumer,
-				NewExitError(ExitGeneric, "waiting for an answer to %s: %v", pending.ID, awaitErr)
-		}
-		applied, timedOut, awaitErr = askGiveUp(engine, pending.ID, opts.Timeout)
-		if awaitErr != nil {
-			return operator.Applied{}, wasConsumer, awaitErr
-		}
-	}
-
-	askSettle(ctx, channel, applied, opts.Stderr)
-
-	if timedOut {
-		return applied, wasConsumer, NewExitError(ExitTimeout,
-			"no answer to %s within %s: %s is still awaiting %s, and question %s is still open — "+
-				"tk answer %s <answer>, or a later run, can still settle it",
-			pending.ID, opts.Timeout, applied.Pending.TickID, applied.Pending.Awaiting,
-			pending.ID, applied.Pending.TickID)
-	}
-	return applied, wasConsumer, nil
-}
-
-// askParkedError is the degraded-mode contract shared by an absent channel and
-// an optional factory surface that cannot currently deliver. Registration has
-// already parked the tick before this is called, so the caller can safely leave
-// the question open for tk answer or a later run.
+// askParkedError reports that a question is durably parked but this process
+// is not waiting on it: answer it with tk answer, or drain it with
+// tk ask --collect [--wait].
 func askParkedError(pending operator.Pending) error {
 	return NewExitError(ExitNotFound,
-		"operator channel %q is not configured: %s is parked awaiting %s with question %s — answer it on the tick (tk list --awaiting)",
-		channelTelegram, pending.TickID, pending.Awaiting, pending.ID)
-}
-
-// askGiveUp reports how a question stood when the deadline expired.
-//
-// Giving up waiting is NOT a resolution: the entry is deliberately left
-// unresolved, exactly as `--collect --wait` leaves the questions it timed out
-// on. The run stopped listening; the question did not stop being a question, so
-// a later `tk answer` — or a later run's consumer — can still settle it and
-// have the answer reach the tick. Resolving it here would spend the one
-// resolution the entry gets on "nobody was around", and the operator's eventual
-// answer would then apply to nothing.
-//
-// An answer that landed while the deadline was firing wins — it is a real
-// decision, and losing it to a race would be worse than waiting a moment
-// longer.
-func askGiveUp(engine *operator.Engine, id string, timeout time.Duration) (operator.Applied, bool, error) {
-	entry, err := engine.Pending().Load(id)
-	if err != nil {
-		return operator.Applied{}, false, NewExitError(ExitIO, "reading the pending question %s: %v", id, err)
-	}
-	if entry.Resolved() {
-		applied, err := engine.Apply(entry)
-		if err != nil {
-			return operator.Applied{}, false, NewExitError(ExitIO, "applying the resolution of %s: %v", id, err)
-		}
-		return applied, false, nil
-	}
-	// The outcome is for the channel message only — nothing is written to the
-	// entry, so the question stays open on every surface.
-	return operator.Applied{Pending: entry, Outcome: askTimeoutOutcome(timeout)}, true, nil
-}
-
-// askTimeoutOutcome is what the operator's phone shows when a run stops
-// waiting: the question is settled as far as THIS run is concerned, and still
-// open as far as the tick is concerned. Saying only "timed out" would read as
-// "don't bother answering".
-func askTimeoutOutcome(timeout time.Duration) operator.Outcome {
-	return operator.Outcome{
-		Status: operator.OutcomeTimedOut,
-		Text:   fmt.Sprintf("No answer within %s — the run stopped waiting, but this question is still open", timeout),
-	}
-}
-
-// askSettle edits the delivered message to show how the question ended. It runs
-// on every resolution path — answered, out of band, timed out — so a question
-// on the operator's phone never stays interactive after it stopped meaning
-// anything.
-//
-// A failed edit is a warning, not a failure: the answer is already in tick
-// state, and reporting an error would tell the caller their decision was lost.
-func askSettle(ctx context.Context, channel operator.Channel, applied operator.Applied, stderr io.Writer) {
-	ref := applied.Pending.Ref
-	if channel == nil || ref.IsZero() {
-		// Never delivered (an unconfigured or slow channel): nothing to edit.
-		return
-	}
-	// Detached from the wait's context, which for a timeout has already expired.
-	settleCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), askSettleTimeout)
-	defer cancel()
-
-	if err := channel.Resolve(settleCtx, ref, applied.Outcome); err != nil && stderr != nil {
-		fmt.Fprintf(stderr, "warning: %s settled on the tick but its %s message was not updated: %v\n",
-			applied.Pending.TickID, channelTelegram, err)
-	}
+		"%s is parked awaiting %s with question %s — answer it (tk answer %s <answer>, or tk approve/reject %s), "+
+			"or drain it later with tk ask --collect",
+		pending.TickID, pending.Awaiting, pending.ID, pending.TickID, pending.TickID)
 }
 
 // askCollectOptions is one `tk ask --collect` run, resolved from the command
@@ -759,22 +339,19 @@ type askCollectOptions struct {
 	Wait bool
 	// Timeout bounds a waiting collect. Zero means [askDefaultTimeout].
 	Timeout time.Duration
-	// PollInterval overrides the wait/delivery cadence. Zero means the operator
+	// PollInterval overrides the wait cadence. Zero means the operator
 	// package default; tests shorten it.
 	PollInterval time.Duration
 	// Out receives one JSON line per settled question.
 	Out io.Writer
-	// Stderr receives non-fatal warnings. Nil discards them.
-	Stderr io.Writer
 }
 
 // askCollectFlow drains the repository's settled questions: it applies each
-// resolution to its tick, settles the channel message, prints a JSON line, and
-// removes the entry.
+// resolution to its tick, prints a JSON line, and removes the entry.
 //
 // It is the other half of --async, and the reason an entry is only deleted
 // here: a question stays on disk — visible to `tk list --awaiting` and
-// answerable from either surface — until somebody has actually taken delivery
+// answerable from the terminal — until somebody has actually taken delivery
 // of the answer.
 //
 // The set of questions is snapshotted at the start, so a --wait run finishes
@@ -795,24 +372,8 @@ func askCollectFlow(ctx context.Context, opts askCollectOptions) error {
 		return NewExitError(ExitIO, "listing pending questions: %v", err)
 	}
 
-	// A missing channel costs the message edit, not the answer: collecting is
-	// about draining resolutions into tick state, and a terminal answer needs
-	// no transport at all.
-	channel, channelConfig, err := askChannel()
-	if err != nil {
-		return err
-	}
-	// A collect drains every settled question in the repository, so there is no
-	// one tick to name — but the project still is one, and with a bot shared by
-	// every checkout it is the half that matters.
-	labelChannel(channel, operator.MessageContext{Project: messageProject()})
-
 	runCtx, cancel := context.WithTimeout(ctx, opts.Timeout)
 	defer cancel()
-	stop := func() (bool, error) { return false, nil }
-	if opts.Wait && channel != nil {
-		stop = askConsumer(runCtx, cancel, engine, channel, channelConfig.UserID, opts.PollInterval)
-	}
 
 	encoder := json.NewEncoder(out)
 	var open []string
@@ -820,29 +381,22 @@ func askCollectFlow(ctx context.Context, opts askCollectOptions) error {
 		applied, settled, err := askCollectOne(runCtx, engine, entry, opts)
 		if err != nil {
 			cancel()
-			_, _ = stop()
 			return err
 		}
 		if !settled {
 			open = append(open, entry.ID)
 			continue
 		}
-		askSettle(ctx, channel, applied, opts.Stderr)
 		if err := encoder.Encode(askCollectedFrom(applied)); err != nil {
 			cancel()
-			_, _ = stop()
 			return NewExitError(ExitIO, "printing the answer to %s: %v", entry.ID, err)
 		}
 		if err := engine.Pending().Delete(entry.ID); err != nil {
 			cancel()
-			_, _ = stop()
 			return NewExitError(ExitIO, "draining %s: %v", entry.ID, err)
 		}
 	}
 	cancel()
-	if _, err := stop(); err != nil {
-		return err
-	}
 
 	if opts.Wait && len(open) > 0 {
 		return NewExitError(ExitTimeout,
@@ -908,8 +462,9 @@ func askResultFrom(applied operator.Applied) askResult {
 		OptionIDs:  applied.Outcome.OptionIDs,
 		ResolvedBy: askResolvedTerminal,
 	}
-	// Anything that is not the channel is a local surface: `tk approve`, the
-	// TUI, or the tick moving on underneath the question.
+	// Anything answered by an external bridge is reported as telegram;
+	// everything else — tk approve/reject, tk answer, the tick moving on
+	// underneath the question — is a local surface.
 	if r := applied.Pending.Resolution; r != nil && r.AnsweredBy == operator.AnsweredByTelegram {
 		res.ResolvedBy = askResolvedTelegram
 		res.TelegramUserID = r.TelegramUserID
@@ -947,18 +502,10 @@ type askSpecOption struct {
 
 // askQuestionFrom builds the question from --question or from the JSON on
 // stdin.
-//
-// fallback is the text to ask when --question is omitted: a photo gate's caption
-// is what the operator actually reads under the picture, so repeating it in
-// --question just to satisfy this would be ceremony. It is ignored under --json,
-// where the question is the document's business.
-func askQuestionFrom(cmd *cobra.Command, gate bool, fallback string) (operator.Question, error) {
+func askQuestionFrom(cmd *cobra.Command, gate bool) (operator.Question, error) {
 	text := strings.TrimSpace(askQuestion)
 
 	if !askJSON {
-		if text == "" {
-			text = strings.TrimSpace(fallback)
-		}
 		if text == "" {
 			return operator.Question{}, NewExitError(ExitUsage,
 				"ask needs a question: --question <text>, or --json with the question on stdin")
