@@ -1,52 +1,34 @@
 package cmd
 
 import (
-	"context"
+	"bufio"
 	"encoding/json"
-	"net/http"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/pengelbrecht/ticks/internal/operator"
-	"github.com/pengelbrecht/ticks/internal/operator/telegram"
-	"github.com/pengelbrecht/ticks/internal/operator/telegram/fakebot"
 	"github.com/pengelbrecht/ticks/internal/tick"
 )
 
 // ---------------------------------------------------------------------------
 // Fixtures
 //
-// The whole flow runs against fakebot over real HTTP — the same transport the
-// installed binary uses, pointed at a local server by --api-base. A test
-// "operator" answers by pushing an update (a reply, a button press) exactly as
-// Telegram would.
+// `tk ask` has no delivery surface any more: a question is registered on the
+// tick, and answered from the terminal — `tk answer`, or `tk approve`/
+// `tk reject` for a gate. These tests exercise exactly that: registration,
+// the terminal answer path, and the async/collect halves that let a run keep
+// going while a question is open.
 // ---------------------------------------------------------------------------
 
-const (
-	askTestUserID int64 = 424242
-	askTestChatID int64 = 919191
-)
-
-// askTestEnv is a temp repo with a .tick store, a paired telegram channel and
-// the fake Bot API server behind it.
-func askTestEnv(t *testing.T) (repo string, store *tick.Store, bot *fakebot.Bot) {
+// askTestEnv is a temp repo with a .tick store, ready for tk ask.
+func askTestEnv(t *testing.T) (repo string, store *tick.Store) {
 	t.Helper()
 	repo, store = setupTestRepo(t)
 	if err := store.Ensure(); err != nil {
 		t.Fatalf("ensure tick store: %v", err)
 	}
-	channelTestHome(t)
-	bot = fakebot.New()
-	t.Cleanup(bot.Close)
-	writeChannelConfig(t, operator.ChannelConfig{
-		Token:   bot.Token,
-		UserID:  "424242",
-		ChatID:  "919191",
-		APIBase: bot.URL(),
-	})
-	return repo, store, bot
+	return repo, store
 }
 
 // askTestTick writes an in-progress tick for the ask to park.
@@ -59,59 +41,6 @@ func askTestTick(t *testing.T, store *tick.Store, id string) {
 	}
 }
 
-// askInBackground starts one ask and returns a function that waits for it. The
-// ask blocks until the question is resolved, so the test body plays the
-// operator while it runs.
-func askInBackground(t *testing.T, opts askOptions) func() (askResult, error) {
-	t.Helper()
-	var (
-		wg  sync.WaitGroup
-		res askResult
-		err error
-	)
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		res, err = askFlow(context.Background(), opts)
-	}()
-	return func() (askResult, error) {
-		wg.Wait()
-		return res, err
-	}
-}
-
-// waitForAskMessage returns the id of the delivered question message whose
-// rendered text contains want.
-func waitForAskMessage(t *testing.T, bot *fakebot.Bot, want string) int64 {
-	t.Helper()
-	deadline := time.Now().Add(15 * time.Second)
-	for time.Now().Before(deadline) {
-		for _, sent := range bot.Sent() {
-			if strings.Contains(sent.Text, want) {
-				return sent.MessageID
-			}
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	t.Fatalf("question %q was never delivered (sent: %+v)", want, bot.Sent())
-	return 0
-}
-
-// waitForAwaiting blocks until the tick is parked in the given awaiting state,
-// which is how a test knows the ask has registered.
-func waitForAwaiting(t *testing.T, store *tick.Store, id, awaiting string) {
-	t.Helper()
-	deadline := time.Now().Add(15 * time.Second)
-	for time.Now().Before(deadline) {
-		tk, err := store.Read(id)
-		if err == nil && tk.Awaiting != nil && *tk.Awaiting == awaiting {
-			return
-		}
-		time.Sleep(5 * time.Millisecond)
-	}
-	t.Fatalf("tick %s never parked awaiting %s", id, awaiting)
-}
-
 func askPendingEntries(t *testing.T, repo string) []operator.Pending {
 	t.Helper()
 	entries, err := operator.NewPendingStore(repo).List()
@@ -119,17 +48,6 @@ func askPendingEntries(t *testing.T, repo string) []operator.Pending {
 		t.Fatalf("list pending entries: %v", err)
 	}
 	return entries
-}
-
-func editedMessage(t *testing.T, bot *fakebot.Bot, messageID int64) fakebot.Edit {
-	t.Helper()
-	for _, edit := range bot.Edits() {
-		if edit.MessageID == messageID {
-			return edit
-		}
-	}
-	t.Fatalf("message %d was never edited (edits: %+v)", messageID, bot.Edits())
-	return fakebot.Edit{}
 }
 
 func mustReadTick(t *testing.T, store *tick.Store, id string) tick.Tick {
@@ -142,531 +60,280 @@ func mustReadTick(t *testing.T, store *tick.Store, id string) tick.Tick {
 }
 
 // ---------------------------------------------------------------------------
-// Resolution from the channel
+// Registration and degraded (exit 4) mode
 // ---------------------------------------------------------------------------
 
-// TestAskFreeTextResolvedOnChannel is the core loop: a free-text question is
-// delivered, the operator replies, the answer reaches stdout and the tick
-// carries it as a human note with the awaiting state cleared.
-func TestAskFreeTextResolvedOnChannel(t *testing.T) {
-	_, store, bot := askTestEnv(t)
-	askTestTick(t, store, "abc123")
-
-	wait := askInBackground(t, askOptions{
-		Root:         ".",
-		TickID:       "abc123",
-		Question:     operator.Question{Text: "Which region?"},
-		Timeout:      20 * time.Second,
-		PollInterval: 20 * time.Millisecond,
-	})
-
-	messageID := waitForAskMessage(t, bot, "Which region?")
-	bot.PushReply(askTestUserID, askTestChatID, messageID, "eu-west-1")
-
-	res, err := wait()
-	if err != nil {
-		t.Fatalf("ask: %v", err)
-	}
-	if res.Answer != "eu-west-1" {
-		t.Errorf("answer = %q, want %q", res.Answer, "eu-west-1")
-	}
-	if res.ResolvedBy != "telegram" {
-		t.Errorf("resolved_by = %q, want telegram", res.ResolvedBy)
-	}
-	if res.TelegramUserID != "424242" {
-		t.Errorf("telegram_user_id = %q, want 424242", res.TelegramUserID)
-	}
-
-	tk := mustReadTick(t, store, "abc123")
-	if tk.Awaiting != nil {
-		t.Errorf("tick still awaiting %v after the answer", *tk.Awaiting)
-	}
-	if !strings.Contains(tk.Notes, "[human] eu-west-1") {
-		t.Errorf("notes do not carry the human answer:\n%s", tk.Notes)
-	}
-	if !strings.Contains(tk.Notes, "via telegram user 424242") {
-		t.Errorf("notes do not name the operator identity:\n%s", tk.Notes)
-	}
-
-	edit := editedMessage(t, bot, messageID)
-	if !strings.Contains(edit.Text, "eu-west-1") {
-		t.Errorf("resolved message = %q, want the answer rendered onto it", edit.Text)
-	}
-}
-
-// TestAskOptionsResolveByOptionID pins that a button press comes back as the
-// option's id, not just its label.
-func TestAskOptionsResolveByOptionID(t *testing.T) {
-	_, store, bot := askTestEnv(t)
-	askTestTick(t, store, "abc123")
-
-	wait := askInBackground(t, askOptions{
-		Root:   ".",
-		TickID: "abc123",
-		Question: operator.Question{
-			Text: "Which colour?",
-			Options: []operator.Option{
-				{ID: "blue", Label: "Blue"},
-				{ID: "green", Label: "Green"},
-			},
-		},
-		Timeout:      20 * time.Second,
-		PollInterval: 20 * time.Millisecond,
-	})
-
-	messageID := waitForAskMessage(t, bot, "Which colour?")
-	// "o1" is the transport's callback data for the second option.
-	bot.PushCallback(askTestUserID, askTestChatID, messageID, "o1")
-
-	res, err := wait()
-	if err != nil {
-		t.Fatalf("ask: %v", err)
-	}
-	if len(res.OptionIDs) != 1 || res.OptionIDs[0] != "green" {
-		t.Errorf("option_ids = %v, want [green]", res.OptionIDs)
-	}
-	if res.Answer != "Green" {
-		t.Errorf("answer = %q, want the option label", res.Answer)
-	}
-	if res.ResolvedBy != "telegram" {
-		t.Errorf("resolved_by = %q, want telegram", res.ResolvedBy)
-	}
-
-	tk := mustReadTick(t, store, "abc123")
-	if tk.Awaiting != nil {
-		t.Errorf("tick still awaiting %v after the press", *tk.Awaiting)
-	}
-	if !strings.Contains(tk.Notes, "[human] Green") {
-		t.Errorf("notes do not carry the chosen option:\n%s", tk.Notes)
-	}
-	editedMessage(t, bot, messageID)
-}
-
-// TestAskGateApproveSetsVerdict pins the gate shape: awaiting=approval,
-// approve/reject buttons, and a press that runs the verdict through the engine
-// (closing the tick, as `tk approve` on an approval gate does).
-func TestAskGateApproveSetsVerdict(t *testing.T) {
-	_, store, bot := askTestEnv(t)
-	askTestTick(t, store, "abc123")
-
-	wait := askInBackground(t, askOptions{
-		Root:         ".",
-		TickID:       "abc123",
-		Question:     operator.Question{Text: "Ship it?"},
-		Gate:         true,
-		Timeout:      20 * time.Second,
-		PollInterval: 20 * time.Millisecond,
-	})
-
-	waitForAwaiting(t, store, "abc123", tick.AwaitingApproval)
-	messageID := waitForAskMessage(t, bot, "Ship it?")
-	// "o0" is the first button: Approve.
-	bot.PushCallback(askTestUserID, askTestChatID, messageID, "o0")
-
-	res, err := wait()
-	if err != nil {
-		t.Fatalf("ask --gate approve: %v", err)
-	}
-	if len(res.OptionIDs) != 1 || res.OptionIDs[0] != operator.OptionApprove {
-		t.Errorf("option_ids = %v, want [%s]", res.OptionIDs, operator.OptionApprove)
-	}
-
-	tk := mustReadTick(t, store, "abc123")
-	if tk.Status != tick.StatusClosed {
-		t.Errorf("tick status = %s, want closed after an approved gate", tk.Status)
-	}
-	if !strings.Contains(tk.Notes, "[human] Approve") {
-		t.Errorf("notes do not carry the verdict:\n%s", tk.Notes)
-	}
-	editedMessage(t, bot, messageID)
-}
-
-// ---------------------------------------------------------------------------
-// Resolution from the terminal
-// ---------------------------------------------------------------------------
-
-// TestAskResolvedOutOfBandReportsTerminal pins the second surface: a real
-// `tk approve` while the ask is blocked ends the wait, and the stale channel
-// message is still settled.
-func TestAskResolvedOutOfBandReportsTerminal(t *testing.T) {
-	_, store, bot := askTestEnv(t)
-	askTestTick(t, store, "def456")
-
-	wait := askInBackground(t, askOptions{
-		Root:         ".",
-		TickID:       "def456",
-		Question:     operator.Question{Text: "Which region?"},
-		Timeout:      20 * time.Second,
-		PollInterval: 20 * time.Millisecond,
-	})
-
-	waitForAwaiting(t, store, "def456", tick.AwaitingInput)
-	messageID := waitForAskMessage(t, bot, "Which region?")
-
-	captureCmdOutput(t)
-	if err := ExecuteArgs([]string{"approve", "def456"}); err != nil {
-		t.Fatalf("tk approve while the ask was blocked: %v", err)
-	}
-
-	res, err := wait()
-	if err != nil {
-		t.Fatalf("ask: %v", err)
-	}
-	if res.ResolvedBy != "terminal" {
-		t.Errorf("resolved_by = %q, want terminal for an out-of-band resolution", res.ResolvedBy)
-	}
-	if res.Answer == "" {
-		t.Error("out-of-band resolution produced no answer text")
-	}
-	editedMessage(t, bot, messageID)
-}
-
-// ---------------------------------------------------------------------------
-// Timeout and degraded mode
-// ---------------------------------------------------------------------------
-
-// TestAskTimeoutLeavesTickAwaiting pins the timeout contract: exit 7, the tick
-// stays parked, the pending entry survives UNRESOLVED, and the message says so.
-func TestAskTimeoutLeavesTickAwaiting(t *testing.T) {
-	repo, store, bot := askTestEnv(t)
-	askTestTick(t, store, "abc123")
-
-	res, err := askFlow(context.Background(), askOptions{
-		Root:         ".",
-		TickID:       "abc123",
-		Question:     operator.Question{Text: "Which region?"},
-		Timeout:      700 * time.Millisecond,
-		PollInterval: 20 * time.Millisecond,
-	})
-	if err == nil {
-		t.Fatalf("ask with no answer returned nil error (result %+v)", res)
-	}
-	if code := GetExitCode(err); code != ExitTimeout {
-		t.Fatalf("exit code = %d, want %d (timeout): %v", code, ExitTimeout, err)
-	}
-
-	tk := mustReadTick(t, store, "abc123")
-	if tk.Awaiting == nil || *tk.Awaiting != tick.AwaitingInput {
-		t.Errorf("tick awaiting = %v, want it still parked on input", tk.Awaiting)
-	}
-	if strings.Contains(tk.Notes, "[human]") {
-		t.Errorf("timeout wrote a human note:\n%s", tk.Notes)
-	}
-
-	entries := askPendingEntries(t, repo)
-	if len(entries) != 1 {
-		t.Fatalf("pending entries = %d, want the timed-out entry left intact: %+v", len(entries), entries)
-	}
-	if entries[0].TickID != "abc123" {
-		t.Errorf("pending entry = %+v, want it to belong to abc123", entries[0])
-	}
-	if entries[0].Resolved() {
-		t.Errorf("the timeout resolved the question: %+v", entries[0].Resolution)
-	}
-
-	messageID := waitForAskMessage(t, bot, "Which region?")
-	edit := editedMessage(t, bot, messageID)
-	if !strings.Contains(strings.ToLower(edit.Text), "timed out") {
-		t.Errorf("timed-out message = %q, want it to say the question timed out", edit.Text)
-	}
-	if !strings.Contains(strings.ToLower(edit.Text), "still open") {
-		t.Errorf("timed-out message = %q, want it to say the question is still open", edit.Text)
-	}
-}
-
-// TestAskTimeoutLeavesQuestionAnswerable is the end of that contract: giving up
-// waiting is not an answer, so `tk answer` still settles the question afterward
-// and the answer reaches the tick.
-func TestAskTimeoutLeavesQuestionAnswerable(t *testing.T) {
-	repo, store, bot := askTestEnv(t)
-	askTestTick(t, store, "abc123")
-
-	_, err := askFlow(context.Background(), askOptions{
-		Root:         ".",
-		TickID:       "abc123",
-		Question:     operator.Question{Text: "Which region?"},
-		Timeout:      700 * time.Millisecond,
-		PollInterval: 20 * time.Millisecond,
-	})
-	if code := GetExitCode(err); code != ExitTimeout {
-		t.Fatalf("exit code = %d, want %d (timeout): %v", code, ExitTimeout, err)
-	}
-	waitForAskMessage(t, bot, "Which region?")
-	questionID := askPendingEntries(t, repo)[0].ID
-
-	out := captureChannelIO(t, "")
-	if err := ExecuteArgs([]string{"answer", "abc123", "eu-west-1"}); err != nil {
-		t.Fatalf("tk answer after a timeout: %v\n%s", err, out.String())
-	}
-
-	entry := askPendingEntry(t, repo, questionID)
-	if entry.Resolution == nil || entry.Resolution.Outcome.Status != operator.OutcomeAnswered {
-		t.Fatalf("the late answer did not resolve the question: %+v", entry.Resolution)
-	}
-	tk := mustReadTick(t, store, "abc123")
-	if !strings.Contains(tk.Notes, "[human] eu-west-1") {
-		t.Errorf("the late answer never reached the tick:\n%s", tk.Notes)
-	}
-	if tk.Awaiting != nil {
-		t.Errorf("tick still awaiting %v after the late answer", *tk.Awaiting)
-	}
-}
-
-// TestAskUnconfiguredChannelParksTick pins degraded mode: exit 4, no HTTP, and
-// the question is still parked where a human can find it.
-func TestAskUnconfiguredChannelParksTick(t *testing.T) {
-	repo, store := setupTestRepo(t)
-	if err := store.Ensure(); err != nil {
-		t.Fatalf("ensure tick store: %v", err)
-	}
-	channelTestHome(t)
-	bot := fakebot.New()
-	defer bot.Close()
+// TestAskParksAndReportsExit4 pins the default contract: a plain ask never
+// blocks. It registers the question, leaves the tick parked, and reports exit
+// 4 so a caller knows to answer it (or drain it later) rather than mistaking
+// silence for an answer.
+func TestAskParksAndReportsExit4(t *testing.T) {
+	repo, store := askTestEnv(t)
 	askTestTick(t, store, "abc123")
 
 	out := captureChannelIO(t, "")
 	err := ExecuteArgs([]string{"ask", "abc123", "--question", "Which region?"})
 	if err == nil {
-		t.Fatalf("ask with no configured channel returned nil error\n%s", out.String())
+		t.Fatalf("ask returned nil error\n%s", out.String())
 	}
 	if code := GetExitCode(err); code != ExitNotFound {
-		t.Fatalf("exit code = %d, want %d: %v", code, ExitNotFound, err)
-	}
-	if calls := bot.Calls(); len(calls) != 0 {
-		t.Errorf("unconfigured ask made HTTP calls: %v", calls)
+		t.Fatalf("exit code = %d, want %d (parked): %v", code, ExitNotFound, err)
 	}
 
 	tk := mustReadTick(t, store, "abc123")
 	if tk.Awaiting == nil || *tk.Awaiting != tick.AwaitingInput {
-		t.Errorf("tick awaiting = %v, want it parked on input despite the dead channel", tk.Awaiting)
+		t.Errorf("tick awaiting = %v, want it parked on input", tk.Awaiting)
 	}
 	entries := askPendingEntries(t, repo)
 	if len(entries) != 1 {
-		t.Fatalf("pending entries = %d, want the question recorded anyway: %+v", len(entries), entries)
+		t.Fatalf("pending entries = %d, want 1: %+v", len(entries), entries)
 	}
 	if entries[0].Question.Text != "Which region?" {
 		t.Errorf("pending question = %q, want the asked question", entries[0].Question.Text)
 	}
 	if entries[0].Resolved() {
-		t.Errorf("unconfigured ask resolved the entry: %+v", entries[0].Resolution)
+		t.Errorf("a plain ask resolved the entry: %+v", entries[0].Resolution)
+	}
+	if entries[0].Delivered() {
+		t.Errorf("a plain ask delivered the entry: %+v", entries[0].Ref)
 	}
 }
 
-func TestAskIgnoresAnInvalidOptionalFactory(t *testing.T) {
-	channelTestHome(t)
-	t.Setenv("TICKS_FACTORY_URL", "://not-a-url")
-	t.Setenv("TICKS_FACTORY_TOKEN", "tkf_secret")
-
-	channel, _, err := askChannel()
-	if err != nil {
-		t.Fatalf("askChannel returned an optional factory error: %v", err)
-	}
-	if channel != nil {
-		t.Fatalf("askChannel returned %T without a usable local or factory channel", channel)
-	}
-}
-
-func TestAskFactoryDeliveryFailureKeepsTheQuestionParked(t *testing.T) {
-	_, store := setupTestRepo(t)
-	if err := store.Ensure(); err != nil {
-		t.Fatalf("ensure tick store: %v", err)
-	}
+// TestAskGateRegistersApprovalOptions pins the gate shape: awaiting=approval
+// and approve/reject options, still parked (never blocks) just like a plain
+// ask.
+func TestAskGateRegistersApprovalOptions(t *testing.T) {
+	repo, store := askTestEnv(t)
 	askTestTick(t, store, "abc123")
 
-	engine := operator.NewEngine(".")
-	pending, err := engine.Register(operator.Registration{
-		TickID:   "abc123",
-		Kind:     operator.PendingAsk,
-		Question: operator.Question{Text: "Which region?"},
-	})
-	if err != nil {
-		t.Fatalf("register question: %v", err)
+	out := captureChannelIO(t, "")
+	err := ExecuteArgs([]string{"ask", "abc123", "--question", "Ship it?", "--gate", "approve"})
+	if err == nil {
+		t.Fatalf("ask --gate approve returned nil error\n%s", out.String())
 	}
-	channel, err := telegram.NewFactoryChannel(telegram.FactoryConfig{
-		URL:     "https://factory.example.test",
-		Token:   "tkf_secret",
-		Project: "owner/repo",
-		HTTPClient: &http.Client{Transport: remoteRoundTripFunc(func(req *http.Request) (*http.Response, error) {
-			return remoteJSONResponse(http.StatusNotFound, `{"error":"not_found"}`), nil
-		})},
-	})
-	if err != nil {
-		t.Fatalf("NewFactoryChannel: %v", err)
+	if code := GetExitCode(err); code != ExitNotFound {
+		t.Fatalf("exit code = %d, want %d: %v", code, ExitNotFound, err)
 	}
 
-	_, _, err = askAwait(context.Background(), engine, channel, operator.ChannelConfig{}, pending, askOptions{
-		Timeout:      time.Second,
-		PollInterval: 5 * time.Millisecond,
-	})
-	if code := GetExitCode(err); code != ExitNotFound {
-		t.Fatalf("exit code = %d, want %d (parked): %v", code, ExitNotFound, err)
+	tk := mustReadTick(t, store, "abc123")
+	if tk.GetAwaitingType() != tick.AwaitingApproval {
+		t.Errorf("tick awaiting = %q, want approval", tk.GetAwaitingType())
 	}
-	entry, err := engine.Pending().Load(pending.ID)
-	if err != nil {
-		t.Fatalf("load pending question: %v", err)
-	}
-	if entry.Resolved() {
-		t.Fatalf("factory delivery failure resolved the question: %+v", entry.Resolution)
-	}
-	tk, err := store.Read("abc123")
-	if err != nil {
-		t.Fatalf("read tick: %v", err)
-	}
-	if tk.Awaiting == nil || *tk.Awaiting != tick.AwaitingInput {
-		t.Fatalf("tick awaiting = %v, want %s", tk.Awaiting, tick.AwaitingInput)
+	entries := askPendingEntries(t, repo)
+	if len(entries) != 1 || len(entries[0].Question.Options) != 2 ||
+		entries[0].Question.Options[0].ID != operator.OptionApprove {
+		t.Fatalf("pending entries = %+v, want one gate question with approve/reject", entries)
 	}
 }
 
 // ---------------------------------------------------------------------------
-// Single consumer
+// Async registration and collection
 // ---------------------------------------------------------------------------
 
-// TestAskConcurrentAsksElectOneConsumer pins the single-consumer rule: two asks
-// in flight open exactly one channel poll loop, and the waiter's question is
-// still delivered and answered.
-func TestAskConcurrentAsksElectOneConsumer(t *testing.T) {
-	_, store, bot := askTestEnv(t)
+// TestAskAsyncPrintsQuestionIDAndSucceeds pins the async contract: unlike a
+// plain ask, --async reports success and prints the id, so the caller can
+// drain the answer later with tk ask --collect.
+func TestAskAsyncPrintsQuestionIDAndSucceeds(t *testing.T) {
+	repo, store := askTestEnv(t)
+	askTestTick(t, store, "abc123")
+
+	out := captureChannelIO(t, "")
+	if err := ExecuteArgs([]string{"ask", "abc123", "--question", "Which region?", "--async"}); err != nil {
+		t.Fatalf("ask --async: %v\n%s", err, out.String())
+	}
+
+	entries := askPendingEntries(t, repo)
+	if len(entries) != 1 {
+		t.Fatalf("pending entries = %d, want 1: %+v", len(entries), entries)
+	}
+	if printed := strings.TrimSpace(out.String()); printed != entries[0].ID {
+		t.Errorf("stdout = %q, want the bare question id %q", printed, entries[0].ID)
+	}
+	if entries[0].Resolved() {
+		t.Errorf("async ask resolved its own question: %+v", entries[0].Resolution)
+	}
+
+	tk := mustReadTick(t, store, "abc123")
+	if tk.Awaiting == nil || *tk.Awaiting != tick.AwaitingInput {
+		t.Errorf("tick awaiting = %v, want it parked on input", tk.Awaiting)
+	}
+}
+
+// TestAskAsyncJSONPrintsRegisteredResult pins --json --async: it prints the
+// registered id/tick_id with no answer yet, rather than erroring the way a
+// plain ask does.
+func TestAskAsyncJSONPrintsRegisteredResult(t *testing.T) {
+	_, store := askTestEnv(t)
+	askTestTick(t, store, "abc123")
+
+	spec := `{"question":"Which region?"}`
+	out := captureChannelIO(t, spec)
+	if err := ExecuteArgs([]string{"ask", "abc123", "--json", "--async"}); err != nil {
+		t.Fatalf("ask --json --async: %v\n%s", err, out.String())
+	}
+
+	var res askResult
+	if err := json.Unmarshal([]byte(out.String()), &res); err != nil {
+		t.Fatalf("parsing ask --json --async output: %v\n%s", err, out.String())
+	}
+	if res.ID == "" || res.TickID != "abc123" {
+		t.Errorf("result = %+v, want a registered id for abc123", res)
+	}
+	if res.Answer != "" {
+		t.Errorf("result carries an answer before anyone has answered: %+v", res)
+	}
+}
+
+// TestAskEscalateAfterRecordsNotBefore pins the flag itself: --escalate-after
+// records a not-before on the entry without needing any delivery mechanism —
+// it is metadata for whatever surface eventually looks at it.
+func TestAskEscalateAfterRecordsNotBefore(t *testing.T) {
+	repo, store := askTestEnv(t)
+	askTestTick(t, store, "abc123")
+
+	out := captureChannelIO(t, "")
+	if err := ExecuteArgs([]string{"ask", "abc123", "--question", "Which region?", "--async", "--escalate-after", "1h"}); err != nil {
+		t.Fatalf("ask --async --escalate-after: %v\n%s", err, out.String())
+	}
+	entries := askPendingEntries(t, repo)
+	if len(entries) != 1 {
+		t.Fatalf("pending entries = %d, want 1: %+v", len(entries), entries)
+	}
+	if entries[0].NotBefore.IsZero() {
+		t.Error("--escalate-after did not record a not-before timestamp")
+	}
+}
+
+// TestAskCollectWaitRoundTrip is the async round trip end to end: one process
+// registers, another blocks in --collect --wait, and a terminal answer comes
+// back as a JSON line with the entry drained.
+func TestAskCollectWaitRoundTrip(t *testing.T) {
+	repo, store := askTestEnv(t)
+	askTestTick(t, store, "abc123")
+
+	out := captureChannelIO(t, "")
+	if err := ExecuteArgs([]string{"ask", "abc123", "--question", "Which region?", "--async"}); err != nil {
+		t.Fatalf("ask --async: %v\n%s", err, out.String())
+	}
+
+	// Registration above is synchronous, so the entry is already parked; a
+	// short delay is enough to let --collect --wait start polling first.
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		answerOut := captureChannelIO(t, "")
+		if err := ExecuteArgs([]string{"answer", "abc123", "eu-west-1"}); err != nil {
+			t.Errorf("tk answer: %v\n%s", err, answerOut.String())
+		}
+	}()
+
+	var collected syncBuffer
+	err := askCollectFlow(t.Context(), askCollectOptions{
+		Root:         repo,
+		Wait:         true,
+		Timeout:      10 * time.Second,
+		PollInterval: 10 * time.Millisecond,
+		Out:          &collected,
+	})
+	if err != nil {
+		t.Fatalf("ask --collect --wait: %v\n%s", err, collected.String())
+	}
+
+	lines := askCollectLines(t, collected.String())
+	if len(lines) != 1 {
+		t.Fatalf("collected %d lines, want 1:\n%s", len(lines), collected.String())
+	}
+	if lines[0].Answer != "eu-west-1" {
+		t.Errorf("answer = %q, want the terminal answer", lines[0].Answer)
+	}
+	if lines[0].ResolvedBy != askResolvedTerminal {
+		t.Errorf("resolved_by = %q, want terminal", lines[0].ResolvedBy)
+	}
+
+	if entries := askPendingEntries(t, repo); len(entries) != 0 {
+		t.Errorf("collect left %d entries behind: %+v", len(entries), entries)
+	}
+	tk := mustReadTick(t, store, "abc123")
+	if tk.Awaiting != nil {
+		t.Errorf("tick still awaiting %v after collection", *tk.Awaiting)
+	}
+}
+
+// TestAskCollectWithoutWaitSkipsOpenQuestions pins the non-blocking half: a
+// bare --collect drains what is already answered and leaves the rest pending.
+func TestAskCollectWithoutWaitSkipsOpenQuestions(t *testing.T) {
+	repo, store := askTestEnv(t)
 	askTestTick(t, store, "abc123")
 	askTestTick(t, store, "def456")
 
-	first := askInBackground(t, askOptions{
-		Root:         ".",
-		TickID:       "abc123",
-		Question:     operator.Question{Text: "Question one?"},
-		Timeout:      20 * time.Second,
-		PollInterval: 20 * time.Millisecond,
-	})
-	second := askInBackground(t, askOptions{
-		Root:         ".",
-		TickID:       "def456",
-		Question:     operator.Question{Text: "Question two?"},
-		Timeout:      20 * time.Second,
-		PollInterval: 20 * time.Millisecond,
-	})
-
-	oneID := waitForAskMessage(t, bot, "Question one?")
-	twoID := waitForAskMessage(t, bot, "Question two?")
-	bot.PushReply(askTestUserID, askTestChatID, oneID, "answer one")
-	bot.PushReply(askTestUserID, askTestChatID, twoID, "answer two")
-
-	firstRes, firstErr := first()
-	secondRes, secondErr := second()
-	if firstErr != nil || secondErr != nil {
-		t.Fatalf("concurrent asks failed: %v / %v", firstErr, secondErr)
-	}
-	if firstRes.Answer != "answer one" {
-		t.Errorf("first answer = %q, want %q", firstRes.Answer, "answer one")
-	}
-	if secondRes.Answer != "answer two" {
-		t.Errorf("second answer = %q, want %q", secondRes.Answer, "answer two")
-	}
-
-	consumers := 0
-	for _, res := range []askResult{firstRes, secondRes} {
-		if res.consumer {
-			consumers++
+	for _, id := range []string{"abc123", "def456"} {
+		out := captureChannelIO(t, "")
+		if err := ExecuteArgs([]string{"ask", id, "--question", "Which region?", "--async"}); err != nil {
+			t.Fatalf("ask %s --async: %v\n%s", id, err, out.String())
 		}
 	}
-	if consumers != 1 {
-		t.Errorf("%d of 2 asks ran the channel poll loop, want exactly 1", consumers)
+	answered := captureChannelIO(t, "")
+	if err := ExecuteArgs([]string{"answer", "abc123", "eu-west-1"}); err != nil {
+		t.Fatalf("tk answer: %v\n%s", err, answered.String())
+	}
+
+	out := captureChannelIO(t, "")
+	if err := ExecuteArgs([]string{"ask", "--collect"}); err != nil {
+		t.Fatalf("ask --collect: %v\n%s", err, out.String())
+	}
+	lines := askCollectLines(t, out.String())
+	if len(lines) != 1 {
+		t.Fatalf("collected %d lines, want only the answered question:\n%s", len(lines), out.String())
+	}
+	if lines[0].TickID != "abc123" {
+		t.Errorf("collected tick_id = %q, want abc123", lines[0].TickID)
+	}
+	if lines[0].ResolvedBy != askResolvedTerminal {
+		t.Errorf("resolved_by = %q, want terminal", lines[0].ResolvedBy)
+	}
+
+	entries := askPendingEntries(t, repo)
+	if len(entries) != 1 || entries[0].TickID != "def456" {
+		t.Fatalf("remaining entries = %+v, want the unanswered def456 question", entries)
 	}
 }
 
-// ---------------------------------------------------------------------------
-// Command surface
-// ---------------------------------------------------------------------------
-
-// TestAskJSONModeReadsStdinAndPrintsResult is the machine-readable path end to
-// end: the question shape arrives on stdin, the answer leaves as JSON.
-func TestAskJSONModeReadsStdinAndPrintsResult(t *testing.T) {
-	_, store, bot := askTestEnv(t)
-	askTestTick(t, store, "abc123")
-
-	spec := `{"question":"Which colour?","header":"Palette","options":[{"label":"Blue"},{"label":"Deep Green","description":"the dark one"}]}`
-	out := captureChannelIO(t, spec)
-
-	go func() {
-		deadline := time.Now().Add(15 * time.Second)
-		for time.Now().Before(deadline) {
-			for _, sent := range bot.Sent() {
-				if strings.Contains(sent.Text, "Which colour?") {
-					bot.PushCallback(askTestUserID, askTestChatID, sent.MessageID, "o1")
-					return
-				}
-			}
-			time.Sleep(5 * time.Millisecond)
-		}
-	}()
-
-	if err := ExecuteArgs([]string{"ask", "abc123", "--json", "--timeout", "20s"}); err != nil {
-		t.Fatalf("ask --json: %v\n%s", err, out.String())
-	}
-
-	printed := out.String()
-	start := strings.Index(printed, "{")
-	if start < 0 {
-		t.Fatalf("ask --json printed no JSON object:\n%s", printed)
-	}
-	var res struct {
-		Answer         string   `json:"answer"`
-		OptionIDs      []string `json:"option_ids"`
-		ResolvedBy     string   `json:"resolved_by"`
-		TelegramUserID string   `json:"telegram_user_id"`
-	}
-	if err := json.Unmarshal([]byte(printed[start:]), &res); err != nil {
-		t.Fatalf("parsing ask --json output: %v\n%s", err, printed)
-	}
-	if res.Answer != "Deep Green" {
-		t.Errorf("answer = %q, want %q", res.Answer, "Deep Green")
-	}
-	if len(res.OptionIDs) != 1 || res.OptionIDs[0] != "deep-green" {
-		t.Errorf("option_ids = %v, want [deep-green] (ids derived from labels)", res.OptionIDs)
-	}
-	if res.ResolvedBy != "telegram" {
-		t.Errorf("resolved_by = %q, want telegram", res.ResolvedBy)
-	}
-	if res.TelegramUserID != "424242" {
-		t.Errorf("telegram_user_id = %q, want 424242", res.TelegramUserID)
-	}
-}
-
-// TestAskTextModePrintsBareAnswer pins the text contract: stdout is the answer
-// and nothing else, so `answer=$(tk ask ...)` works.
-func TestAskTextModePrintsBareAnswer(t *testing.T) {
-	_, store, bot := askTestEnv(t)
+// TestAskCollectWaitTimeoutLeavesQuestionOpen pins the timeout contract for
+// --collect --wait: exit 7, and the pending entry survives UNRESOLVED.
+func TestAskCollectWaitTimeoutLeavesQuestionOpen(t *testing.T) {
+	repo, store := askTestEnv(t)
 	askTestTick(t, store, "abc123")
 
 	out := captureChannelIO(t, "")
-	go func() {
-		deadline := time.Now().Add(15 * time.Second)
-		for time.Now().Before(deadline) {
-			for _, sent := range bot.Sent() {
-				if strings.Contains(sent.Text, "Which region?") {
-					bot.PushReply(askTestUserID, askTestChatID, sent.MessageID, "eu-west-1")
-					return
-				}
-			}
-			time.Sleep(5 * time.Millisecond)
-		}
-	}()
-
-	if err := ExecuteArgs([]string{"ask", "abc123", "--question", "Which region?", "--timeout", "20s"}); err != nil {
-		t.Fatalf("ask: %v\n%s", err, out.String())
+	if err := ExecuteArgs([]string{"ask", "abc123", "--question", "Which region?", "--async"}); err != nil {
+		t.Fatalf("ask --async: %v\n%s", err, out.String())
 	}
-	if got := strings.TrimSpace(out.String()); got != "eu-west-1" {
-		t.Errorf("stdout = %q, want the bare answer", out.String())
+
+	err := askCollectFlow(t.Context(), askCollectOptions{
+		Root:         repo,
+		Wait:         true,
+		Timeout:      200 * time.Millisecond,
+		PollInterval: 10 * time.Millisecond,
+	})
+	if code := GetExitCode(err); code != ExitTimeout {
+		t.Fatalf("exit code = %d, want %d (timeout): %v", code, ExitTimeout, err)
+	}
+
+	entries := askPendingEntries(t, repo)
+	if len(entries) != 1 || entries[0].Resolved() {
+		t.Fatalf("pending entries = %+v, want the timed-out entry left intact and unresolved", entries)
 	}
 }
 
-// TestAskRejectsMissingQuestion keeps the usage gate typed.
+// ---------------------------------------------------------------------------
+// Usage
+// ---------------------------------------------------------------------------
+
 func TestAskRejectsMissingQuestion(t *testing.T) {
-	_, store, _ := askTestEnv(t)
+	_, store := askTestEnv(t)
 	askTestTick(t, store, "abc123")
 
 	out := captureChannelIO(t, "")
-	// The short timeout is a safety net, not part of the contract: a command
-	// that wrongly accepted this would otherwise block the suite for 10 minutes.
-	err := ExecuteArgs([]string{"ask", "abc123", "--timeout", "1s"})
+	err := ExecuteArgs([]string{"ask", "abc123"})
 	if err == nil {
 		t.Fatalf("ask with no question returned nil error\n%s", out.String())
 	}
@@ -678,9 +345,8 @@ func TestAskRejectsMissingQuestion(t *testing.T) {
 	}
 }
 
-// TestAskRejectsUnknownGate keeps --gate to its two documented values.
 func TestAskRejectsUnknownGate(t *testing.T) {
-	_, store, _ := askTestEnv(t)
+	_, store := askTestEnv(t)
 	askTestTick(t, store, "abc123")
 
 	captureChannelIO(t, "")
@@ -693,6 +359,31 @@ func TestAskRejectsUnknownGate(t *testing.T) {
 	}
 }
 
+func TestAskCollectUsageErrors(t *testing.T) {
+	_, store := askTestEnv(t)
+	askTestTick(t, store, "abc123")
+
+	cases := map[string][]string{
+		"--wait without --collect":  {"ask", "abc123", "--question", "Which region?", "--wait"},
+		"--collect with a tick id":  {"ask", "abc123", "--collect"},
+		"--collect with a question": {"ask", "--collect", "--question", "Which region?"},
+		"--collect with --async":    {"ask", "--collect", "--async"},
+		"no tick id":                {"ask", "--question", "Which region?"},
+	}
+	for name, args := range cases {
+		t.Run(name, func(t *testing.T) {
+			captureChannelIO(t, "")
+			err := ExecuteArgs(args)
+			if err == nil {
+				t.Fatalf("tk %s returned nil error", strings.Join(args, " "))
+			}
+			if code := GetExitCode(err); code != ExitUsage {
+				t.Errorf("exit code = %d, want %d (usage): %v", code, ExitUsage, err)
+			}
+		})
+	}
+}
+
 // TestAskHelpDocumentsExitCodes keeps the two contracts an orchestrator has to
 // branch on visible where it looks for them.
 func TestAskHelpDocumentsExitCodes(t *testing.T) {
@@ -701,7 +392,7 @@ func TestAskHelpDocumentsExitCodes(t *testing.T) {
 		t.Fatalf("ask --help: %v\n%s", err, out.String())
 	}
 	printed := strings.ToLower(out.String())
-	for _, want := range []string{"--question", "--json", "--timeout", "--gate", "exit code 4", "exit code 7"} {
+	for _, want := range []string{"--question", "--json", "--gate", "exit code 4", "exit code 7"} {
 		if !strings.Contains(printed, strings.ToLower(want)) {
 			t.Errorf("ask --help missing %q:\n%s", want, out.String())
 		}
@@ -711,8 +402,9 @@ func TestAskHelpDocumentsExitCodes(t *testing.T) {
 // TestAskFlagsResetBetweenExecutions guards the in-process quirk that makes a
 // second ask in one process inherit the first one's flags.
 func TestAskFlagsResetBetweenExecutions(t *testing.T) {
-	_, store, _ := askTestEnv(t)
+	_, store := askTestEnv(t)
 	askTestTick(t, store, "abc123")
+	askTestTick(t, store, "def456")
 
 	captureChannelIO(t, "")
 	if err := ExecuteArgs([]string{"ask", "abc123", "--question", "Ship it?", "--gate", "maybe"}); err == nil {
@@ -720,11 +412,64 @@ func TestAskFlagsResetBetweenExecutions(t *testing.T) {
 	}
 
 	captureChannelIO(t, "")
-	err := ExecuteArgs([]string{"ask", "abc123", "--timeout", "1s"})
+	err := ExecuteArgs([]string{"ask", "def456"})
 	if err == nil {
 		t.Fatal("ask with no question returned nil error")
 	}
 	if code := GetExitCode(err); code != ExitUsage {
 		t.Errorf("exit code = %d, want %d — did --question leak from the previous execution? %v", code, ExitUsage, err)
 	}
+}
+
+// TestAskRichFlagsResetBetweenExecutions guards --async/--escalate-after
+// specifically, since a leaked --async would turn a later plain ask into a
+// silent success instead of the degraded exit 4 it should report.
+func TestAskRichFlagsResetBetweenExecutions(t *testing.T) {
+	repo, store := askTestEnv(t)
+	askTestTick(t, store, "abc123")
+	askTestTick(t, store, "def456")
+
+	captureChannelIO(t, "")
+	if err := ExecuteArgs([]string{"ask", "abc123", "--question", "Which region?", "--async", "--escalate-after", "1h"}); err != nil {
+		t.Fatalf("ask --async --escalate-after: %v", err)
+	}
+
+	// --collect refuses --async, so a leaked flag turns this into exit 2.
+	out := captureChannelIO(t, "")
+	if err := ExecuteArgs([]string{"ask", "--collect"}); err != nil {
+		t.Fatalf("--async leaked into a later --collect: %v\n%s", err, out.String())
+	}
+
+	captureChannelIO(t, "")
+	if err := ExecuteArgs([]string{"ask", "def456", "--question", "Which region?", "--async"}); err != nil {
+		t.Fatalf("ask --async: %v", err)
+	}
+	for _, entry := range askPendingEntries(t, repo) {
+		if entry.TickID == "def456" && !entry.NotBefore.IsZero() {
+			t.Errorf("--escalate-after leaked into a later ask: not_before = %v", entry.NotBefore)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+// askCollectLines parses the JSON-lines output of --collect.
+func askCollectLines(t *testing.T, out string) []askCollected {
+	t.Helper()
+	var lines []askCollected
+	scanner := bufio.NewScanner(strings.NewReader(out))
+	for scanner.Scan() {
+		text := strings.TrimSpace(scanner.Text())
+		if !strings.HasPrefix(text, "{") {
+			continue
+		}
+		var line askCollected
+		if err := json.Unmarshal([]byte(text), &line); err != nil {
+			t.Fatalf("parsing collect line %q: %v", text, err)
+		}
+		lines = append(lines, line)
+	}
+	return lines
 }

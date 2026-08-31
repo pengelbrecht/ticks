@@ -1,10 +1,9 @@
 // Package relay turns a herdr blocked status into a durable operator question
 // and sends the first answer back to the same agent.
 //
-// It deliberately owns no transport poll loop. The caller starts the
-// repository's single operator.Consumer; this package only registers the
-// question, waits on its durable pending entry, applies the answer, and uses
-// herdr's agent.prompt to resume the target.
+// It registers the question, waits on its durable pending entry for a
+// terminal answer (`tk answer`, or the tick itself moving on out of band),
+// applies the answer, and uses herdr's agent.prompt to resume the target.
 package relay
 
 import (
@@ -25,10 +24,6 @@ const (
 	// DefaultPromptTimeout bounds the confirmation that herdr accepted the
 	// operator's answer and started processing it.
 	DefaultPromptTimeout = 30 * time.Second
-
-	// settleTimeout gives the operator channel a short, detached window to
-	// remove its interactive controls after the answer has been sent on.
-	settleTimeout = 15 * time.Second
 )
 
 // Controller is the part of the herdr client needed to resume a blocked agent.
@@ -45,11 +40,8 @@ type Options struct {
 	// Engine is the durable operator state machine. When nil, one is created
 	// for RepoRoot.
 	Engine *operator.Engine
-	// Channel is the configured operator channel. It may be nil: the question
-	// remains answerable from a terminal, but cannot be delivered to Telegram.
-	Channel operator.Channel
-	// Grace delays channel delivery. The pending entry is visible to local
-	// surfaces immediately.
+	// Grace delays escalation beyond the terminal. The pending entry is
+	// visible to local surfaces immediately.
 	Grace time.Duration
 	// PollInterval bounds how often the pending entry is checked. Zero uses the
 	// operator package default.
@@ -63,9 +55,6 @@ type Options struct {
 	AllowUnscoped bool
 	// OnPark is called after the durable question is registered.
 	OnPark func(operator.Pending)
-	// Warning receives a non-fatal channel-settle failure. The answer and the
-	// tick have already been applied when this is called.
-	Warning func(error)
 }
 
 // ResolveRecordedTarget returns the exact Herdr target to prompt when a
@@ -113,10 +102,9 @@ func TargetFromResult(blocked wait.Result) string {
 }
 
 // Handle parks an operator question for the blocked worker, waits for a
-// terminal or Telegram answer, and sends an answer back to the same Herdr
-// target. It returns the worker state that the outer wait should continue
-// watching: working resumes the existing wait, idle/done settle it, and
-// blocked leaves it blocked.
+// terminal answer, and sends it back to the same Herdr target. It returns the
+// worker state that the outer wait should continue watching: working resumes
+// the existing wait, idle/done settle it, and blocked leaves it blocked.
 func Handle(ctx context.Context, controller Controller, blocked wait.Result, opts Options) (client.AgentStatus, error) {
 	if controller == nil {
 		return client.StatusBlocked, errors.New("herd/relay: no herdr controller")
@@ -189,7 +177,7 @@ func handleTick(ctx context.Context, controller Controller, blocked wait.Result,
 		return client.StatusBlocked, fmt.Errorf("herd/relay: operator answer to %s was empty", pending.ID)
 	}
 
-	return promptAndSettle(ctx, controller, target, answer, outcome, applied.Pending, opts)
+	return prompt(ctx, controller, target, answer, opts.PromptTimeout)
 }
 
 // handleAgent is the orchestrator path. It does not invent a tick for the
@@ -236,7 +224,7 @@ func handleAgent(ctx context.Context, controller Controller, blocked wait.Result
 			if answer == "" {
 				return client.StatusBlocked, fmt.Errorf("herd/relay: operator answer to %s was empty", pending.ID)
 			}
-			return promptAndSettle(ctx, controller, target, answer, outcome, applied.Pending, opts)
+			return prompt(ctx, controller, target, answer, opts.PromptTimeout)
 		}
 
 		state, stateErr := currentState(ctx, controller, target)
@@ -247,16 +235,13 @@ func handleAgent(ctx context.Context, controller Controller, blocked wait.Result
 			// A terminal operator handled the pane directly. Resolve the durable
 			// question as moot so a consumer cannot deliver it after the grace
 			// deadline.
-			resolved, resolveErr := engine.Pending().Resolve(pending.ID, operator.PendingResolution{
+			_, resolveErr := engine.Pending().Resolve(pending.ID, operator.PendingResolution{
 				Outcome:    operator.Outcome{Status: operator.OutcomeCancelled, Text: "Handled in the terminal"},
 				AnsweredBy: operator.AnsweredByOutOfBand,
 				AnsweredAt: time.Now().UTC(),
 			})
 			if resolveErr != nil && !errors.Is(resolveErr, operator.ErrAlreadyResolved) {
 				return client.StatusBlocked, fmt.Errorf("herd/relay: canceling the terminal-handled question %s: %w", pending.ID, resolveErr)
-			}
-			if resolveErr == nil {
-				settleChannel(ctx, opts.Channel, resolved, resolved.Resolution.Outcome, pending.ID, opts.Warning)
 			}
 			return state, nil
 		}
@@ -269,26 +254,6 @@ func handleAgent(ctx context.Context, controller Controller, blocked wait.Result
 			return client.StatusBlocked, ctx.Err()
 		case <-time.After(interval):
 		}
-	}
-}
-
-func promptAndSettle(ctx context.Context, controller Controller, target, answer string, outcome operator.Outcome, pending operator.Pending, opts Options) (client.AgentStatus, error) {
-	state, promptErr := prompt(ctx, controller, target, answer, opts.PromptTimeout)
-	if promptErr != nil {
-		return client.StatusBlocked, promptErr
-	}
-	settleChannel(ctx, opts.Channel, pending, outcome, pending.ID, opts.Warning)
-	return state, nil
-}
-
-func settleChannel(ctx context.Context, channel operator.Channel, pending operator.Pending, outcome operator.Outcome, id string, warning func(error)) {
-	if pending.Ref.IsZero() || channel == nil {
-		return
-	}
-	settleCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), settleTimeout)
-	defer cancel()
-	if err := channel.Resolve(settleCtx, pending.Ref, outcome); err != nil && warning != nil {
-		warning(fmt.Errorf("settling operator question %s: %w", id, err))
 	}
 }
 
