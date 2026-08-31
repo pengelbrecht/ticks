@@ -15,14 +15,13 @@ import (
 // TestAnswerGateRefusesAgentShapedActor is the blocker case: a runner answering
 // a gate is refused, and nothing about the gate moves.
 func TestAnswerGateRefusesAgentShapedActor(t *testing.T) {
-	repo, store, bot := askTestEnv(t)
+	repo, store := askTestEnv(t)
 	askTestTick(t, store, "abc123")
 
 	out := captureChannelIO(t, "")
 	if err := ExecuteArgs([]string{"ask", "abc123", "--question", "Ship it?", "--gate", "approve", "--async"}); err != nil {
 		t.Fatalf("ask --gate approve --async: %v\n%s", err, out.String())
 	}
-	waitForAskMessage(t, bot, "Ship it?")
 	questionID := onlyPendingID(t, repo, "abc123")
 
 	t.Setenv("TK_ACTOR", "claude:orchestrator")
@@ -57,14 +56,13 @@ func TestAnswerGateRefusesAgentShapedActor(t *testing.T) {
 // TestAnswerGateFromHumanClearsGate is the attested path: the runner states it
 // is relaying a human decision, and the verdict lands stamped "human".
 func TestAnswerGateFromHumanClearsGate(t *testing.T) {
-	repo, store, bot := askTestEnv(t)
+	repo, store := askTestEnv(t)
 	askTestTick(t, store, "abc123")
 
 	out := captureChannelIO(t, "")
 	if err := ExecuteArgs([]string{"ask", "abc123", "--question", "Ship it?", "--gate", "approve", "--async"}); err != nil {
 		t.Fatalf("ask --gate approve --async: %v\n%s", err, out.String())
 	}
-	messageID := waitForAskMessage(t, bot, "Ship it?")
 	questionID := onlyPendingID(t, repo, "abc123")
 
 	t.Setenv("TK_ACTOR", "claude:orchestrator")
@@ -104,20 +102,18 @@ func TestAnswerGateFromHumanClearsGate(t *testing.T) {
 	if !stamped {
 		t.Errorf("no activity stamped \"human\": %+v", activities)
 	}
-	editedMessage(t, bot, messageID)
 }
 
 // TestAnswerPlainAskIsUnaffectedByAgentActor keeps the guard narrow: a plain
 // question is not a verdict, so a runner answering one needs no attestation.
 func TestAnswerPlainAskIsUnaffectedByAgentActor(t *testing.T) {
-	_, store, bot := askTestEnv(t)
+	_, store := askTestEnv(t)
 	askTestTick(t, store, "abc123")
 
 	out := captureChannelIO(t, "")
 	if err := ExecuteArgs([]string{"ask", "abc123", "--question", "Which region?", "--async"}); err != nil {
 		t.Fatalf("ask --async: %v\n%s", err, out.String())
 	}
-	waitForAskMessage(t, bot, "Which region?")
 
 	t.Setenv("TK_ACTOR", "claude:orchestrator")
 
@@ -138,20 +134,18 @@ func TestAnswerPlainAskIsUnaffectedByAgentActor(t *testing.T) {
 // the command surface: answering one question of two leaves the tick parked and
 // its sibling settleable, and the second answer is what clears the awaiting.
 func TestAnswerSiblingQuestionStaysAnswerable(t *testing.T) {
-	repo, store, bot := askTestEnv(t)
+	repo, store := askTestEnv(t)
 	askTestTick(t, store, "abc123")
 
 	out := captureChannelIO(t, "")
 	if err := ExecuteArgs([]string{"ask", "abc123", "--question", "Which region?", "--async"}); err != nil {
 		t.Fatalf("first ask --async: %v\n%s", err, out.String())
 	}
-	waitForAskMessage(t, bot, "Which region?")
 
 	out = captureChannelIO(t, "")
 	if err := ExecuteArgs([]string{"ask", "abc123", "--question", "Which size?", "--async"}); err != nil {
 		t.Fatalf("second ask --async: %v\n%s", err, out.String())
 	}
-	waitForAskMessage(t, bot, "Which size?")
 
 	out = captureChannelIO(t, "")
 	if err := ExecuteArgs([]string{"answer", "abc123", "eu-west-1"}); err != nil {

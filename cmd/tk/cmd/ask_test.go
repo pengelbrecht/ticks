@@ -166,13 +166,14 @@ func TestAskAsyncJSONPrintsRegisteredResult(t *testing.T) {
 	_, store := askTestEnv(t)
 	askTestTick(t, store, "abc123")
 
-	out := captureChannelIO(t, "")
-	if err := ExecuteArgs([]string{"ask", "abc123", "--question", "Which region?", "--json", "--async"}); err != nil {
+	spec := `{"question":"Which region?"}`
+	out := captureChannelIO(t, spec)
+	if err := ExecuteArgs([]string{"ask", "abc123", "--json", "--async"}); err != nil {
 		t.Fatalf("ask --json --async: %v\n%s", err, out.String())
 	}
 
 	var res askResult
-	if err := json.Unmarshal(out.Bytes(), &res); err != nil {
+	if err := json.Unmarshal([]byte(out.String()), &res); err != nil {
 		t.Fatalf("parsing ask --json --async output: %v\n%s", err, out.String())
 	}
 	if res.ID == "" || res.TickID != "abc123" {
