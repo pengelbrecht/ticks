@@ -1,0 +1,16 @@
+{
+  "id": "5zy",
+  "title": "Build the factory's outbound message endpoint",
+  "description": "THE PART THIS PHASE WAS SCOPED WITHOUT. The epic assumed tk could be repointed at 'the factory's API'. There is no such route: /api/channels/telegram/webhook is INBOUND (Telegram calling in), and the outbound helpers sendTelegramReport / deliverTelegramQuestion are called internally from cloud/factory/src/index.ts by the run lifecycle. A laptop has nowhere to POST a message.\n\nBuild it. An authenticated route that takes a message plus its context and sends through the Worker's Telegram — the same path index.ts already uses, so there is ONE bot reader and one sender.\n\nDESIGN QUESTIONS THAT ARE THE ACTUAL WORK, not the plumbing:\n- AUTH. The factory is single-tenant with a minted bearer token as a Worker secret. Does tk tell present that token, and if so where does it live now that Phase 3 will move factory credentials out of ~/.ticksrc? Coordinate with 9hu's shape rather than inventing a second credential path. If Phase 3 has not landed, say what you assumed.\n- CONTEXT. Existing messages name their project, epic and tick (cloud/factory/src/message-context.ts, and contracts/message-context.json pins that shape across languages). A tell from a laptop must carry the same context or it lands in a shared chat as an orphan. Reuse the contract; do not invent a second message shape.\n- FAILURE. tk tell exits 4 today when no channel is configured. What is the equivalent when the factory is unreachable, unauthorised, or has no Telegram configured? Each is a different fact and the user needs to tell them apart — do not collapse them into one 'could not send'.\n- IDEMPOTENCY. A retried tell must not double-post. Check what the Worker already does for its own sends before adding a scheme.\n\nSCOPE: cloud/factory/src/** and its tests only. Do NOT touch cmd/tk/cmd/{tell,channel}.go or internal/operator/** — sibling ticks own those and are sequenced behind you.",
+  "status": "closed",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "9oy",
+  "acceptance_criteria": "An authenticated outbound route exists, sends through the same Telegram path index.ts already uses, and carries project/epic/tick context conforming to contracts/message-context.json. Unreachable, unauthorised and no-Telegram-configured are distinguishable by the caller. A retried send does not double-post. Factory vitest suite green; the route is exercised by tests including each failure case.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-28T13:05:04.454017Z",
+  "updated_at": "2026-08-28T14:10:46.644788Z",
+  "closed_at": "2026-08-28T14:10:46.644788Z",
+  "closed_reason": "Cancelled, not completed. This tick was to BUILD an outbound endpoint on the factory so tk tell could call it — which would have created a new ticks -\u003e factory coupling while removing an old one. Peter: ideally ticks has ZERO factory couplings. The inverse needs no endpoint: ticfac reads parked questions through 'tk list --awaiting' and '.tick/pending' and writes answers back with 'tk answer'. The CLI is already the seam, per Phase 1. Replaced by a delivery-loop tick on the factory side."
+}

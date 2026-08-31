@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"strconv"
 )
 
 const (
@@ -18,9 +17,9 @@ const (
 
 var tokenPattern = regexp.MustCompile(`\d+:[A-Za-z0-9_-]{30,}`)
 
-// OperatorIdentity is the public identity of an operator on a channel. It is
-// deliberately separate from ChannelConfig: credentials belong only in the
-// global operator config, never in a tracked repository mapping.
+// OperatorIdentity is the public identity of an operator on a channel. It
+// carries no credentials — those, if any, live entirely outside this repo's
+// tracked state.
 type OperatorIdentity struct {
 	BotUsername string `json:"bot_username"`
 	UserID      int64  `json:"user_id"`
@@ -143,46 +142,6 @@ func mustMarshalMapping(mapping Mapping) []byte {
 func mappingForJSON(mapping Mapping) Mapping {
 	mapping.repoRoot = ""
 	return mapping
-}
-
-// ResolveOperator merges the public identities recorded for name in repoRoot's
-// tracked mapping with this user's global credentials.
-func ResolveOperator(repoRoot, name string) (OperatorConfig, error) {
-	mapping, err := LoadMapping(repoRoot)
-	if err != nil {
-		return OperatorConfig{}, err
-	}
-	return mapping.resolveOperator(name)
-}
-
-// ResolveOperator merges this mapping's public identity with the global
-// operator credentials. It is convenient after LoadMapping when the repo path
-// is already known.
-func (m Mapping) ResolveOperator(name string) (OperatorConfig, error) {
-	return m.resolveOperator(name)
-}
-
-func (m Mapping) resolveOperator(name string) (OperatorConfig, error) {
-	identities, ok := m.Operators[name]
-	if !ok {
-		return OperatorConfig{}, fmt.Errorf("operator %q is not present in mapping", name)
-	}
-
-	global, err := LoadOperatorConfig()
-	if err != nil {
-		return OperatorConfig{}, fmt.Errorf("resolving operator %q: %w", name, err)
-	}
-	resolved := OperatorConfig{Channels: make(map[string]ChannelConfig, len(global.Channels)+len(identities))}
-	for channel, cfg := range global.Channels {
-		resolved.Channels[channel] = cfg
-	}
-	for channel, identity := range identities {
-		cfg := resolved.Channels[channel]
-		cfg.BotUsername = identity.BotUsername
-		cfg.UserID = strconv.FormatInt(identity.UserID, 10)
-		resolved.Channels[channel] = cfg
-	}
-	return resolved, nil
 }
 
 // UpsertOperator loads, updates, and saves the tracked mapping in repoRoot.

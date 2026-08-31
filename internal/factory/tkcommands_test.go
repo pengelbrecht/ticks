@@ -17,10 +17,15 @@ func TestEntrypointTkCommandsAreDerivedFromTheScripts(t *testing.T) {
 		t.Fatalf("EntrypointTkCommands: %v", err)
 	}
 	want := []string{
+		// The orchestrator's parked-question sweep (tick 3c2): tk list
+		// --awaiting= is its tk-CLI discovery step, and tk answer is how a
+		// collected Telegram reply is written back onto the tick.
+		"answer",
 		// The container's write side for branch ownership (tick t4y): both
 		// entrypoints record the branch they create, so remediation can decide
 		// what it may push to from a record rather than from a name.
 		"cloud branch",
+		"list",
 		"sandbox environment",
 		"sandbox image",
 		"sandbox model",

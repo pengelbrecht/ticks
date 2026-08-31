@@ -1,7 +1,6 @@
 package operator
 
 import (
-	"context"
 	"errors"
 	"strings"
 	"sync"
@@ -81,24 +80,15 @@ func TestResolveRaceHasExactlyOneWinner(t *testing.T) {
 	}
 }
 
-// TestResolveRaceAppliesAndRendersOnlyTheWinner carries that through to the two
-// places the loser would otherwise be visible: the tick's notes and the edit on
-// the delivered message.
+// TestResolveRaceAppliesAndRendersOnlyTheWinner carries that through to the
+// place the loser would otherwise be visible: the tick's notes.
 func TestResolveRaceAppliesAndRendersOnlyTheWinner(t *testing.T) {
 	root, ticks := newTickRepo(t, "abc", "")
 	engine := NewEngine(root)
-	channel := NewFakeChannel()
 
 	p, err := engine.Register(Registration{TickID: "abc", Question: Question{Text: "Which region?"}})
 	if err != nil {
 		t.Fatalf("Register: %v", err)
-	}
-	ref, err := channel.AskDeliver(context.Background(), p.Question)
-	if err != nil {
-		t.Fatalf("AskDeliver: %v", err)
-	}
-	if _, err := engine.Pending().MarkDelivered(p.ID, ref); err != nil {
-		t.Fatalf("MarkDelivered: %v", err)
 	}
 
 	texts := []string{"eu-west-1", "us-east-1"}
@@ -128,12 +118,8 @@ func TestResolveRaceAppliesAndRendersOnlyTheWinner(t *testing.T) {
 		loser = texts[1]
 	}
 
-	applied, err := engine.Apply(stored)
-	if err != nil {
+	if _, err := engine.Apply(stored); err != nil {
 		t.Fatalf("Apply: %v", err)
-	}
-	if err := channel.Resolve(context.Background(), ref, applied.Outcome); err != nil {
-		t.Fatalf("channel Resolve: %v", err)
 	}
 
 	tk := mustLoad(t, ticks, "abc")
@@ -145,13 +131,5 @@ func TestResolveRaceAppliesAndRendersOnlyTheWinner(t *testing.T) {
 	}
 	if tk.Awaiting != nil {
 		t.Errorf("tick still awaiting %v after the answer", *tk.Awaiting)
-	}
-
-	edit, ok := channel.Outcome(ref)
-	if !ok {
-		t.Fatal("the delivered message was never edited")
-	}
-	if edit.Text != winner {
-		t.Errorf("message edit = %q, want the winning answer %q", edit.Text, winner)
 	}
 }

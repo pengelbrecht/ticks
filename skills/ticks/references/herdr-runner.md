@@ -384,6 +384,13 @@ IMPORTANT FIRST STEP: verify this worktree contains integration commit <integrat
 (`git merge-base --is-ancestor <integration-commit> HEAD`). If it does not, merge
 <integration-branch> before editing; report BLOCKED in RESULT-<tick-id>.md if that base cannot be established.
 
+**Commit `RESULT-<tick-id>.md` even when no source file changed.** For a
+verification, review or measurement tick the report IS the deliverable, and a
+clean source tree makes a worker reasonably conclude there is nothing to commit.
+`tk herd collect` reads the BRANCH: an uncommitted RESULT reports the tick as
+`no-commits`, which is indistinguishable from a worker that did nothing. Field
+-observed four times in two epics before this line existed.
+
 ## Task
 Title: <tick-title>
 Tick ID: <tick-id>

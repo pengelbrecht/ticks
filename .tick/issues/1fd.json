@@ -1,0 +1,16 @@
+{
+  "id": "1fd",
+  "title": "Prove the terminal answering path works with no factory and no network",
+  "description": "WRITE THE GUARD BEFORE THE CHANGE, so it proves the change did not break it — not after, when it can only describe what survived.\n\nThe product line this whole extraction draws: terminal answering is ticks and works offline; phone answering is a cloud feature and needs the cloud. Phase 4b removes the local Telegram transport, and the risk is that it takes something else with it.\n\nPin the offline path: an agent parks a question (cmd/tk/cmd/herd_wait.go:209 shows the no-channel branch — 'parked for terminal answer with tk answer \u003cid\u003e \u003canswer\u003e'), and a human resolves it with tk answer / tk approve / tk reject, with NO channel configured, NO factory deployed and NO network. That path uses the question store (internal/operator/*.go) which STAYS; only the transport leaves.\n\nCover the shape end to end rather than a unit: park, list, resolve, and confirm the resolution reaches the agent. Assert it works with the operator channel entirely unconfigured, since that is the state a terminal-only user is permanently in.\n\nIf any part of the offline path turns out to already depend on the Telegram transport, that is the most valuable thing you can find — report it loudly, because it changes the shape of the deletion tick.",
+  "status": "closed",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "9oy",
+  "acceptance_criteria": "A test proves park -\u003e resolve -\u003e agent-notified works with no channel configured and no network. It fails if the offline path regresses. Any existing dependency of the terminal path on internal/operator/telegram is reported rather than worked around. go test ./... green.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-28T13:05:04.519016Z",
+  "updated_at": "2026-08-31T09:43:22.523467Z",
+  "closed_at": "2026-08-31T09:43:22.523467Z",
+  "closed_reason": "Completed: 207-line offline guard proving park -\u003e answer -\u003e notify works with no channel, no factory, no network — AND it found the escape hatch it was written to look for: tk ask/answer fell back through factoryOperatorChannel() to the real ~/.ticksrc and made live HTTPS calls to a deployed Worker with a real bearer token. RESULT committed by the orchestrator after the fact; the brief never said the report was the deliverable."
+}
