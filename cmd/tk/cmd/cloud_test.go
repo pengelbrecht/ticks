@@ -14,8 +14,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pengelbrecht/ticks/internal/factory/credentials"
 	"github.com/pengelbrecht/ticks/internal/tick"
-	"github.com/pengelbrecht/ticks/internal/ticksrc"
 )
 
 type cloudFactoryRequest struct {
@@ -83,14 +83,14 @@ func configureCloudFactory(t *testing.T, endpoint string) {
 	t.Setenv("HOME", home)
 	t.Setenv("TICK_OWNER", "operator@example.com")
 
-	config, err := ticksrc.LoadFrom(filepath.Join(home, ticksrc.FileName))
+	config, err := credentials.LoadFrom(filepath.Join(home, credentials.FileName))
 	if err != nil {
-		t.Fatalf("load ticksrc: %v", err)
+		t.Fatalf("load credentials: %v", err)
 	}
-	config.Set(ticksrc.KeyFactoryURL, endpoint)
-	config.Set(ticksrc.KeyFactoryToken, "tkf_test-token")
+	config.Set(credentials.KeyURL, endpoint)
+	config.Set(credentials.KeyToken, "tkf_test-token")
 	if err := config.Save(); err != nil {
-		t.Fatalf("save ticksrc: %v", err)
+		t.Fatalf("save credentials: %v", err)
 	}
 }
 

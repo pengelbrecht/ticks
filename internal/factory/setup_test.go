@@ -16,7 +16,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"github.com/pengelbrecht/ticks/internal/ticksrc"
+	"github.com/pengelbrecht/ticks/internal/factory/credentials"
 )
 
 // ---------------------------------------------------------------------------
@@ -251,7 +251,7 @@ func (h *setupHarness) options(stdin string) SetupOptions {
 	return SetupOptions{
 		Version:           "1.2.3",
 		BundleDir:         h.bundleDir,
-		ConfigPath:        h.ticksrc,
+		ConfigPath:        h.ticfacrc,
 		In:                strings.NewReader(stdin),
 		Out:               h.out,
 		GitHubAPIBase:     h.github.base(),
@@ -262,11 +262,11 @@ func (h *setupHarness) options(stdin string) SetupOptions {
 	}
 }
 
-func (h *setupHarness) rc(t *testing.T) *ticksrc.File {
+func (h *setupHarness) rc(t *testing.T) *credentials.File {
 	t.Helper()
-	f, err := ticksrc.LoadFrom(h.ticksrc)
+	f, err := credentials.LoadFrom(h.ticfacrc)
 	if err != nil {
-		t.Fatalf("reading %s: %v", h.ticksrc, err)
+		t.Fatalf("reading %s: %v", h.ticfacrc, err)
 	}
 	return f
 }
@@ -316,17 +316,17 @@ func TestSetupWalksTheWholeLadderFromPromptsAlone(t *testing.T) {
 
 	// And the local mirror, which is what `tk factory status` re-checks.
 	rc := h.rc(t)
-	if rc.Get(ticksrc.KeyFactoryGitHubToken) != testPAT {
-		t.Errorf("%s not mirrored into %s", ticksrc.KeyFactoryGitHubToken, h.ticksrc)
+	if rc.Get(credentials.KeyGitHubToken) != testPAT {
+		t.Errorf("%s not mirrored into %s", credentials.KeyGitHubToken, h.ticfacrc)
 	}
-	if rc.Get(ticksrc.KeyFactoryGitHubRepo) != testRepo {
-		t.Errorf("%s = %q, want %q", ticksrc.KeyFactoryGitHubRepo, rc.Get(ticksrc.KeyFactoryGitHubRepo), testRepo)
+	if rc.Get(credentials.KeyGitHubRepo) != testRepo {
+		t.Errorf("%s = %q, want %q", credentials.KeyGitHubRepo, rc.Get(credentials.KeyGitHubRepo), testRepo)
 	}
-	if rc.Get(ticksrc.KeyFactoryGatewayURL) != h.gateway.base() {
-		t.Errorf("%s = %q", ticksrc.KeyFactoryGatewayURL, rc.Get(ticksrc.KeyFactoryGatewayURL))
+	if rc.Get(credentials.KeyGatewayURL) != h.gateway.base() {
+		t.Errorf("%s = %q", credentials.KeyGatewayURL, rc.Get(credentials.KeyGatewayURL))
 	}
-	if rc.Get(ticksrc.KeyFactoryGatewayProvider) != "anthropic" {
-		t.Errorf("%s = %q", ticksrc.KeyFactoryGatewayProvider, rc.Get(ticksrc.KeyFactoryGatewayProvider))
+	if rc.Get(credentials.KeyGatewayProvider) != "anthropic" {
+		t.Errorf("%s = %q", credentials.KeyGatewayProvider, rc.Get(credentials.KeyGatewayProvider))
 	}
 
 	// Both rungs were proven live before they were stored.
@@ -338,12 +338,12 @@ func TestSetupWalksTheWholeLadderFromPromptsAlone(t *testing.T) {
 	}
 
 	if runtime.GOOS != "windows" {
-		info, err := os.Stat(h.ticksrc)
+		info, err := os.Stat(h.ticfacrc)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if perm := info.Mode().Perm(); perm != 0o600 {
-			t.Errorf("%s mode = %o, want 600", h.ticksrc, perm)
+			t.Errorf("%s mode = %o, want 600", h.ticfacrc, perm)
 		}
 	}
 }
@@ -360,7 +360,7 @@ func TestSetupDecliningTheDeployStopsWithTheCommandToRun(t *testing.T) {
 	if !strings.Contains(err.Error(), "tk factory deploy") {
 		t.Errorf("error does not name the command to run:\n%v", err)
 	}
-	if _, statErr := os.Stat(h.ticksrc); !os.IsNotExist(statErr) {
+	if _, statErr := os.Stat(h.ticfacrc); !os.IsNotExist(statErr) {
 		t.Error("a declined deploy still wrote the config file")
 	}
 	if strings.Contains(h.log(), "deploy") {
@@ -385,7 +385,7 @@ func TestSetupStopsOnARejectedGitHubToken(t *testing.T) {
 	if got := h.secret(SecretGitHubToken); got != "" {
 		t.Errorf("a rejected token was pushed as a Worker secret: %q", got)
 	}
-	if got := h.rc(t).Get(ticksrc.KeyFactoryGitHubToken); got != "" {
+	if got := h.rc(t).Get(credentials.KeyGitHubToken); got != "" {
 		t.Errorf("a rejected token was mirrored locally: %q", got)
 	}
 }
@@ -485,7 +485,7 @@ func TestSetupIsIdempotent(t *testing.T) {
 	if _, err := Setup(context.Background(), h.options(stdin)); err != nil {
 		t.Fatalf("first setup: %v\n%s", err, h.out.String())
 	}
-	first, _ := os.ReadFile(h.ticksrc)
+	first, _ := os.ReadFile(h.ticfacrc)
 
 	opts := h.options("")
 	opts.GitHubToken = testPAT
@@ -495,7 +495,7 @@ func TestSetupIsIdempotent(t *testing.T) {
 	if _, err := Setup(context.Background(), opts); err != nil {
 		t.Fatalf("second setup: %v\n%s", err, h.out.String())
 	}
-	second, _ := os.ReadFile(h.ticksrc)
+	second, _ := os.ReadFile(h.ticfacrc)
 
 	if string(first) != string(second) {
 		t.Errorf("re-running setup changed the stored configuration:\n%s\n---\n%s", first, second)
@@ -527,8 +527,8 @@ func TestSetupStoresTheCostTelemetryToken(t *testing.T) {
 	if got := h.secret(SecretCloudflareAPIToken); got != testCloudflareToken {
 		t.Errorf("Worker secret %s = %q, want the API token", SecretCloudflareAPIToken, got)
 	}
-	if got := h.rc(t).Get(ticksrc.KeyFactoryCloudflareAPIToken); got != testCloudflareToken {
-		t.Errorf("%s not mirrored into ~/.ticksrc: %q", ticksrc.KeyFactoryCloudflareAPIToken, got)
+	if got := h.rc(t).Get(credentials.KeyCloudflareAPIToken); got != testCloudflareToken {
+		t.Errorf("%s not mirrored into ~/.ticfacrc: %q", credentials.KeyCloudflareAPIToken, got)
 	}
 	if h.cloudflare.calls.Load() == 0 {
 		t.Error("the token was stored without a live read against the gateway's logs")
@@ -582,9 +582,9 @@ func TestSetupWithoutCostTelemetrySaysWhatIsLost(t *testing.T) {
 // The persistence contract, asserted against the code that declares it: setup
 // writes credentials to Worker secrets and to exactly one local file.
 func TestSecretSinksAreTheWorkerAndOneLocalFile(t *testing.T) {
-	workerSecrets, localFiles := SecretSinks("/home/someone/.ticksrc")
+	workerSecrets, localFiles := SecretSinks("/home/someone/.ticfacrc")
 
-	if len(localFiles) != 1 || localFiles[0] != "/home/someone/.ticksrc" {
+	if len(localFiles) != 1 || localFiles[0] != "/home/someone/.ticfacrc" {
 		t.Errorf("local secret sinks = %v, want exactly the given config path", localFiles)
 	}
 	want := map[string]bool{

@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/pengelbrecht/ticks/internal/ticksrc"
+	"github.com/pengelbrecht/ticks/internal/factory/credentials"
 )
 
 // `tk cloud supervisor` is Phase 2's rule made reachable: a supervisor cannot
@@ -22,22 +22,22 @@ type cloudflareRoundTripper func(*http.Request) (*http.Response, error)
 func (f cloudflareRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 // configureCloudflareAPI wires the operator's Cloudflare credentials into the
-// ~/.ticksrc `configureCloudFactory` just wrote, and answers the Workflows API
+// ~/.ticfacrc `configureCloudFactory` just wrote, and answers the Workflows API
 // through a transport rather than a listener (a worker sandbox blocks loopback).
 func configureCloudflareAPI(t *testing.T, handler func(*http.Request) (int, string)) *[]string {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	config, err := ticksrc.LoadFrom(filepath.Join(home, ticksrc.FileName))
+	config, err := credentials.LoadFrom(filepath.Join(home, credentials.FileName))
 	if err != nil {
-		t.Fatalf("load ticksrc: %v", err)
+		t.Fatalf("load credentials: %v", err)
 	}
-	config.Set(ticksrc.KeyFactoryURL, "https://factory.test")
-	config.Set(ticksrc.KeyFactoryToken, "tkf_test-token")
-	config.Set(ticksrc.KeyFactoryGatewayURL, "https://gateway.ai.cloudflare.com/v1/acct-test/ticks")
-	config.Set(ticksrc.KeyFactoryCloudflareAPIToken, "cfut_test")
+	config.Set(credentials.KeyURL, "https://factory.test")
+	config.Set(credentials.KeyToken, "tkf_test-token")
+	config.Set(credentials.KeyGatewayURL, "https://gateway.ai.cloudflare.com/v1/acct-test/ticks")
+	config.Set(credentials.KeyCloudflareAPIToken, "cfut_test")
 	if err := config.Save(); err != nil {
-		t.Fatalf("save ticksrc: %v", err)
+		t.Fatalf("save credentials: %v", err)
 	}
 
 	var mu sync.Mutex
@@ -160,15 +160,15 @@ func TestCloudSupervisorSaysHowToInstallTheCredential(t *testing.T) {
 	// so it is the one an operator is actually missing here.
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	config, err := ticksrc.LoadFrom(filepath.Join(home, ticksrc.FileName))
+	config, err := credentials.LoadFrom(filepath.Join(home, credentials.FileName))
 	if err != nil {
-		t.Fatalf("load ticksrc: %v", err)
+		t.Fatalf("load credentials: %v", err)
 	}
-	config.Set(ticksrc.KeyFactoryURL, endpoint)
-	config.Set(ticksrc.KeyFactoryToken, "tkf_test-token")
-	config.Set(ticksrc.KeyFactoryGatewayURL, "https://gateway.ai.cloudflare.com/v1/acct-test/ticks")
+	config.Set(credentials.KeyURL, endpoint)
+	config.Set(credentials.KeyToken, "tkf_test-token")
+	config.Set(credentials.KeyGatewayURL, "https://gateway.ai.cloudflare.com/v1/acct-test/ticks")
 	if err := config.Save(); err != nil {
-		t.Fatalf("save ticksrc: %v", err)
+		t.Fatalf("save credentials: %v", err)
 	}
 	buf := captureCmdOutput(t)
 

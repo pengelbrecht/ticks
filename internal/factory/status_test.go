@@ -6,25 +6,25 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pengelbrecht/ticks/internal/ticksrc"
+	"github.com/pengelbrecht/ticks/internal/factory/credentials"
 )
 
 // configure writes the local mirror a completed `tk factory setup` leaves
 // behind, which is what status reads.
 func (h *setupHarness) configure(t *testing.T, gatewayKey string) {
 	t.Helper()
-	rc, err := ticksrc.LoadFrom(h.ticksrc)
+	rc, err := credentials.LoadFrom(h.ticfacrc)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rc.Set(ticksrc.KeyFactoryURL, h.server.URL)
-	rc.Set(ticksrc.KeyFactoryVersion, "1.2.3")
-	rc.Set(ticksrc.KeyFactoryGitHubToken, testPAT)
-	rc.Set(ticksrc.KeyFactoryGitHubLogin, testLogin)
-	rc.Set(ticksrc.KeyFactoryGitHubRepo, testRepo)
-	rc.Set(ticksrc.KeyFactoryGatewayURL, h.gateway.base())
-	rc.Set(ticksrc.KeyFactoryGatewayProvider, "anthropic")
-	rc.Set(ticksrc.KeyFactoryGatewayKey, gatewayKey)
+	rc.Set(credentials.KeyURL, h.server.URL)
+	rc.Set(credentials.KeyVersion, "1.2.3")
+	rc.Set(credentials.KeyGitHubToken, testPAT)
+	rc.Set(credentials.KeyGitHubLogin, testLogin)
+	rc.Set(credentials.KeyGitHubRepo, testRepo)
+	rc.Set(credentials.KeyGatewayURL, h.gateway.base())
+	rc.Set(credentials.KeyGatewayProvider, "anthropic")
+	rc.Set(credentials.KeyGatewayKey, gatewayKey)
 	if err := rc.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -32,7 +32,7 @@ func (h *setupHarness) configure(t *testing.T, gatewayKey string) {
 
 func (h *setupHarness) statusOptions() StatusOptions {
 	return StatusOptions{
-		ConfigPath:        h.ticksrc,
+		ConfigPath:        h.ticfacrc,
 		GitHubAPIBase:     h.github.base(),
 		CloudflareAPIBase: h.cloudflare.base(),
 	}
@@ -101,11 +101,11 @@ func TestStatusReportsCostTelemetry(t *testing.T) {
 	}
 
 	// With a token stored, the rung is checked against the gateway's own logs.
-	rc, err := ticksrc.LoadFrom(h.ticksrc)
+	rc, err := credentials.LoadFrom(h.ticfacrc)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rc.Set(ticksrc.KeyFactoryCloudflareAPIToken, testCloudflareToken)
+	rc.Set(credentials.KeyCloudflareAPIToken, testCloudflareToken)
 	if err := rc.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -126,11 +126,11 @@ func TestStatusReportsCostTelemetry(t *testing.T) {
 func TestStatusReportsARejectedTelemetryToken(t *testing.T) {
 	h := newSetupHarness(t, "sk-provider-key")
 	h.configure(t, "sk-provider-key")
-	rc, err := ticksrc.LoadFrom(h.ticksrc)
+	rc, err := credentials.LoadFrom(h.ticfacrc)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rc.Set(ticksrc.KeyFactoryCloudflareAPIToken, "cf_wrong_token")
+	rc.Set(credentials.KeyCloudflareAPIToken, "cf_wrong_token")
 	if err := rc.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -250,11 +250,11 @@ func TestStatusReportsARejectedCredential(t *testing.T) {
 	h := newSetupHarness(t, "sk-provider-key")
 	seedDeployment(t, h)
 	h.configure(t, "sk-wrong-key")
-	rc, err := ticksrc.LoadFrom(h.ticksrc)
+	rc, err := credentials.LoadFrom(h.ticfacrc)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rc.Set(ticksrc.KeyFactoryGitHubToken, "github_pat_revoked")
+	rc.Set(credentials.KeyGitHubToken, "github_pat_revoked")
 	if err := rc.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -287,12 +287,12 @@ func TestStatusReportsARejectedCredential(t *testing.T) {
 func TestStatusReportsAPartialConfiguration(t *testing.T) {
 	h := newSetupHarness(t, "")
 	seedDeployment(t, h)
-	rc, err := ticksrc.LoadFrom(h.ticksrc)
+	rc, err := credentials.LoadFrom(h.ticfacrc)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rc.Set(ticksrc.KeyFactoryGitHubToken, testPAT)
-	rc.Set(ticksrc.KeyFactoryGitHubRepo, testRepo)
+	rc.Set(credentials.KeyGitHubToken, testPAT)
+	rc.Set(credentials.KeyGitHubRepo, testRepo)
 	if err := rc.Save(); err != nil {
 		t.Fatal(err)
 	}

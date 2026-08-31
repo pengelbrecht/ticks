@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pengelbrecht/ticks/internal/ticksrc"
+	"github.com/pengelbrecht/ticks/internal/factory/credentials"
 )
 
 // cmdStreams keeps stdout and stderr apart, which captureCmdOutput does not:
@@ -36,14 +36,14 @@ func configureTraceGatewayWithoutFactory(t *testing.T) {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	config, err := ticksrc.LoadFrom(filepath.Join(home, ticksrc.FileName))
+	config, err := credentials.LoadFrom(filepath.Join(home, credentials.FileName))
 	if err != nil {
-		t.Fatalf("load ticksrc: %v", err)
+		t.Fatalf("load credentials: %v", err)
 	}
-	config.Set(ticksrc.KeyFactoryGatewayURL, "https://gateway.ai.cloudflare.com/v1/acct-id/ticks-gw")
-	config.Set(ticksrc.KeyFactoryCloudflareAPIToken, "cf-test-token")
+	config.Set(credentials.KeyGatewayURL, "https://gateway.ai.cloudflare.com/v1/acct-id/ticks-gw")
+	config.Set(credentials.KeyCloudflareAPIToken, "cf-test-token")
 	if err := config.Save(); err != nil {
-		t.Fatalf("save ticksrc: %v", err)
+		t.Fatalf("save credentials: %v", err)
 	}
 }
 

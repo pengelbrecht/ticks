@@ -43,7 +43,7 @@ const (
 const DefaultWorkersAIBillingMode = BillingModePostpaid
 
 // billingModes is the set a configured expectation is validated against, so a
-// typo in ~/.ticksrc cannot disable the assertion by naming a mode that can
+// typo in ~/.ticfacrc cannot disable the assertion by naming a mode that can
 // never match.
 var billingModes = []string{BillingModePostpaid, BillingModeUnified}
 

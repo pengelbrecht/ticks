@@ -13,7 +13,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/pengelbrecht/ticks/internal/ticksrc"
+	"github.com/pengelbrecht/ticks/internal/factory/credentials"
 )
 
 type gatewayRequest struct {
@@ -286,8 +286,8 @@ func TestDetailBodiesAreReadFromTheirOwnEndpoints(t *testing.T) {
 }
 
 func TestConfigFromNamesWhichHalfIsMissing(t *testing.T) {
-	path := filepath.Join(t.TempDir(), ".ticksrc")
-	file, err := ticksrc.LoadFrom(path)
+	path := filepath.Join(t.TempDir(), credentials.FileName)
+	file, err := credentials.LoadFrom(path)
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
@@ -295,7 +295,7 @@ func TestConfigFromNamesWhichHalfIsMissing(t *testing.T) {
 		t.Fatalf("an unconfigured gateway does not name setup: %v", err)
 	}
 
-	file.Set(ticksrc.KeyFactoryGatewayURL, "https://gateway.ai.cloudflare.com/v1/acct-id/my-gw")
+	file.Set(credentials.KeyGatewayURL, "https://gateway.ai.cloudflare.com/v1/acct-id/my-gw")
 	// A factory that routes model traffic but was never given a log-reading
 	// token is a documented state; "no trace" must not read as "no factory".
 	_, err = ConfigFrom(file)
@@ -303,7 +303,7 @@ func TestConfigFromNamesWhichHalfIsMissing(t *testing.T) {
 		t.Fatalf("a missing telemetry token does not name its own remedy: %v", err)
 	}
 
-	file.Set(ticksrc.KeyFactoryCloudflareAPIToken, "cf-token")
+	file.Set(credentials.KeyCloudflareAPIToken, "cf-token")
 	config, err := ConfigFrom(file)
 	if err != nil {
 		t.Fatalf("ConfigFrom: %v", err)
@@ -312,7 +312,7 @@ func TestConfigFromNamesWhichHalfIsMissing(t *testing.T) {
 		t.Fatalf("config = %+v", config)
 	}
 
-	file.Set(ticksrc.KeyFactoryGatewayURL, "https://api.anthropic.com")
+	file.Set(credentials.KeyGatewayURL, "https://api.anthropic.com")
 	if _, err := ConfigFrom(file); err == nil || !strings.Contains(err.Error(), "account") {
 		t.Fatalf("a gateway with no logs API is not reported: %v", err)
 	}
