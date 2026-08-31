@@ -224,45 +224,10 @@ func TestFactoryWithoutSubcommandShowsHelp(t *testing.T) {
 	}
 }
 
-// The version pin exists so `tk upgrade` can offer a redeploy; this is that
-// offer's decision table.
-func TestFactoryRedeployNotice(t *testing.T) {
-	cases := []struct {
-		name       string
-		ticksrc    string
-		newVersion string
-		want       string
-	}{
-		{"no factory deployed", "token=board-token\n", "0.31.0", ""},
-		{"factory already current", "factory_url=https://f\nfactory_version=0.31.0\n", "0.31.0", ""},
-		{"factory a version behind", "factory_url=https://f\nfactory_version=0.30.0\n", "0.31.0", "tk factory deploy"},
-		{"factory version never recorded", "factory_url=https://f\n", "0.31.0", "tk factory deploy"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			home := t.TempDir()
-			t.Setenv("HOME", home)
-			if err := os.WriteFile(filepath.Join(home, ".ticksrc"), []byte(tc.ticksrc), 0o600); err != nil {
-				t.Fatal(err)
-			}
-
-			got := factoryRedeployNotice(tc.newVersion)
-			if tc.want == "" && got != "" {
-				t.Errorf("notice = %q, want none", got)
-			}
-			if tc.want != "" && !strings.Contains(got, tc.want) {
-				t.Errorf("notice = %q, want it to mention %q", got, tc.want)
-			}
-		})
-	}
-}
-
-func TestFactoryRedeployNoticeIsSilentWithoutTicksrc(t *testing.T) {
-	t.Setenv("HOME", t.TempDir())
-	if got := factoryRedeployNotice("0.31.0"); got != "" {
-		t.Errorf("notice = %q, want none when ~/.ticksrc does not exist", got)
-	}
-}
+// The staleness note (a deployed factory left a version behind by an
+// upgrade) lives in `tk factory status`, not `tk upgrade` — see
+// TestFactoryStatusFlagsStaleDeployment in status_test.go for the
+// CLI-level check and internal/factory/status_test.go for the report logic.
 
 // ---------------------------------------------------------------------------
 // setup / status
@@ -451,6 +416,30 @@ func TestFactoryStatusOfflineAndCheck(t *testing.T) {
 	}
 	if code := GetExitCode(err); code == ExitSuccess {
 		t.Errorf("exit code = %d, want nonzero", code)
+	}
+}
+
+// A factory's deployment is pinned to the tk version that deployed it (D16,
+// "upgrades ride the repo"), so status — not upgrade — is where a build
+// running ahead of its deployed factory shows up.
+func TestFactoryStatusFlagsStaleDeployment(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	rc := "factory_url=https://factory.example\nfactory_version=1.2.3\n"
+	if err := os.WriteFile(filepath.Join(home, ".ticksrc"), []byte(rc), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	previous := Version
+	Version = "1.3.0"
+	t.Cleanup(func() { Version = previous })
+
+	buf := captureCmdOutput(t)
+	if err := ExecuteArgs([]string{"factory", "status", "--offline"}); err != nil {
+		t.Fatalf("tk factory status --offline: %v", err)
+	}
+	if out := buf.String(); !strings.Contains(out, "version behind") || !strings.Contains(out, "tk factory deploy") {
+		t.Errorf("status does not flag the stale factory deployment:\n%s", out)
 	}
 }
 

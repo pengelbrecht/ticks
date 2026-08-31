@@ -240,6 +240,15 @@ documented, and ticks already supports it for humans and for the sandbox.
 - **`internal/herd/dashboard`** — one reference, and the comment at the import
   says it is deliberate. Check whether it survives at all once ticfac owns its
   own dashboard.
+- **`tk upgrade`'s factory-staleness warning** (`cmd/tk/cmd/upgrade.go`,
+  tick `10l`) — moved into `tk factory status` (`internal/factory/status.go`,
+  `StatusOptions.CurrentVersion`), which already reports the deployed
+  factory's pinned version and is the command an operator already runs to see
+  what is configured. Not generalized to "any companion tool with a version":
+  no second tool exists yet, and `tk upgrade` had no other reason to know
+  what a factory is. `internal/factory` leaves whole in Phase 5, so the
+  warning is already living in ticfac's future home. `cmd/tk/cmd/upgrade.go`
+  now has zero factory references.
 
 ### The cost to keep an eye on
 

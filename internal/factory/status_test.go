@@ -38,6 +38,46 @@ func (h *setupHarness) statusOptions() StatusOptions {
 	}
 }
 
+// The deployed factory's version is pinned to the tk build that deployed it
+// (D16, "upgrades ride the repo"). An upgrade leaves it behind until the
+// operator redeploys, and status is where that surfaces — not `tk upgrade`,
+// which knows nothing about factories.
+func TestStatusFlagsDeploymentAVersionBehind(t *testing.T) {
+	h := newSetupHarness(t, "sk-provider-key")
+	h.configure(t, "sk-provider-key") // factory_version=1.2.3
+
+	opts := h.statusOptions()
+	opts.Offline = true
+
+	opts.CurrentVersion = "1.3.0"
+	report, err := Status(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if !strings.Contains(report.Deployment.Detail, "a version behind") ||
+		!strings.Contains(report.Deployment.Detail, "1.3.0") {
+		t.Errorf("Deployment.Detail = %q, want it to flag the deployed factory as a version behind 1.3.0", report.Deployment.Detail)
+	}
+
+	opts.CurrentVersion = "1.2.3"
+	report, err = Status(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if strings.Contains(report.Deployment.Detail, "version behind") {
+		t.Errorf("Deployment.Detail = %q, want no staleness note when versions match", report.Deployment.Detail)
+	}
+
+	opts.CurrentVersion = ""
+	report, err = Status(context.Background(), opts)
+	if err != nil {
+		t.Fatalf("Status: %v", err)
+	}
+	if strings.Contains(report.Deployment.Detail, "version behind") {
+		t.Errorf("Deployment.Detail = %q, want no staleness note when CurrentVersion is unset", report.Deployment.Detail)
+	}
+}
+
 // A factory can run without cost telemetry, so status has to say so — a
 // configured-looking report whose cost budget can never fire is the silent
 // failure D17 exists to prevent.
