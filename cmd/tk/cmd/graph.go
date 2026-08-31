@@ -58,8 +58,14 @@ type graphOutput struct {
 	// that no child tick carries. Empty means the skeleton is complete — or the
 	// epic has no children at all, in which case needs_planning is the signal
 	// and planning is expected to create the skeleton along with the work ticks.
-	MissingProcessTicks []string   `json:"missing_process_ticks"`
-	Stats               graphStats `json:"stats"`
+	MissingProcessTicks []string `json:"missing_process_ticks"`
+	// UnjustifiedGates lists open gated children (--requires, or a
+	// planning-time --awaiting) with no "gate:" justification line in their
+	// description or notes. A lint warning, never a refusal — see
+	// tick-patterns.md, "resolve is the default; awaiting is the exception
+	// you justify". Checkpoint and escalation gates are not linted.
+	UnjustifiedGates []string   `json:"unjustified_gates"`
+	Stats            graphStats `json:"stats"`
 	// Dispatch is how many implementers may be launched RIGHT NOW, which is
 	// not what Stats.MaxParallel answers. Stats.MaxParallel is graph shape —
 	// the widest wave, "how parallel could this epic ever be". Dispatch is
@@ -126,6 +132,43 @@ type graphTask struct {
 	Awaiting           string   `json:"awaiting,omitempty"`
 	DeferredUntil      string   `json:"deferred_until,omitempty"`
 	AgentReady         bool     `json:"agent_ready"`
+}
+
+// unjustifiedGates returns the open gated children of an epic that carry no
+// recorded justification — the planning-lint half of "resolve is the default;
+// awaiting is the exception you justify" (tick-patterns.md). A gate is a
+// pre-declared `--requires` or a planning-time `--awaiting` (work, input,
+// approval, review, content). Checkpoint boundaries are structural convention
+// and escalations are created mid-run by definition, so neither is linted.
+//
+// The justification convention is a line containing "gate:" in the tick's
+// description or notes — e.g. `tk note <id> "gate: provider choice needs human
+// taste"`. This is a WARNING surface, never a refusal: gates stay cheap to
+// create interactively; the lint targets planner output.
+func unjustifiedGates(children []tick.Tick) []string {
+	var out []string
+	for _, t := range children {
+		if t.Status == tick.StatusClosed {
+			continue
+		}
+		gated := t.Requires != nil
+		if !gated && t.IsAwaitingHuman() {
+			switch t.GetAwaitingType() {
+			case tick.AwaitingCheckpoint, tick.AwaitingEscalation:
+			default:
+				gated = true
+			}
+		}
+		if !gated {
+			continue
+		}
+		text := strings.ToLower(t.Description + "\n" + t.Notes)
+		if strings.Contains(text, "gate:") {
+			continue
+		}
+		out = append(out, t.ID)
+	}
+	return out
 }
 
 // missingProcessRoles returns the EPIC-SKELETON roles no child of the epic
@@ -333,6 +376,7 @@ func runGraph(cmd *cobra.Command, args []string) error {
 	}
 
 	missingProcess := missingProcessRoles(epicID, allTicks)
+	gateLint := unjustifiedGates(tasks)
 
 	// The dispatch answer: what may be launched now, under the configured
 	// wave width. Read from the same file and counted the same way as the
@@ -389,6 +433,7 @@ func runGraph(cmd *cobra.Command, args []string) error {
 			},
 			NeedsPlanning:       false,
 			MissingProcessTicks: missingProcess,
+			UnjustifiedGates:    append([]string{}, gateLint...),
 			Stats: graphStats{
 				TotalTasks:    len(tasks),
 				WaveCount:     len(waves),
@@ -472,6 +517,11 @@ func runGraph(cmd *cobra.Command, args []string) error {
 		fmt.Printf("%s epic skeleton incomplete — missing process ticks: %s (create with tk create --role <role> --parent %s)\n",
 			styles.StatusBlockedStyle.Render("!"),
 			strings.Join(missingProcess, ", "), epic.ID)
+	}
+	if len(gateLint) > 0 {
+		fmt.Printf("%s unjustified human gates: %s — resolve is the default, awaiting is the exception you justify. Record why planning could not settle each (tk note <id> \"gate: <why>\"), or resolve the gate\n",
+			styles.StatusBlockedStyle.Render("!"),
+			strings.Join(gateLint, ", "))
 	}
 	fmt.Println()
 
@@ -576,6 +626,7 @@ func handleChildlessEpic(epic tick.Tick, allTicks []tick.Tick) error {
 			},
 			NeedsPlanning:       isReadyToPlan,
 			MissingProcessTicks: missingProcess,
+			UnjustifiedGates:    []string{},
 			Stats:               graphStats{},
 			CriticalPath:        0,
 		}

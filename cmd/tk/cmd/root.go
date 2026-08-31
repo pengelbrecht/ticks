@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -440,9 +441,25 @@ func ResetFlags() {
 	blockedOwner = ""
 	blockedJSON = false
 
+	// Reset frontier flags
+	frontierCheck = false
+	frontierJSON = false
+	frontierAll = false
+	frontierOwner = ""
+	frontierAutonomous = false
+
 	// Reset note flags
 	noteEdit = false
 	noteFrom = "agent"
+
+	// Reset decide flags
+	decideQuestion = ""
+	decideChoice = ""
+	decideReason = ""
+	decideClass = ""
+
+	// Reset decisions flags
+	decisionsJSON = false
 
 	// Reset close flags
 	closeReason = ""
@@ -552,6 +569,17 @@ func ResetFlags() {
 
 	// Reset herd reconcile flags
 	herdReconcileEpic, herdReconcileConfig, herdReconcileSocket, herdReconcileJSON, herdReconcileAdopt = "", "", "", false, false
+
+	// Reset herd watch flags
+	watchClear = false
+	watchStatus = false
+	watchNudgeMax = 3
+	watchNudgeInterval = 2 * time.Minute
+
+	// Reset herd guard flags
+	guardSocket = ""
+	guardDryRun = false
+	guardJSON = false
 	// Reset herd collect flags
 	herdCollectEpic, herdCollectJSON = "", false
 

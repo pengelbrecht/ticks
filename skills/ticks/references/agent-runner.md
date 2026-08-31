@@ -184,7 +184,7 @@ What survives is semantic, and it fails closed exactly as before:
 
 **Actor convention.** Export `TK_ACTOR=<runner>:orchestrator` at run start, such as `claude:orchestrator`, `codex:orchestrator`, `pi:orchestrator`, or `prime:orchestrator`. The `--actor` flag on `tk close` and `tk update` overrides `TK_ACTOR` for one call; precedence is `--actor` > `TK_ACTOR` > tick owner. Actor names are provenance, not ownership or routing: another runner may resume the same tick. `tk note` uses `--from agent|human` instead of `TK_ACTOR`. One feed quirk: because status changes take priority in activity detection, `tk approve` on a *terminal* awaiting type (approval/review/content/work) surfaces in the feed as a `close` entry and `tk reject` as a `note` entry — still stamped with the actor; non-terminal approvals (input/escalation/checkpoint) don't close the tick.
 
-**Run continuously.** Once the user has asked you to execute the epic, work wave to wave without stopping to ask "should I continue?". The only reasons to stop are: a blocker you can't resolve, genuine ambiguity that prevents progress, or the epic is done. Progress-summary check-ins between waves just cost the user time.
+**Run continuously.** Once the user has asked you to execute the epic, work wave to wave without stopping to ask "should I continue?". The only reasons to stop are: a blocker you can't resolve, genuine ambiguity that prevents progress, or the epic is done. Progress-summary check-ins between waves just cost the user time. The rule has a mechanical check: `tk frontier --check` exits 0 while dispatchable work exists and 1 when the run is legitimately at rest — before ending a turn you believe is a stopping point, run it; an exit 0 means the turn is not over (`tk frontier` says what is actionable). Harnesses and substrates may wire the same predicate into their own turn-end mechanism (under herdr, the guard hook does — see `herdr-runner.md`).
 
 ## Discipline rules
 
@@ -371,10 +371,12 @@ Before surfacing any question during execution, walk this ladder — top rung th
 3. **Reversible → decide and log.** A decision is reversible when un-making it costs a follow-up commit — anything that lands on the epic branch behind a PR gate qualifies, because a human reviews it there with the diff in front of them. Make the call, record it, keep moving:
 
    ```bash
-   tk note <tick-id> "decision: <question> → <choice> — <why>"
+   tk decide <tick-id> --question "<question>" --choice "<choice>" --reason "<why>" [--class <standing-order-class>]
    ```
 
-   The log is what makes this legitimate rather than a silent guess: every checkpoint report, retro report, and PR body carries a **Decisions taken** table — one row per `decision:` note (tick, decision, why) — so the human reviews by exception instead of being interrupted per decision.
+   (`tk decide` refuses an *awaiting* tick — the parked question is the human's; settle it with `tk answer`/`tk approve` instead. A `--requires` tick accepts decisions: the gate still routes it to a human at close, who reads them there. On an older `tk` without the verb, the equivalent is `tk note <tick-id> "decision: <question> → <choice> — <why>"` — the same line `tk decide` writes.)
+
+   The log is what makes this legitimate rather than a silent guess: every checkpoint report, retro report, and PR body carries a **Decisions taken** table — `tk decisions <epic-or-project-id>` renders it (`--json` for report generation) — so the human reviews by exception instead of being interrupted per decision.
 4. **Irreversible, out of every delegated class, or scope-removing → the human's call.** Frontier still moving → park it and `tk tell`; frontier empty or stalling → `tk ask`. Never a bare question in the session output (see *Discipline rules*).
 
 **Standing orders** are written once per project, at goal-ready handoff (SKILL.md), as a `## Standing orders` section in `.tick/config.md` — a short list of decision classes with their defaults, for example: *library choice within the existing stack: decide and log; naming and internal API shape: decide and log; discovered bugs and gaps: create ticks, never ask; anything the PR review will see and a commit can revert: decide and log; data deletion, force-pushes, external side effects, roadmap changes: always ask.* They turn "am I allowed to decide this?" from a vibe into a lookup — the absence of the section simply means rung 2 never matches.
@@ -560,7 +562,7 @@ Write a short summary as the epic's close reason or as a note on the epic tick. 
 
 - Learnings promoted, by destination (a few bullet points per tier that received anything).
 - Verification table: one row per scope item — scope item, verified yes/no, gap action if no.
-- Decisions taken: one row per `decision:` note harvested from the epic's ticks — tick, decision, why — flagging any the human should revisit (see *Decide and log*).
+- Decisions taken: `tk decisions <epic-id>` renders the rows — tick, decision, why — flag any the human should revisit (see *Decide and log*).
 - Drift found and cleanup ticks created (or "none").
 - Proposed roadmap adjustments, if any, for the human to accept or reject (you may propose, not execute, roadmap changes).
 

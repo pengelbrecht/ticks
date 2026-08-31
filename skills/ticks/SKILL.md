@@ -443,6 +443,7 @@ tk next <epic-id>            # Next task for agent
 tk next <epic-id> --json     # JSON: action field is "implement" | "plan" | "await"
 tk blocked                   # Blocked tasks
 tk list --awaiting=          # Tasks awaiting human
+tk frontier --check          # Continuation predicate: exit 0 = dispatchable work exists, 1 = at rest
 tk graph <epic-id>           # Dependency graph with parallelization
 tk graph <epic-id> --json    # JSON output; needs_planning:true means epic needs child ticks;
                              # non-empty missing_process_ticks means EPIC-SKELETON needs repair
@@ -454,6 +455,8 @@ tk graph <epic-id> --json    # JSON output; needs_planning:true means epic needs
 tk show <id>                                           # Show details
 tk close <id> --reason "Completed: <one-line summary>" # Close tick — always pass --reason
 tk note <id> "text"                                    # Add note
+tk decide <id> --question "…" --choice "…" --reason "…"  # Log a provisional decision (decide, don't ask — agent-runner.md)
+tk decisions <epic-id>                                 # The Decisions-taken table for reports
 tk approve <id>                                        # Approve awaiting tick
 tk reject <id> "feedback"                              # Reject with required feedback
 ```

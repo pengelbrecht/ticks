@@ -218,3 +218,26 @@ command = ["bash", "scripts/paint-hook.sh"]
 [[events]]
 on = "pane.agent_status_changed"
 command = ["bash", "scripts/notify-hook.sh"]
+
+# Event hook — orchestrator guard.
+#
+# `tk herd guard` supervises the run's ORCHESTRATOR — the one agent in a herd
+# run the hooks above do not cover. It judges the target registered with
+# `tk herd watch` (a fast no-op in repos that never registered one): an idle
+# orchestrator whose frontier is actionable (`tk frontier`) is nudged to
+# continue, bounded per stall episode; a blocked one chimes once with sound
+# `request` — the guard never answers an approval UI; a working one re-arms
+# the episode memory.
+#
+# Same event, same discipline as notify-hook.sh: ONE event (only a status
+# change can change the guard's decision), NO debounce (the guard is
+# edge-triggered against persisted state under a lock —
+# .tick/logs/herd/.watch-orchestrator.json — so the paint feedback bounce and
+# event storms nudge once, not once per event).
+#
+# FOCUS SAFETY: agent.prompt targets the registered pane explicitly and
+# notification.show is an untargeted overlay; nothing here can touch the
+# workspace the operator is looking at.
+[[events]]
+on = "pane.agent_status_changed"
+command = ["bash", "scripts/guard-hook.sh"]

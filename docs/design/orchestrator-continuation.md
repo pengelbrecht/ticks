@@ -18,30 +18,30 @@ The fix is two-pronged: reduce stall **frequency** (give the model the competing
 
 ## Mechanisms
 
-### 1. `tk decide` — a first-class provisional-decision verb
+### 1. `tk decide` + `tk decisions` — a first-class provisional-decision verb *(shipped)*
 
-Today's convention is `tk note <tick-id> "decision: <question> → <choice> — <why>"`. Promote it to a verb so it is structured, queryable, and surfaced without prose-parsing:
+The hand-rolled convention was `tk note <tick-id> "decision: <question> → <choice> — <why>"`. The verb makes it structured, queryable, and surfaced without prose-parsing (the note-line format is unchanged underneath, so hand-rolled lines from older runs still parse):
 
 ```bash
 tk decide <tick-id> --question "…" --choice "…" --reason "…" [--class <standing-order-class>]
-tk list --decisions [--epic <id>]     # every decision in scope, as a table / --json
+tk decisions [container-id] [--json]   # every decision in scope — the Decisions-taken table
 ```
 
-- Storage: a typed note (`kind: decision`) on the tick — travels with `.tick/`, survives handoff, no schema migration beyond the note kind.
-- Surfacing: `tk list --decisions` feeds the **Decisions taken** table that retro reports, checkpoint reports, and PR bodies must carry (doctrine already requires the table; the verb makes it mechanical). The mission-control board and `tk herd dashboard` can render a decisions count per epic.
+- Storage: a structured `decision:` note line on the tick — travels with `.tick/`, survives handoff, no schema migration.
+- Surfacing: `tk decisions` feeds the **Decisions taken** table that retro reports, checkpoint reports, and PR bodies must carry (doctrine already requires the table; the verb makes it mechanical). Scoped form walks the container's whole subtree; closed ticks included, because review-by-exception happens after the fact.
 - `--class` records which standing order authorized it, closing the audit loop: a decision with no class and no reversibility argument is what the retro flags for human review.
-- Provenance: stamped with `TK_ACTOR` like every tracker write. A decision is never a gate-clear — `tk approve`/`tk answer` semantics are untouched, and the CLI refuses `tk decide` on a tick holding a `--requires`/`--awaiting` gate (that is the human's decision by definition).
+- Provenance: stamped with `TK_ACTOR` like every tracker write. A decision is never a gate-clear — `tk approve`/`tk answer` semantics are untouched, and the CLI refuses `tk decide` on an *awaiting* tick (the parked question is the human's by definition). A `--requires` tick still accepts decisions: the gate routes it to a human at close, and the recorded decisions are exactly what that human reviews there.
 
-### 2. `tk frontier --check` — the neutral continuation predicate
+### 2. `tk frontier --check` — the neutral continuation predicate *(shipped)*
 
 One question, answered mechanically: *is this run legitimately at rest?*
 
 ```bash
-tk frontier --check [<epic-or-project-id>]   # exit 0: actionable work exists; exit 1: at rest
-tk frontier [--json]                          # human/machine-readable: what is actionable and why
+tk frontier --check [<epic-id>]   # exit 0: actionable work exists; exit 1: at rest; 2+: the check failed
+tk frontier [--json]              # human/machine-readable: what is actionable and why
 ```
 
-Actionable (exit 0): `dispatch.now` non-empty; an unblocked review or closeout tick; `tk next` returning `action: plan`; a settled-but-uncollected herdr worker (manifest present, no durable close); a merged-but-ungated wave (integrated gate evidence missing). At rest (exit 1): every open path ends in an `--awaiting` gate, a checkpoint boundary (autonomous mode off), or the roadmap is done.
+Actionable (exit 0): a ready open tick (labeled `implement`, or `review`/`closeout` by its role); an unblocked childless epic (`plan`); a herd worker whose `RESULT-<tick>.md` exists in its recorded worktree (`collect` — the worker finished and nobody collected it). At rest (exit 1): every open path ends in an `--awaiting` gate (autonomous mode flows through checkpoint boundaries, same as `tk next`), work is in flight, or the scope is done. Deliberately *not* actionable: an in-flight worker without a result file — whether a silent worker is stale is reconcile's judgment call, and nudging an orchestrator whose fleet is legitimately running would be noise. (The originally sketched "merged-but-ungated wave" signal needs a durable wave-gate journal that does not exist yet; it joins the predicate if/when one does.)
 
 The predicate is substrate- and harness-neutral: it reads only `.tick/` state, `tk graph`/`tk next`, and (when present) herd manifests. Everything that *enforces* it is a thin per-harness or per-substrate wiring:
 
@@ -49,16 +49,16 @@ The predicate is substrate- and harness-neutral: it reads only `.tick/` state, `
 - **Claude Code**: a Stop hook running `tk frontier --check`; exit 0 blocks the stop with the frontier summary on stderr.
 - **Codex / Pi / Prime**: their equivalent turn-end or wrapper mechanism, each a few lines, documented in the matching adapter when built.
 
-### 3. Herdr watchdog — supervision from outside the orchestrator's loop
+### 3. Herdr watchdog — supervision from outside the orchestrator's loop *(shipped)*
 
-The orchestrator is an agent in a pane; herdr pushes `pane.agent_status_changed` for it like any worker. The `herdr-ticks` plugin (already hooked on that event for badges and chimes) gains an orchestrator branch:
+The orchestrator is an agent in a pane; herdr pushes `pane.agent_status_changed` for it like any worker. Two commands plus one plugin hook:
 
-- **Registration.** The orchestrator's pane/agent identity must be known. `tk herd watch <agent-or-pane-id> --orchestrator` writes it into the run's manifest directory (`.tick/logs/herd/<epic>/orchestrator.json`); the run-start ritual gains this one line. (Subsumed by mechanism 4 when it lands.)
-- **On `idle`:** run `tk frontier --check`. Actionable → `herdr agent prompt <orchestrator> "Frontier is actionable: <summary from tk frontier>. Continue per run-continuously; re-read run-charter.md."` Bounded: N nudges (default 3) with backoff, tracked in the manifest; exhausted → chime + operator-channel `tk tell` ("orchestrator idle with actionable frontier, nudges exhausted"). At rest → do nothing; the run is legitimately waiting.
-- **On `blocked`:** never drive the UI (the worker rule holds for the orchestrator). Read the pane for the question text, park it as an agent-scoped question exactly as `tk herd wait --relay-blocked-after` does for a watched non-tick target, deliver it to the operator channel after the grace window, and prompt the answer back. Chime — a third notification sound alongside worker-blocked and wave-settled: *the run itself wants a human*.
+- **Registration: `tk herd watch <agent-or-pane>`** — the run registers its orchestrator at run start, right after opening the dashboard pane. Explicit target, herdr's own rule; nothing guesses which pane the orchestrator is. State (registration + the guard's episode memory) lives in `.tick/logs/herd/.watch-orchestrator.json` — one file for the run, not per-epic, because the orchestrator spans epic boundaries the same way the unpinned dashboard does. `--nudge-max` (default 3) and `--nudge-interval` (default 2m) set the policy; `--status` / `--clear` manage it.
+- **Judgment: `tk herd guard`** — run by the plugin's `guard-hook.sh` on every `pane.agent_status_changed` (edge-triggered against the persisted state under a lock, same discipline as `tk herd notify`, so event storms and the paint feedback bounce judge once). The decision table: `working` → re-arm the episode; `idle`/`done` → consult the frontier predicate — at rest: nothing; actionable: `agent.prompt` the nudge (restating the charter, `tk next`, end-on-a-dispatch), at most nudge-max per episode with the interval floor between, then one `request` chime ("orchestrator stalled") and silence; `blocked` → one `request` chime ("orchestrator blocked") — the guard **never** drives an approval UI, for the orchestrator exactly as for workers.
 - The nudge prompt is the context-decay countermeasure in mechanical form: the rule arrives as the most recent thing in the orchestrator's context, precisely when it matters.
+- *Follow-up:* relaying the blocked orchestrator's question over the operator channel (as `tk herd wait --relay-blocked-after` does for a watched non-tick target) so the chime reaches a human who is away from the machine. The chime ships first; the relay reuses the ask machinery and needs live-herdr validation of pane-question extraction.
 
-### 4. `tk herd orchestrate <epic>` — the orchestrator as a spawned agent
+### 4. `tk herd orchestrate <epic>` — the orchestrator as a spawned agent *(deferred: needs live herdr)*
 
 The endpoint of "the orchestrator is an agent too": spawn it through the helper, with everything workers already get —
 
@@ -67,11 +67,11 @@ The endpoint of "the orchestrator is an agent too": spawn it through the helper,
 - a launch prompt carrying the charter, standing orders, and the epic id;
 - a manifest, so `tk herd reconcile` can classify a dead orchestrator and the resume argv is one command away.
 
-Every piece (template compilation, content gate, manifests, pane supervision, relay) exists for workers; this is symmetry, not new machinery. Routing: `[roles.orchestrate]` in `runners.toml`, frontier tier by default.
+Every piece (template compilation, content gate, manifests, pane supervision) exists for workers; this is symmetry, not new machinery. Routing: `[roles.orchestrate]` in `runners.toml`, frontier tier by default. **Why deferred:** the orchestrator needs a pane at the *controller checkout*, and the herd client models no pane-creation method that is not `worktree.create` — the missing wire shape has to be pinned against a live herdr (this repo's rule: verified, never guessed) before the command can exist. Until then the manual form is documented in `herdr-runner.md` → *The orchestrator is an agent too*: launch with the kind's full-auto template, then `tk herd watch`.
 
-### 5. Planning lint — unjustified gates
+### 5. Planning lint — unjustified gates *(shipped)*
 
-The gate-creation side of the stall: "resolve is the default; awaiting is the exception you justify" is doctrine with no check. Add a warning to `tk graph` (and a validation to the Pi planner's apply path): any `--awaiting`/`--requires` tick with no note stating why planning could not resolve it. Warning, not refusal — gates stay cheap to create interactively; the lint targets planner output.
+The gate-creation side of the stall: "resolve is the default; awaiting is the exception you justify" was doctrine with no check. `tk graph` now warns on any open gated child (`--requires`, or a planning-time `--awaiting` — checkpoint and escalation excluded) with no `gate:` justification line in its description or notes, and reports the same list as `unjustified_gates` in `--json`. The justification convention is one note: `tk note <id> "gate: <why planning could not settle this>"`. Warning, never refusal — gates stay cheap to create interactively; the lint targets planner output. (A matching validation in the Pi planner's apply path remains open.)
 
 ## What this deliberately does not do
 
@@ -79,12 +79,12 @@ The gate-creation side of the stall: "resolve is the default; awaiting is the ex
 - **No gate weakening.** `tk decide` refuses gated ticks; approval/input/escalation/work gates keep their exact semantics; autonomous mode still bypasses only checkpoints.
 - **No new state store.** Decisions are typed notes; watchdog state lives in the existing gitignored herd manifest directory.
 
-## Delivery sketch
+## Delivery status
 
-1. **`tk decide` + `tk list --decisions`** — small, pure `tk`; unlocks the mechanical Decisions-taken table. (The doctrine already works today via `decision:` notes, so this is an upgrade, not a blocker.)
-2. **`tk frontier --check`** — read-only aggregation over existing graph/next/manifest data.
-3. **Watchdog hooks in `herdr-ticks`** + `tk herd watch --orchestrator` — depends on 2.
-4. **`tk herd orchestrate`** — depends on 3; subsumes manual registration and launch templates.
-5. **Planning lint** — independent; anytime.
+1. **`tk decide` + `tk decisions`** — shipped.
+2. **`tk frontier --check`** — shipped.
+3. **`tk herd watch` + `tk herd guard` + the plugin's guard hook** — shipped (operator-channel relay of a blocked orchestrator's question remains open).
+4. **`tk herd orchestrate`** — deferred; needs a live herdr to pin the pane-at-checkout method (see above). Manual form documented in `herdr-runner.md`.
+5. **Planning lint in `tk graph`** — shipped (the Pi planner apply-path validation remains open).
 
 Field validation for each: the measure is stalls-per-epic on real runs (both shapes, from `herdr agent explain` at stall time), before vs after. The 2026-08-30 baseline: both shapes occur routinely enough that the operator describes runs as "frequently stuck".

@@ -24,6 +24,7 @@ What ships today:
 | `[[link_handlers]]` | `ticks-tick-ref` | **Working for `ticks://` URLs**; bare tick ids are not clickable — see below |
 | `[[events]]` | 5 hooks → `paint-hook.sh` | **Working** — badges herd workspaces with tick id, role and status |
 | `[[events]]` | 1 hook → `notify-hook.sh` | **Working** — chimes when a worker blocks (`request`) or a wave finishes (`done`) |
+| `[[events]]` | 1 hook → `guard-hook.sh` | **Working** — supervises the ORCHESTRATOR registered with `tk herd watch`: nudges it when idle with an actionable frontier (bounded per episode), chimes `request` when it blocks or its nudge budget runs out |
 
 ## Install
 
@@ -45,7 +46,7 @@ The plugin lives in a subdirectory of the `ticks` repo, hence the
 herdr plugin list --json | jq '.result.plugins[] | select(.plugin_id=="pengelbrecht.herdr-ticks") | {version, plugin_root, events: (.events|length)}'
 ```
 
-You should see six `events` entries: five paint hooks and one notify hook.
+You should see seven `events` entries: five paint hooks, one notify hook, and one guard hook.
 
 ### 2. Pin the `tk` binary
 
@@ -206,6 +207,7 @@ plugins/herdr-ticks/
     action-open-tick-dashboard.sh  [[actions]] open-tick-dashboard + [[link_handlers]] target
     paint-hook.sh                [[events]] runs `tk herd paint` on the badge-relevant events
     notify-hook.sh               [[events]] runs `tk herd notify` on pane.agent_status_changed
+    guard-hook.sh                [[events]] runs `tk herd guard` on pane.agent_status_changed
 ```
 
 ## Herd-worker actions
@@ -432,3 +434,32 @@ your own placement preference wins.
 Only workers named by the run's own manifests are ever considered, `tk` is resolved the
 same way as in `paint-hook.sh`, and the hook exits 0 with an explanation in any repo with
 no `.tick/` or no run in flight.
+
+## Orchestrator guard
+
+`guard-hook.sh` runs `tk herd guard` on `pane.agent_status_changed`. It supervises the
+one agent no other hook covers: the run's **orchestrator**, registered explicitly with
+
+```
+tk herd watch <agent-or-pane>        # at run start, beside opening the dashboard
+```
+
+The decision table, per status of the registered target:
+
+| Status | Guard's move |
+| --- | --- |
+| `working` | re-arm the episode memory (nudge budget, chime flags) |
+| `idle`/`done`, frontier actionable (`tk frontier --check` exit 0) | `agent.prompt` a nudge restating the continuation rules — at most `--nudge-max` (default 3) per stall episode, never closer than `--nudge-interval` (default 2m); when the budget is spent, one `request` chime (`ticks orchestrator stalled`) and silence |
+| `idle`/`done`, frontier at rest | nothing — an idle orchestrator waiting on humans is legitimate |
+| `blocked` | one `request` chime (`ticks orchestrator blocked`); the guard **never** answers an approval UI, for the orchestrator exactly as for workers |
+
+Same discipline as the notifier: no time-window debounce (an elided invocation could be
+the only one that saw the stall), edge-triggered against persisted state under a lock —
+
+```
+.tick/logs/herd/.watch-orchestrator.json
+```
+
+— one file for the whole run, not per epic, because the orchestrator spans epic
+boundaries the same way the unpinned dashboard does. A repo that never ran
+`tk herd watch` costs the hook one file test and an explanatory exit 0.
