@@ -481,7 +481,7 @@ var workersDevPattern = regexp.MustCompile(`https://[A-Za-z0-9.-]+\.workers\.dev
 // gets "" must stop and ask for --url rather than guess.
 //
 // Guessing is the failure mode worth avoiding: an endpoint parsed out of the
-// wrong line is recorded in ~/.ticksrc and pushed as the Worker's own base URL,
+// wrong line is recorded in ~/.ticfacrc and pushed as the Worker's own base URL,
 // which is where every run's sandbox is pointed for model traffic. "I could not
 // tell" is a stop the operator can fix in one flag; a confident wrong answer is
 // a deployment that looks fine and cannot run anything.

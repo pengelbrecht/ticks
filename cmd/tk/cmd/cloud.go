@@ -18,8 +18,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/pengelbrecht/ticks/internal/factory"
+	"github.com/pengelbrecht/ticks/internal/factory/credentials"
 	"github.com/pengelbrecht/ticks/internal/github"
-	"github.com/pengelbrecht/ticks/internal/ticksrc"
 )
 
 var (
@@ -42,7 +43,7 @@ var cloudCmd = &cobra.Command{
 	Long: `Drive the cloud factory's closed command surface.
 
 The factory is self-deployed and authenticated with the factory_url and
-factory_token entries in ~/.ticksrc. There is deliberately no cloud steering
+factory_token entries in ~/.ticfacrc. There is deliberately no cloud steering
 or mutation command: stop a run, edit the tracker in a normal checkout, and
 submit it again so the new orchestrator follows the reconcile path.
 
@@ -166,13 +167,13 @@ type cloudClient struct {
 }
 
 func newCloudClient() (*cloudClient, error) {
-	config, err := ticksrc.Load()
+	config, err := factory.LoadCredentials()
 	if err != nil {
 		return nil, fmt.Errorf("cannot read factory configuration: %w", err)
 	}
 
-	baseURL := strings.TrimRight(strings.TrimSpace(config.Get(ticksrc.KeyFactoryURL)), "/")
-	token := strings.TrimSpace(config.Get(ticksrc.KeyFactoryToken))
+	baseURL := strings.TrimRight(strings.TrimSpace(config.Get(credentials.KeyURL)), "/")
+	token := strings.TrimSpace(config.Get(credentials.KeyToken))
 	if baseURL == "" || token == "" {
 		return nil, fmt.Errorf("no factory is configured; run 'tk factory setup' first")
 	}

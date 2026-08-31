@@ -178,7 +178,7 @@ func findContainerApp(apps []containerApp, name string) (containerApp, bool) {
 // application is serving the image it should serve.
 //
 // It is its own type because the deployment itself succeeded: the bundle is
-// uploaded, the secrets landed and ~/.ticksrc holds the credentials. What
+// uploaded, the secrets landed and ~/.ticfacrc holds the credentials. What
 // failed is the confirmation, and the remedy is to wait and look rather than
 // to undo anything. Saying that plainly is the whole point — the alternative
 // is the green deploy that sends the operator hunting for a bug that is not

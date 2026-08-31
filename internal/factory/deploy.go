@@ -8,7 +8,7 @@
 // in this binary, which is what pins a deployment to a tk version.
 //
 // The command is idempotent by construction. Provisioning asks before it
-// creates, the bearer token is reused from ~/.ticksrc unless rotation is asked
+// creates, the bearer token is reused from ~/.ticfacrc unless rotation is asked
 // for, and the deploy itself is an upsert. Re-running is the upgrade path.
 package factory
 
@@ -25,7 +25,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pengelbrecht/ticks/internal/ticksrc"
+	"github.com/pengelbrecht/ticks/internal/factory/credentials"
 )
 
 // Options configures a deploy.
@@ -38,7 +38,7 @@ type Options struct {
 	// run. Empty means the default under the ticks home directory.
 	BundleDir string
 
-	// ConfigPath overrides the ~/.ticksrc location (tests).
+	// ConfigPath overrides the ~/.ticfacrc location (tests).
 	ConfigPath string
 
 	// RotateToken mints a new bearer token instead of reusing the stored one.
@@ -94,7 +94,7 @@ type Options struct {
 type Result struct {
 	// URL is the factory's base endpoint.
 	URL string
-	// Token is the bearer token now in ~/.ticksrc.
+	// Token is the bearer token now in ~/.ticfacrc.
 	Token string
 	// Rotated reports whether this run minted a new token.
 	Rotated bool
@@ -143,10 +143,10 @@ func DefaultBundleDir() (string, error) {
 }
 
 // Deploy installs (or upgrades) the factory in the operator's Cloudflare
-// account and records the endpoint and token in ~/.ticksrc.
+// account and records the endpoint and token in ~/.ticfacrc.
 //
 // The order is deliberate: every precondition is checked before anything is
-// created, and the credential is written to ~/.ticksrc *before* the endpoint
+// created, and the credential is written to ~/.ticfacrc *before* the endpoint
 // is verified. A token that reached Cloudflare but not the operator's disk
 // would be unrecoverable — the worker only ever holds its hash — so the last
 // step is the one allowed to fail.
@@ -225,7 +225,7 @@ func Deploy(ctx context.Context, opts Options) (*Result, error) {
 		return nil, err
 	}
 
-	token := cfg.Get(ticksrc.KeyFactoryToken)
+	token := cfg.Get(credentials.KeyToken)
 	rotated := false
 	if token == "" || opts.RotateToken {
 		if token, err = MintToken(); err != nil {
@@ -308,7 +308,7 @@ func Deploy(ctx context.Context, opts Options) (*Result, error) {
 		url = parseDeployedURL(deployOut)
 	}
 	if url == "" {
-		url = strings.TrimSuffix(cfg.Get(ticksrc.KeyFactoryURL), "/")
+		url = strings.TrimSuffix(cfg.Get(credentials.KeyURL), "/")
 	}
 	if url == "" {
 		return nil, fmt.Errorf(
@@ -346,9 +346,9 @@ func Deploy(ctx context.Context, opts Options) (*Result, error) {
 
 	// Written before verification on purpose: the plaintext token exists only
 	// here, so losing it to a failed probe would strand the deployment.
-	cfg.Set(ticksrc.KeyFactoryURL, url)
-	cfg.Set(ticksrc.KeyFactoryToken, token)
-	cfg.Set(ticksrc.KeyFactoryVersion, opts.Version)
+	cfg.Set(credentials.KeyURL, url)
+	cfg.Set(credentials.KeyToken, token)
+	cfg.Set(credentials.KeyVersion, opts.Version)
 	if err := cfg.Save(); err != nil {
 		return nil, err
 	}
@@ -398,11 +398,17 @@ func Deploy(ctx context.Context, opts Options) (*Result, error) {
 	return result, nil
 }
 
-func loadConfig(path string) (*ticksrc.File, error) {
-	if path != "" {
-		return ticksrc.LoadFrom(path)
+// loadConfig reads the factory's own credential file (~/.ticfacrc), migrating
+// any leftover factory_* keys out of ~/.ticksrc into it first. An empty path
+// means the real default location; a non-empty path (tests) is treated as a
+// self-contained sandbox directory, so its migration source is a ".ticksrc"
+// file next to it rather than the operator's real home directory.
+func loadConfig(path string) (*credentials.File, error) {
+	if path == "" {
+		return LoadCredentials()
 	}
-	return ticksrc.Load()
+	legacyPath := filepath.Join(filepath.Dir(path), legacyFileName)
+	return loadCredentialsAt(path, legacyPath)
 }
 
 func createdOrReused(created bool) string {
@@ -438,7 +444,7 @@ var imageRefSafe = regexp.MustCompile(`^[A-Za-z0-9._:+/@-]*$`)
 
 // recordDeployment stores the deployed identity in D1, so a live factory can
 // answer "which tk version and which bundle are you running?" without trusting
-// the operator's local ~/.ticksrc.
+// the operator's local ~/.ticfacrc.
 func recordDeployment(ctx context.Context, w *wrangler, version string) error {
 	sha := BundleSHA()
 	stamp := time.Now().UTC().Format(time.RFC3339)
@@ -589,7 +595,7 @@ func verifyEndpoint(ctx context.Context, opts Options, url, token string) error 
 	return fmt.Errorf(
 		"the bundle deployed and %s holds the credentials, but verifying %s failed: %w\n"+
 			"Re-run `tk factory deploy` once the endpoint is reachable; nothing is lost by running it again",
-		ticksrc.FileName, url, lastErr)
+		credentials.FileName, url, lastErr)
 }
 
 func verifyOnce(ctx context.Context, client *http.Client, url, token string) error {
@@ -648,7 +654,7 @@ func verifyOnce(ctx context.Context, client *http.Client, url, token string) err
 	switch probeResp.StatusCode {
 	case http.StatusUnauthorized:
 		return verificationError(fmt.Errorf("the factory rejected the token in %s — the deployed %s does not match it",
-			ticksrc.FileName, SecretName), false)
+			credentials.FileName, SecretName), false)
 	case http.StatusServiceUnavailable:
 		return verificationError(fmt.Errorf("the factory reports its auth is not configured (503) — the %s secret did not land",
 			SecretName), true)

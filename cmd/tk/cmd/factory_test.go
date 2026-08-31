@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/pengelbrecht/ticks/internal/factory"
+	"github.com/pengelbrecht/ticks/internal/factory/credentials"
 )
 
 // fakeWranglerOnPath puts internal/factory's wrangler stand-in at the front of
@@ -93,7 +94,7 @@ func fakeFactory(t *testing.T, stateDir func() string) *httptest.Server {
 	return srv
 }
 
-func TestFactoryDeployWritesTicksrcAndReportsTheEndpoint(t *testing.T) {
+func TestFactoryDeployWritesTicfacrcAndReportsTheEndpoint(t *testing.T) {
 	var stateDir string
 	srv := fakeFactory(t, func() string { return stateDir })
 	_, stateDir = fakeWranglerOnPath(t, srv.URL)
@@ -106,19 +107,19 @@ func TestFactoryDeployWritesTicksrcAndReportsTheEndpoint(t *testing.T) {
 		t.Fatalf("tk factory deploy: %v\n%s", err, out)
 	}
 
-	data, readErr := os.ReadFile(filepath.Join(home, ".ticksrc"))
+	data, readErr := os.ReadFile(filepath.Join(home, credentials.FileName))
 	if readErr != nil {
-		t.Fatalf("~/.ticksrc was not written: %v", readErr)
+		t.Fatalf("~/.ticfacrc was not written: %v", readErr)
 	}
 	rc := string(data)
 	if !strings.Contains(rc, "factory_url="+srv.URL) {
-		t.Errorf("~/.ticksrc has no factory_url for the deployed endpoint:\n%s", rc)
+		t.Errorf("~/.ticfacrc has no factory_url for the deployed endpoint:\n%s", rc)
 	}
 	if !strings.Contains(rc, "factory_token=tkf_") {
-		t.Errorf("~/.ticksrc has no factory token:\n%s", rc)
+		t.Errorf("~/.ticfacrc has no factory token:\n%s", rc)
 	}
 	if !strings.Contains(rc, "factory_version=") {
-		t.Errorf("~/.ticksrc does not pin the tk version:\n%s", rc)
+		t.Errorf("~/.ticfacrc does not pin the tk version:\n%s", rc)
 	}
 	if !strings.Contains(out, srv.URL) {
 		t.Errorf("the command never told the operator the endpoint:\n%s", out)
@@ -148,8 +149,8 @@ func TestFactoryDeployWithoutWranglerExitsNonzeroWithAnActionableError(t *testin
 	if !strings.Contains(msg, "install") {
 		t.Errorf("error does not say how to install it:\n%s", msg)
 	}
-	if _, statErr := os.Stat(filepath.Join(home, ".ticksrc")); !os.IsNotExist(statErr) {
-		t.Error("a failed precondition still wrote ~/.ticksrc")
+	if _, statErr := os.Stat(filepath.Join(home, credentials.FileName)); !os.IsNotExist(statErr) {
+		t.Error("a failed precondition still wrote ~/.ticfacrc")
 	}
 }
 
@@ -163,12 +164,12 @@ func TestFactoryDeployIsIdempotent(t *testing.T) {
 	if err := ExecuteArgs([]string{"factory", "deploy"}); err != nil {
 		t.Fatalf("first deploy: %v\n%s", err, buf)
 	}
-	first, _ := os.ReadFile(filepath.Join(home, ".ticksrc"))
+	first, _ := os.ReadFile(filepath.Join(home, credentials.FileName))
 
 	if err := ExecuteArgs([]string{"factory", "deploy"}); err != nil {
 		t.Fatalf("second deploy: %v\n%s", err, buf)
 	}
-	second, _ := os.ReadFile(filepath.Join(home, ".ticksrc"))
+	second, _ := os.ReadFile(filepath.Join(home, credentials.FileName))
 
 	if string(first) != string(second) {
 		t.Errorf("re-running the deploy changed the recorded credentials:\n%s\n---\n%s", first, second)
@@ -192,12 +193,12 @@ func TestFactoryDeployRotateToken(t *testing.T) {
 	if err := ExecuteArgs([]string{"factory", "deploy"}); err != nil {
 		t.Fatalf("first deploy: %v\n%s", err, buf)
 	}
-	before, _ := os.ReadFile(filepath.Join(home, ".ticksrc"))
+	before, _ := os.ReadFile(filepath.Join(home, credentials.FileName))
 
 	if err := ExecuteArgs([]string{"factory", "deploy", "--rotate-token"}); err != nil {
 		t.Fatalf("rotating deploy: %v\n%s", err, buf)
 	}
-	after, _ := os.ReadFile(filepath.Join(home, ".ticksrc"))
+	after, _ := os.ReadFile(filepath.Join(home, credentials.FileName))
 
 	if string(before) == string(after) {
 		t.Error("--rotate-token left the stored token unchanged")
@@ -208,7 +209,7 @@ func TestFactoryDeployRotateToken(t *testing.T) {
 	if err := ExecuteArgs([]string{"factory", "deploy"}); err != nil {
 		t.Fatalf("third deploy: %v\n%s", err, buf)
 	}
-	third, _ := os.ReadFile(filepath.Join(home, ".ticksrc"))
+	third, _ := os.ReadFile(filepath.Join(home, credentials.FileName))
 	if string(third) != string(after) {
 		t.Errorf("--rotate-token leaked into the next execution:\n%s\n---\n%s", after, third)
 	}
@@ -301,9 +302,9 @@ func TestFactorySetupConfiguresEveryRung(t *testing.T) {
 		t.Fatalf("tk factory setup: %v\n%s", err, out)
 	}
 
-	data, readErr := os.ReadFile(filepath.Join(home, ".ticksrc"))
+	data, readErr := os.ReadFile(filepath.Join(home, credentials.FileName))
 	if readErr != nil {
-		t.Fatalf("~/.ticksrc was not written: %v", readErr)
+		t.Fatalf("~/.ticfacrc was not written: %v", readErr)
 	}
 	rc := string(data)
 	for _, want := range []string{
@@ -315,7 +316,7 @@ func TestFactorySetupConfiguresEveryRung(t *testing.T) {
 		"factory_gateway_provider=anthropic",
 	} {
 		if !strings.Contains(rc, want) {
-			t.Errorf("~/.ticksrc is missing %q:\n%s", want, rc)
+			t.Errorf("~/.ticfacrc is missing %q:\n%s", want, rc)
 		}
 	}
 
@@ -388,7 +389,7 @@ func TestFactoryStatusOfflineAndCheck(t *testing.T) {
 		"factory_github_repo=" + repo,
 		"",
 	}, "\n")
-	if err := os.WriteFile(filepath.Join(home, ".ticksrc"), []byte(rc), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(home, credentials.FileName), []byte(rc), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -426,7 +427,7 @@ func TestFactoryStatusFlagsStaleDeployment(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	rc := "factory_url=https://factory.example\nfactory_version=1.2.3\n"
-	if err := os.WriteFile(filepath.Join(home, ".ticksrc"), []byte(rc), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(home, credentials.FileName), []byte(rc), 0o600); err != nil {
 		t.Fatal(err)
 	}
 

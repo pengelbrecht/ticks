@@ -60,7 +60,7 @@ const (
 )
 
 // MintToken returns a fresh factory token. It only ever exists on the
-// operator's machine and in ~/.ticksrc — the worker sees the hash alone.
+// operator's machine and in ~/.ticfacrc — the worker sees the hash alone.
 func MintToken() (string, error) {
 	buf := make([]byte, tokenBytes)
 	if _, err := rand.Read(buf); err != nil {

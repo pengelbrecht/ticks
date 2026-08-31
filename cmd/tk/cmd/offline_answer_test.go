@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pengelbrecht/ticks/internal/factory/credentials"
 	"github.com/pengelbrecht/ticks/internal/operator"
 	"github.com/pengelbrecht/ticks/internal/tick"
-	"github.com/pengelbrecht/ticks/internal/ticksrc"
 )
 
 // TestOfflineParkResolveNotifiesAgent is the guard for Phase 4b's Telegram
@@ -45,6 +45,14 @@ import (
 // factoryOperatorChannel() left to fall back through, but this test proves
 // it with a populated file rather than trusting the absence of the code path
 // it used to read. See RESULT-1fd.md.
+//
+// The credential split (tick 0oa) made this structurally impossible rather
+// than merely absent: factory credentials moved to their own file,
+// ~/.ticfacrc, owned by internal/factory/credentials — a package `tk
+// ask`/`tk answer` do not and must not import. This test still populates the
+// legacy ~/.ticksrc, because that is the shape a real upgraded machine has
+// until its next factory command migrates it, and the offline path must
+// ignore that just as completely as it ignores a fresh ~/.ticfacrc.
 func TestOfflineParkResolveNotifiesAgent(t *testing.T) {
 	repo, store := setupTestRepo(t)
 	if err := store.Ensure(); err != nil {
@@ -61,19 +69,32 @@ func TestOfflineParkResolveNotifiesAgent(t *testing.T) {
 	// this file being read at all when no channel is configured; the offline
 	// path must ignore it completely, not merely lack a reason to open it in
 	// this particular test.
-	rcPath := filepath.Join(homeDir, ticksrc.FileName)
-	rc, err := ticksrc.LoadFrom(rcPath)
+	rcPath := filepath.Join(homeDir, ".ticksrc")
+	rc, err := credentials.LoadFrom(rcPath)
 	if err != nil {
-		t.Fatalf("ticksrc.LoadFrom: %v", err)
+		t.Fatalf("credentials.LoadFrom: %v", err)
 	}
-	rc.Set(ticksrc.KeyFactoryURL, "https://ticks-factory.example.workers.dev")
+	rc.Set(credentials.KeyURL, "https://ticks-factory.example.workers.dev")
 	// Deliberately NOT token-shaped. The point of this fixture is that a
 	// populated ~/.ticksrc exists at all, not that its value looks real —
 	// and the public-repo guard correctly refuses a credential-shaped
 	// literal in a tracked file, which is a guard worth keeping honest.
-	rc.Set(ticksrc.KeyFactoryToken, "not-a-real-credential")
+	rc.Set(credentials.KeyToken, "not-a-real-credential")
 	if err := rc.Save(); err != nil {
-		t.Fatalf("ticksrc.Save: %v", err)
+		t.Fatalf("credentials.Save: %v", err)
+	}
+
+	// The post-split shape too: a populated ~/.ticfacrc, as a migrated or
+	// freshly-deployed machine would have. Same guard, same reason.
+	facPath := filepath.Join(homeDir, credentials.FileName)
+	fac, err := credentials.LoadFrom(facPath)
+	if err != nil {
+		t.Fatalf("credentials.LoadFrom: %v", err)
+	}
+	fac.Set(credentials.KeyURL, "https://ticks-factory.example.workers.dev")
+	fac.Set(credentials.KeyToken, "not-a-real-credential")
+	if err := fac.Save(); err != nil {
+		t.Fatalf("credentials.Save: %v", err)
 	}
 
 	// No network, structurally: any HTTP call made anywhere in this test is a

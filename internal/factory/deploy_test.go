@@ -16,20 +16,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pengelbrecht/ticks/internal/ticksrc"
+	"github.com/pengelbrecht/ticks/internal/factory/credentials"
 )
 
 // harness wires a deploy against the fake wrangler in testdata and a fake
 // factory endpoint, so a full `tk factory deploy` runs end to end without a
 // Cloudflare account. Everything the real command does — provisioning, the
-// migration, the deploy, the secret, ~/.ticksrc, the authenticated probe — is
+// migration, the deploy, the secret, ~/.ticfacrc, the authenticated probe — is
 // exercised; only the far side is simulated.
 type harness struct {
 	t                   *testing.T
 	stateDir            string
 	logPath             string
 	bundleDir           string
-	ticksrc             string
+	ticfacrc            string
 	server              *httptest.Server
 	secretHash          atomic.Pointer[string]
 	authProbes          atomic.Int32
@@ -51,7 +51,7 @@ func newHarness(t *testing.T) *harness {
 		t:         t,
 		stateDir:  t.TempDir(),
 		bundleDir: filepath.Join(t.TempDir(), "bundle"),
-		ticksrc:   filepath.Join(t.TempDir(), ".ticksrc"),
+		ticfacrc:  filepath.Join(t.TempDir(), credentials.FileName),
 	}
 	h.logPath = filepath.Join(h.stateDir, "wrangler.log")
 
@@ -172,7 +172,7 @@ func (h *harness) options() Options {
 	return Options{
 		Version:    "1.2.3",
 		BundleDir:  h.bundleDir,
-		ConfigPath: h.ticksrc,
+		ConfigPath: h.ticfacrc,
 		Out:        io.Discard,
 		// A complete tk: the gate that keeps the image's tk in step with the
 		// entrypoint has its own tests, and every other deploy test wants to
@@ -212,7 +212,7 @@ func countLines(lines []string, prefix string) int {
 }
 
 // A clean account: one command produces a working authenticated endpoint and a
-// ~/.ticksrc entry.
+// ~/.ticfacrc entry.
 func TestDeployFromCleanAccount(t *testing.T) {
 	h := newHarness(t)
 
@@ -234,18 +234,18 @@ func TestDeployFromCleanAccount(t *testing.T) {
 		t.Error("no D1 database id recorded")
 	}
 
-	cfg, err := ticksrc.LoadFrom(h.ticksrc)
+	cfg, err := credentials.LoadFrom(h.ticfacrc)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := cfg.Get(ticksrc.KeyFactoryURL); got != h.server.URL {
-		t.Errorf("~/.ticksrc factory_url = %q, want %q", got, h.server.URL)
+	if got := cfg.Get(credentials.KeyURL); got != h.server.URL {
+		t.Errorf("~/.ticfacrc factory_url = %q, want %q", got, h.server.URL)
 	}
-	if got := cfg.Get(ticksrc.KeyFactoryToken); got != result.Token {
-		t.Errorf("~/.ticksrc factory_token = %q, want %q", got, result.Token)
+	if got := cfg.Get(credentials.KeyToken); got != result.Token {
+		t.Errorf("~/.ticfacrc factory_token = %q, want %q", got, result.Token)
 	}
-	if got := cfg.Get(ticksrc.KeyFactoryVersion); got != "1.2.3" {
-		t.Errorf("~/.ticksrc factory_version = %q, want the tk version", got)
+	if got := cfg.Get(credentials.KeyVersion); got != "1.2.3" {
+		t.Errorf("~/.ticfacrc factory_version = %q, want the tk version", got)
 	}
 
 	lines := h.logLines()
@@ -339,9 +339,9 @@ func TestDeployRotateTokenMintsANewOne(t *testing.T) {
 	if !second.Rotated {
 		t.Error("Rotated = false after --rotate-token")
 	}
-	cfg, _ := ticksrc.LoadFrom(h.ticksrc)
-	if got := cfg.Get(ticksrc.KeyFactoryToken); got != second.Token {
-		t.Errorf("~/.ticksrc still holds the old token: %q", got)
+	cfg, _ := credentials.LoadFrom(h.ticfacrc)
+	if got := cfg.Get(credentials.KeyToken); got != second.Token {
+		t.Errorf("~/.ticfacrc still holds the old token: %q", got)
 	}
 }
 
@@ -375,10 +375,14 @@ func TestDeployPinsTheBundleToTheTkVersion(t *testing.T) {
 	}
 }
 
-// Existing ~/.ticksrc content (board sync's token=/url=) survives a deploy.
-func TestDeployPreservesBoardSyncConfig(t *testing.T) {
+// ~/.ticksrc (board sync's own file, token=/url=) is never touched by a
+// deploy — the split's point is that factory credentials live in their own
+// file (~/.ticfacrc), read and written by their own code.
+func TestDeployNeverTouchesBoardSyncConfig(t *testing.T) {
 	h := newHarness(t)
-	if err := os.WriteFile(h.ticksrc, []byte("token=board-token\nurl=wss://ticks.sh/api/projects\n"), 0o600); err != nil {
+	legacyPath := filepath.Join(filepath.Dir(h.ticfacrc), legacyFileName)
+	boardContent := "token=board-token\nurl=wss://ticks.sh/api/projects\n"
+	if err := os.WriteFile(legacyPath, []byte(boardContent), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -386,12 +390,12 @@ func TestDeployPreservesBoardSyncConfig(t *testing.T) {
 		t.Fatalf("Deploy: %v", err)
 	}
 
-	cfg, _ := ticksrc.LoadFrom(h.ticksrc)
-	if got := cfg.Get(ticksrc.KeyToken); got != "board-token" {
-		t.Errorf("board sync token = %q, want it untouched", got)
+	data, err := os.ReadFile(legacyPath)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got := cfg.Get(ticksrc.KeyURL); got != "wss://ticks.sh/api/projects" {
-		t.Errorf("board sync url = %q, want it untouched", got)
+	if string(data) != boardContent {
+		t.Errorf("~/.ticksrc changed:\nbefore:\n%safter:\n%s", boardContent, data)
 	}
 }
 
@@ -419,8 +423,8 @@ func TestDeployWithoutWranglerNamesThePrerequisite(t *testing.T) {
 	if !strings.Contains(msg, "npm install") && !strings.Contains(msg, "pnpm") {
 		t.Errorf("error does not say how to install wrangler: %s", msg)
 	}
-	if _, statErr := os.Stat(h.ticksrc); !os.IsNotExist(statErr) {
-		t.Error("a failed precondition still wrote ~/.ticksrc")
+	if _, statErr := os.Stat(h.ticfacrc); !os.IsNotExist(statErr) {
+		t.Error("a failed precondition still wrote ~/.ticfacrc")
 	}
 }
 
@@ -480,8 +484,8 @@ func TestDeployFailsWhenTheEndpointDoesNotAuthenticate(t *testing.T) {
 	}
 	// The credential is still recorded: the deploy happened, and a re-run must
 	// be able to reuse the token rather than orphan it.
-	cfg, _ := ticksrc.LoadFrom(h.ticksrc)
-	if cfg.Get(ticksrc.KeyFactoryToken) == "" {
+	cfg, _ := credentials.LoadFrom(h.ticfacrc)
+	if cfg.Get(credentials.KeyToken) == "" {
 		t.Error("the minted token was lost when verification failed")
 	}
 }

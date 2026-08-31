@@ -8,22 +8,22 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pengelbrecht/ticks/internal/ticksrc"
+	"github.com/pengelbrecht/ticks/internal/factory/credentials"
 )
 
 // storeGitHubRung writes the GitHub half of the mirror the way a device-flow
 // setup leaves it.
 func (h *setupHarness) storeGitHubRung(t *testing.T, token, auth string, expiresAt time.Time) {
 	t.Helper()
-	rc, err := ticksrc.LoadFrom(h.ticksrc)
+	rc, err := credentials.LoadFrom(h.ticfacrc)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rc.Set(ticksrc.KeyFactoryGitHubToken, token)
-	rc.Set(ticksrc.KeyFactoryGitHubLogin, testLogin)
-	rc.Set(ticksrc.KeyFactoryGitHubRepo, testRepo)
-	rc.Set(ticksrc.KeyFactoryGitHubAuth, auth)
-	rc.Set(ticksrc.KeyFactoryGitHubTokenExpires, formatDeadline(expiresAt))
+	rc.Set(credentials.KeyGitHubToken, token)
+	rc.Set(credentials.KeyGitHubLogin, testLogin)
+	rc.Set(credentials.KeyGitHubRepo, testRepo)
+	rc.Set(credentials.KeyGitHubAuth, auth)
+	rc.Set(credentials.KeyGitHubTokenExpires, formatDeadline(expiresAt))
 	if err := rc.Save(); err != nil {
 		t.Fatal(err)
 	}

@@ -11,7 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/pengelbrecht/ticks/internal/factory"
-	"github.com/pengelbrecht/ticks/internal/ticksrc"
+	"github.com/pengelbrecht/ticks/internal/factory/credentials"
 )
 
 // cloudflareHTTPClient makes the Workflows read. A package variable for the
@@ -70,14 +70,14 @@ func init() {
 // The account comes off the gateway URL rather than a second stored copy, so
 // there is one configured value naming the account and nothing to drift.
 func cloudSupervisorOptions() (factory.SupervisorOptions, error) {
-	config, err := ticksrc.Load()
+	config, err := factory.LoadCredentials()
 	if err != nil {
 		return factory.SupervisorOptions{}, fmt.Errorf("cannot read factory configuration: %w", err)
 	}
 	return factory.SupervisorOptions{
 		HTTPClient:         cloudflareHTTPClient,
-		GatewayURL:         strings.TrimSpace(config.Get(ticksrc.KeyFactoryGatewayURL)),
-		CloudflareAPIToken: strings.TrimSpace(config.Get(ticksrc.KeyFactoryCloudflareAPIToken)),
+		GatewayURL:         strings.TrimSpace(config.Get(credentials.KeyGatewayURL)),
+		CloudflareAPIToken: strings.TrimSpace(config.Get(credentials.KeyCloudflareAPIToken)),
 	}, nil
 }
 

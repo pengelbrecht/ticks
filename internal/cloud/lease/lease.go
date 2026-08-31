@@ -121,7 +121,7 @@ func (a Arbiter) DispatchRefusal() string {
 				"Enrol it (POST /api/projects) and retry; the herdr and harness substrates keep working here in the meantime.",
 			a.projectName())
 	}
-	return "no cloud factory is configured for this checkout (~/.ticksrc has no factory_url/factory_token), so there is nowhere to dispatch cloud workers. " +
+	return "no cloud factory is configured for this checkout (~/.ticfacrc has no factory_url/factory_token), so there is nowhere to dispatch cloud workers. " +
 		"Run 'tk factory setup' to enrol this project, or drive this wave on a local substrate — the local file lease already arbitrates it, offline."
 }
 

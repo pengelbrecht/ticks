@@ -60,7 +60,7 @@ var factoryDeployCmd = &cobra.Command{
 
 It creates or reuses the D1 database and the R2 bucket, applies the bundle's D1
 migrations, pushes the hash of your factory token as a Worker secret, deploys
-the worker, and records the endpoint and token in ~/.ticksrc alongside the
+the worker, and records the endpoint and token in ~/.ticfacrc alongside the
 existing board-sync token.
 
 It then waits for the orchestrator container application to report the image this
@@ -167,7 +167,7 @@ Setup walks four rungs and proves each one before it stores anything:
      the default; --workers-ai-billing-mode unified records the other choice.
 
 Everything it stores goes to two places: a Worker secret in your own Cloudflare
-account, and ~/.ticksrc (0600) so ` + "`tk factory status`" + ` can re-check it. Nothing is
+account, and ~/.ticfacrc (0600) so ` + "`tk factory status`" + ` can re-check it. Nothing is
 ever written into the repository.
 
 Re-running is the reconfiguration path: an existing deployment is reused, and a
@@ -250,7 +250,7 @@ nothing configured, status says so and exits 0. No credential is ever printed.`,
 
 func init() {
 	factoryDeployCmd.Flags().BoolVar(&factoryDeployRotateToken, "rotate-token", false,
-		"mint a new factory token instead of reusing the one in ~/.ticksrc")
+		"mint a new factory token instead of reusing the one in ~/.ticfacrc")
 	factoryDeployCmd.Flags().StringVar(&factoryDeployURL, "url", "",
 		"factory endpoint to record and verify, when wrangler's output does not name one (custom routes)")
 	factoryDeployCmd.Flags().StringVar(&factoryDeployBundleDir, "bundle-dir", "",

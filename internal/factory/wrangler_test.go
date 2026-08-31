@@ -186,7 +186,7 @@ func TestParseDeployedURLReadsACustomRoute(t *testing.T) {
 }
 
 // "I could not tell" has to stay a stop. Returning a URL scraped from
-// somewhere else would be recorded in ~/.ticksrc and pushed as the Worker's
+// somewhere else would be recorded in ~/.ticfacrc and pushed as the Worker's
 // own base URL, which is where every run's model traffic is pointed.
 func TestParseDeployedURLRefusesToGuess(t *testing.T) {
 	out := strings.Join([]string{

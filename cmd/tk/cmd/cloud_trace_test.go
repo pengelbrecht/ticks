@@ -11,7 +11,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/pengelbrecht/ticks/internal/ticksrc"
+	"github.com/pengelbrecht/ticks/internal/factory/credentials"
 )
 
 // The AI Gateway logs API, stood up in-process. The rows are shaped like the
@@ -54,16 +54,16 @@ func configureTraceGateway(t *testing.T) {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	config, err := ticksrc.LoadFrom(filepath.Join(home, ticksrc.FileName))
+	config, err := credentials.LoadFrom(filepath.Join(home, credentials.FileName))
 	if err != nil {
-		t.Fatalf("load ticksrc: %v", err)
+		t.Fatalf("load credentials: %v", err)
 	}
-	config.Set(ticksrc.KeyFactoryURL, "https://factory.test")
-	config.Set(ticksrc.KeyFactoryToken, "tkf_test-token")
-	config.Set(ticksrc.KeyFactoryGatewayURL, "https://gateway.ai.cloudflare.com/v1/acct-id/ticks-gw")
-	config.Set(ticksrc.KeyFactoryCloudflareAPIToken, "cf-test-token")
+	config.Set(credentials.KeyURL, "https://factory.test")
+	config.Set(credentials.KeyToken, "tkf_test-token")
+	config.Set(credentials.KeyGatewayURL, "https://gateway.ai.cloudflare.com/v1/acct-id/ticks-gw")
+	config.Set(credentials.KeyCloudflareAPIToken, "cf-test-token")
 	if err := config.Save(); err != nil {
-		t.Fatalf("save ticksrc: %v", err)
+		t.Fatalf("save credentials: %v", err)
 	}
 }
 
@@ -354,15 +354,15 @@ func TestCloudTraceSaysWhenNoCallsCarryTheRunID(t *testing.T) {
 func TestCloudTraceWithoutCostTelemetryNamesItsOwnRemedy(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	config, err := ticksrc.LoadFrom(filepath.Join(home, ticksrc.FileName))
+	config, err := credentials.LoadFrom(filepath.Join(home, credentials.FileName))
 	if err != nil {
-		t.Fatalf("load ticksrc: %v", err)
+		t.Fatalf("load credentials: %v", err)
 	}
-	config.Set(ticksrc.KeyFactoryURL, "https://factory.test")
-	config.Set(ticksrc.KeyFactoryToken, "tkf_test-token")
-	config.Set(ticksrc.KeyFactoryGatewayURL, "https://gateway.ai.cloudflare.com/v1/acct-id/ticks-gw")
+	config.Set(credentials.KeyURL, "https://factory.test")
+	config.Set(credentials.KeyToken, "tkf_test-token")
+	config.Set(credentials.KeyGatewayURL, "https://gateway.ai.cloudflare.com/v1/acct-id/ticks-gw")
 	if err := config.Save(); err != nil {
-		t.Fatalf("save ticksrc: %v", err)
+		t.Fatalf("save credentials: %v", err)
 	}
 	captureCmdOutput(t)
 
