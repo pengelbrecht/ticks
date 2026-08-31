@@ -36,6 +36,8 @@ herdr plugin pane open --plugin pengelbrecht.herdr-ticks --entrypoint dashboard 
 
 The board is part of the run, not furniture — a user watching should never have to ask for it.
 
+In the same breath, register the orchestrator for the guard: `tk herd watch <your-agent-or-pane>` (see [*The orchestrator is an agent too*](#the-orchestrator-is-an-agent-too)) — the one agent in the run the other hooks do not supervise is you.
+
 **Do not pin it to an epic.** `tk herd dashboard` with no `--epic` already watches *every* epic that has run state under `.tick/logs/herd/`, so an unpinned board follows a multi-epic run — and a project run crossing `atu → vbd → 51t` — with no further action. Passing `--env TICKS_EPIC=<epic>` pins it to that one epic, and the board then silently shows a **finished** epic for the rest of the run: the workers are live, the panes are live, and the operator sees an empty board and reasonably concludes the run has stalled. Field-observed 2026-08-14: the user asked why the running agents were missing from mission control, two epics after the one the board was pinned to had closed.
 
 Pin with `TICKS_EPIC` only when you deliberately want one epic's slice — the `ticks://` link handler does this, which is where the env var earns its place. If you ever do pin it, re-point the pane at each epic boundary, in the same turn that spawns the next epic's wave 1.
@@ -337,7 +339,7 @@ Four prohibitions:
 
 ## Mission control (the `herdr-ticks` plugin)
 
-The five commands above drive a run. Three more — `tk herd paint`, `tk herd dashboard`, `tk herd notify` — make one *visible*, and a herdr plugin, [`plugins/herdr-ticks/`](../../../plugins/herdr-ticks/README.md), wires them into the multiplexer so an operator sees the run without asking for it.
+The five commands above drive a run. Four more — `tk herd paint`, `tk herd dashboard`, `tk herd notify`, `tk herd guard` — make one *visible and supervised*, and a herdr plugin, [`plugins/herdr-ticks/`](../../../plugins/herdr-ticks/README.md), wires them into the multiplexer so an operator sees the run without asking for it. (`tk herd guard` supervises the *orchestrator* — registration and decision table in [*The orchestrator is an agent too*](#the-orchestrator-is-an-agent-too).)
 
 **None of this is on the orchestrator's critical path.** The plugin is display and convenience: every command it runs is read-only with respect to `.tick/` (bar one small notification-state file), and a machine with no plugin installed runs waves identically. Do not make the loop depend on it, and never treat a badge or a chime as evidence — [`collect`](#result-contract) is still the only completion authority.
 
@@ -440,6 +442,21 @@ workers write their own, and a shared filename collides when the wave is merged)
 The two herdr-specific edits to the shared template are the branch-name statement (the orchestrator named the branch before the worker existed) and the `RESULT-<tick-id>.md` reporting section replacing "report back" — a worker has no return channel, so the report must be a file. Everything else, including the boundaries, is the shared template.
 
 The `## How this fits` paragraph is the one part `tk herd spawn` cannot render, because it is knowledge only the orchestrator has. Put it in the tick's description when it matters.
+
+## The orchestrator is an agent too
+
+Workers cannot stall on a permission prompt, because `tk herd spawn` compiles their kind's full-auto template into the argv. The orchestrator has no such protection: it is launched by hand, in a pane, and a long autonomous run stalls on *it* — not on the fleet. Field-observed 2026-08-30 across repeated long runs, in both shapes herdr can distinguish:
+
+- **`blocked`** — the orchestrator's own harness raised an approval or question UI. When the UI is a tool-permission prompt, the cause is almost always the launch: the orchestrator was started without its kind's full-auto template.
+- **`idle`** — the orchestrator voluntarily ended its turn with an actionable frontier: it asked "should I continue?", summarized instead of dispatching, or stopped after a close. This is the stall instinct (`agent-runner.md` → *Discipline rules*) landing in a pane.
+
+Three rules follow:
+
+- **Launch the orchestrator with its kind's full-auto template** ([`herdr-kinds.md`](herdr-kinds.md)), exactly as `tk herd spawn` does for workers. A `blocked` orchestrator showing a permission prompt means the template did not land — fix the launch rather than answering prompts for the rest of the run.
+- **Register it for the guard at run start:** `tk herd watch <agent-or-pane>`, right after opening the dashboard pane. Explicit target, always — nothing guesses which pane the orchestrator is. With the herdr-ticks plugin installed, its guard hook then judges the registered target on every `pane.agent_status_changed`, exactly like the notify hook judges workers: **idle with an actionable frontier** (`tk frontier --check` exits 0) → the guard `agent.prompt`s a nudge restating the continuation rules — bounded per stall episode (`--nudge-max`, default 3, with a `--nudge-interval` floor), then one `request` chime and silence; **idle at rest** → nothing, an idle orchestrator waiting on humans is legitimate; **blocked** → one `request` chime — the guard never drives an approval UI, for the orchestrator exactly as for workers; **working** → the episode memory re-arms. `tk herd guard` is also runnable by hand for a one-off judgment, and `tk herd watch --status`/`--clear` manage the registration (state: `.tick/logs/herd/.watch-orchestrator.json`).
+- **Diagnose the shape before acting on a stalled run yourself.** `herdr agent explain <orchestrator-agent>` names the signal. `blocked` holds a real question: read the pane, answer it there, and note what planning should have settled (it lands in the retro's interrupt audit). `idle` with dispatchable work is what the guard's nudge handles; unwatched, `herdr agent prompt` with the same message does it by hand.
+
+The design and the deferred endpoint (`tk herd orchestrate`, spawning the orchestrator itself through the helper) are in the ticks repo's [`docs/design/orchestrator-continuation.md`](../../../docs/design/orchestrator-continuation.md).
 
 ## Current limitations
 

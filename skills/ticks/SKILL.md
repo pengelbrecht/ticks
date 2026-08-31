@@ -75,6 +75,7 @@ A project's run config lives in two tracked files in `.tick/`, split by who read
 `.tick/config.md` — the prose half:
 
 - **Rules** — project-specific constraints for implementers (naming conventions, forbidden patterns, required review steps, etc.), included verbatim in every implementer prompt.
+- **Standing orders** — decision classes the human pre-delegates to autonomous runs, each with its default (library choice within the existing stack, naming, internal API shape, …). Consumed by the decide-and-log ladder in `references/agent-runner.md` → *Decide and log*; settled at goal-ready handoff. Optional — absence just means nothing is pre-delegated.
 - Narrative `Testing` hints that are guidance rather than commands, when a repo prefers them in markdown over `testing.notes`.
 
 A repo whose `.tick/config.md` still carries the old machine-parsed sections is on a **deprecated fallback**: it still runs, and each load warns. **`references/runners-config.md`** → *The deprecated markdown path* is the one place that path is documented, and it carries the one-command migration; do not restate it elsewhere.
@@ -290,7 +291,7 @@ When the front epic has a goal-compatible definition of done (above), the plan i
 - **Done is goal-compatible** → recommend the walk-away path and give the one command: run the epic from the harness (Step 5), adding `--autonomous` to `tk next` (or `policy.autonomous_mode: true`) to flow through project checkpoints as well.
 - **Done is missing or not goal-compatible** → say what is unclear, offer to tighten it first, or run with the default human checkpoint at each project boundary.
 
-This is where you decide *how far* the run goes before it stops for you — one epic, one project, or the whole roadmap — instead of discovering it mid-run.
+This is where you decide *how far* the run goes before it stops for you — one epic, one project, or the whole roadmap — instead of discovering it mid-run. Settle *which decisions are the run's* here too: write the delegated decision classes and their defaults into `.tick/config.md` → **Standing orders** (see the config section above), so a mid-run judgment call is a lookup plus a logged decision instead of an interrupt.
 
 The same decision extends to projects: a project whose goal facts are all auto-verifiable with approved `[evidence.acceptance]` mappings (see *Project goals* above and `references/goal-design.md`) is safe to hand off end-to-end — the run verifies the goal at the project boundary and stops only on a real gap. A project with human-judgment facts always stops at its checkpoint, autonomous mode or not.
 
@@ -442,6 +443,7 @@ tk next <epic-id>            # Next task for agent
 tk next <epic-id> --json     # JSON: action field is "implement" | "plan" | "await"
 tk blocked                   # Blocked tasks
 tk list --awaiting=          # Tasks awaiting human
+tk frontier --check          # Continuation predicate: exit 0 = dispatchable work exists, 1 = at rest
 tk graph <epic-id>           # Dependency graph with parallelization
 tk graph <epic-id> --json    # JSON output; needs_planning:true means epic needs child ticks;
                              # non-empty missing_process_ticks means EPIC-SKELETON needs repair
@@ -453,6 +455,8 @@ tk graph <epic-id> --json    # JSON output; needs_planning:true means epic needs
 tk show <id>                                           # Show details
 tk close <id> --reason "Completed: <one-line summary>" # Close tick — always pass --reason
 tk note <id> "text"                                    # Add note
+tk decide <id> --question "…" --choice "…" --reason "…"  # Log a provisional decision (decide, don't ask — agent-runner.md)
+tk decisions <epic-id>                                 # The Decisions-taken table for reports
 tk approve <id>                                        # Approve awaiting tick
 tk reject <id> "feedback"                              # Reject with required feedback
 ```

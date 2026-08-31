@@ -219,6 +219,36 @@ tk notes <id>                         # List notes
 - Human answering a question (INPUT_NEEDED)
 - Human giving direction on escalation
 
+## Decisions (decide and log)
+
+The sanctioned alternative to asking mid-run — see `agent-runner.md` → *Decide and log*.
+
+```bash
+tk decide <id> --question "Which DB driver?" --choice "pgx" \
+  --reason "maintained, ctx support" [--class library-choice]
+tk decisions               # every recorded decision (the Decisions-taken table)
+tk decisions <epic-id>     # scoped to a container's subtree; --json for reports
+```
+
+`tk decide` refuses a tick that is awaiting a human (that decision is the human's —
+use `tk answer`/`tk approve`); a `--requires` tick accepts decisions, which the
+human then reviews at the gate. Underneath it is a structured `decision:` note
+line, so hand-written notes in that format parse too.
+
+## Frontier (the continuation predicate)
+
+```bash
+tk frontier [scope-id]         # what is dispatchable, in flight, waiting
+tk frontier --check            # exit 0: actionable; 1: legitimately at rest; 2+: check failed
+tk frontier --json             # machine-readable
+tk frontier --autonomous       # flow through checkpoint boundaries, like tk next
+```
+
+Actionable = a ready open tick (implement/review/closeout by role), an epic needing
+planning, or a herd worker whose `RESULT-<tick>.md` exists uncollected. In-flight
+workers without a result are never actionable — the predicate must not nudge a run
+whose fleet is legitimately working.
+
 ## Running an Epic
 
 This skill runs epics through a runner-neutral orchestration protocol — see `agent-runner.md`, then the Claude Code, Codex, or Pi adapter. The standalone `tk run` runner (along with its `tk resume` / `tk checkpoints` companions) has been removed. The `tk merge` command remains available for merging a completed epic's worktree branch.
