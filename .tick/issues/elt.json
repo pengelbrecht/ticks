@@ -1,0 +1,14 @@
+{
+  "id": "elt",
+  "title": "Decide the credential split and its migration path",
+  "description": "DESIGN TICK. Decide, write it down, implement nothing. The next tick implements what you decide.\n\nREAD THE EPIC NOTE FIRST — it carries the map: fifteen KeyFactory* constants against two non-factory ones, two independent parsers of the same file, and two core commands reading it.\n\nTHE DECISIONS:\n\nA. WHERE DO FACTORY CREDENTIALS LIVE? Options include ticfac writing its own file, a namespaced section in the existing one with a ticks-side API that refuses to define factory keys, or ticks exposing a generic namespaced read/write and knowing nothing about what a factory is. Weigh them against the project's rule that ticks ends with ZERO factory couplings — a ticks-side API that still enumerates KeyFactoryGatewayProvider is a coupling wearing a namespace.\n\nB. WHAT HAPPENS TO THE TWO BOARD KEYS? KeyToken and KeyURL are board sync. If everything else leaves, ticks is left with a two-key file and a package built for fifteen. Consider whether internal/ticksrc survives at all, or whether the board reader absorbs them.\n\nC. THE DUPLICATE PARSER. internal/tickboard/cloud/client.go parses ~/.ticksrc by hand and never imports internal/ticksrc. Whatever you decide, do not leave two parsers of one format with no contract between them — this project has spent two phases removing exactly that. Either they converge, or they read different files, or they get a contract. Say which and why.\n\nD. THE MIGRATION. This is the only phase that can break a live deployment. Real machines have populated files with live GitHub OAuth refresh tokens and a Cloudflare API token. Design the path: what reads the old shape, for how long, what writes the new one, and how a user finds out. A cut is not acceptable; neither is a silent rewrite of a file holding credentials.\n\nE. tk upgrade READS FACTORY KEYS (upgrade.go:69-80) to warn a deployed factory is stale. Decide whether that warning survives in ticks, moves to ticfac, or disappears. It is the clearest remaining ticks-\u003efactory coupling in a core command.\n\nWrite the decisions into the extraction spec (docs/projects/2026-08-27-factory-extraction/) so Phase 5 inherits them, not into a comment that only the next implementer sees.",
+  "status": "open",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "9hu",
+  "acceptance_criteria": "Each of A-E is decided in writing with its reasoning, in the extraction spec. The chosen design leaves ticks with no enumeration of factory-specific keys. The migration path is specified concretely enough to implement without further design, including what happens to a populated pre-split file. No code changes in this tick.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-31T11:22:01.465589Z",
+  "updated_at": "2026-08-31T11:22:01.465589Z"
+}

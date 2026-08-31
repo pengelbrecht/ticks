@@ -1,0 +1,17 @@
+{
+  "id": "a8y",
+  "title": "Prove a real pre-split machine still authenticates",
+  "description": "THE EVIDENCE TICK, and the reason this phase is not just a refactor. Phase 4b's guard was written before the change and caught a live bug; this is the same discipline applied to the risk that actually matters here — that someone's deployed factory stops working after an upgrade.\n\nBuild a fixture of the CURRENT file shape as tk factory deploy leaves it: a populated ~/.ticksrc at 0600 with a factory URL, a bearer token, a Cloudflare API token, GitHub OAuth access and refresh tokens with their expiries, gateway settings, and the two board keys. Real shape, obviously-fake values — and NOT credential-shaped literals, because the public-repo guard correctly refuses those in tracked files (it caught exactly that in Phase 4b).\n\nThen prove, end to end and with the real binary rather than only in unit tests:\n- a machine with that file, after the split, still authenticates against the factory;\n- the board sync still works;\n- file permissions are still 0600;\n- running the migration twice changes nothing the second time;\n- a file with NO factory keys is untouched and still works.\n\nReport what a user actually SEES during the migration. A credentials file changing shape under someone with no message is a bad experience even when it works — if the answer is 'nothing is printed', say so and let that be a deliberate choice rather than an omission.",
+  "status": "open",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "0oa"
+  ],
+  "parent": "9hu",
+  "acceptance_criteria": "A pre-split fixture at 0600 with the full current key set is exercised end to end with the real binary: factory auth works, board sync works, permissions survive, the migration is idempotent, and a factory-free file is untouched. The user-visible experience during migration is described. No credential-shaped literals in tracked files. go test ./... green.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-31T11:22:35.914268Z",
+  "updated_at": "2026-08-31T11:22:35.914268Z"
+}

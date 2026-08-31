@@ -1,0 +1,18 @@
+{
+  "id": "cpr",
+  "title": "Close out Phase 3: PR, CI gate, retro, then plan the move",
+  "description": "Per .tick/config.md: push the epic branch, open a PR, do not complete close-out until CI is green. No direct merge to main.\n\nRetro against 9hu's definition of done, verifying the code.\n\nTHEN PLAN PHASE 5 (5hm) — the move itself, and the biggest phase in the project. It already carries notes from earlier phases that must not be lost: the tk-contract scanner must move with the call sites or be replaced; cloud_logs.go and cloud_supervisor.go leave with tk cloud so the factory-free build closure falls out for free; the sandbox image installs two binaries with required-tk-commands split by owner; and embedded.go at the module root welds skills+factory+sandbox into one go:embed unit, which is the hardest structural blocker in the project.\n\nAlso note for the release: 0.32.0 is deliberately held UNRELEASED in the changelog until the extraction settles what ships from where. Phase 5 or 6 is where that unblocks, and whoever closes it should say so.",
+  "status": "open",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "n3q"
+  ],
+  "parent": "9hu",
+  "role": "closeout",
+  "acceptance_criteria": "A PR exists with green CI; not merged directly to main. The retro verifies the code against 9hu's acceptance. Phase 5 has child ticks and a complete EPIC-SKELETON, and its plan accounts for the four inherited notes named above.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-31T11:23:03.125234Z",
+  "updated_at": "2026-08-31T11:23:03.125234Z"
+}

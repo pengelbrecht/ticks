@@ -1,0 +1,17 @@
+{
+  "id": "0oa",
+  "title": "Implement the credential split with its migration",
+  "description": "Implement exactly what the design tick decided. If you find yourself redesigning, stop and say so on the tick rather than quietly choosing differently — the design was written down so this tick would not have to guess.\n\nTHE CARE THIS NEEDS, beyond the mechanics: the file holds live GitHub OAuth refresh tokens and a Cloudflare API token on real machines. Anything you write must be safe to run twice, safe to run on a file that has already been migrated, and safe to run on a file that has never seen a factory. Never write a partially-migrated file — write the new shape completely or leave the old one untouched.\n\nFile permissions matter here and are easy to lose in a rewrite: ~/.ticksrc is 0600 and must stay 0600 after any write. Check what the current code does before changing how the file is written.\n\nAlso handle the duplicate parser per the design: internal/tickboard/cloud/client.go reads ~/.ticksrc with its own hand-rolled readConfigFile() and never imports internal/ticksrc. Whatever the design chose, do not leave two parsers of one format with no contract.\n\nDO NOT touch cmd/tk/cmd/upgrade.go — a sibling tick owns it.",
+  "status": "open",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "elt"
+  ],
+  "parent": "9hu",
+  "acceptance_criteria": "The split is implemented as designed. ~/.ticksrc keeps 0600 after any write. Migration is idempotent — running twice, or on an already-migrated file, or on a file with no factory keys, all behave correctly and are tested. No partially-written file is possible. The duplicate-parser decision is implemented. go test ./... green.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-08-31T11:22:35.871772Z",
+  "updated_at": "2026-08-31T11:22:35.871772Z"
+}
