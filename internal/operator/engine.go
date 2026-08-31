@@ -533,4 +533,3 @@ func optionLabels(q Question, ids []string) []string {
 	}
 	return labels
 }
-

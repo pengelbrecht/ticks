@@ -67,7 +67,11 @@ func TestOfflineParkResolveNotifiesAgent(t *testing.T) {
 		t.Fatalf("ticksrc.LoadFrom: %v", err)
 	}
 	rc.Set(ticksrc.KeyFactoryURL, "https://ticks-factory.example.workers.dev")
-	rc.Set(ticksrc.KeyFactoryToken, "tkf_live_secret_do_not_use")
+	// Deliberately NOT token-shaped. The point of this fixture is that a
+	// populated ~/.ticksrc exists at all, not that its value looks real —
+	// and the public-repo guard correctly refuses a credential-shaped
+	// literal in a tracked file, which is a guard worth keeping honest.
+	rc.Set(ticksrc.KeyFactoryToken, "not-a-real-credential")
 	if err := rc.Save(); err != nil {
 		t.Fatalf("ticksrc.Save: %v", err)
 	}
