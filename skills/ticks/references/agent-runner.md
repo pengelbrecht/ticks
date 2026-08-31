@@ -110,7 +110,9 @@ Orchestration produces commits and merges. If you're on `main`/`master`, create 
       test suite on the integrated tree.
    f. Only after that gate passes, close all wave ticks durably, then clean their worktrees/branches.
       Always pass --reason: `tk close <id> --reason "Completed: <one-line summary of what landed>"`.
-      Never use a bare `tk close`. Then go to the next wave.
+      Never use a bare `tk close`. Then re-read run-charter.md (this skill's references/) — fresh
+      from disk, same rule as learnings.md: the continuation rules decay with context distance,
+      the file does not — and go to the next wave.
 4. The final-review tick and close-out tick unblock in sequence — tk next returns each in turn.
    Execute them like any other tick (see "Meta-work ticks" below).
 ```
@@ -159,6 +161,7 @@ Before calling `tk graph`, read the repo's run config. It is two files, split by
 - **`[environment.commands]`** — pre-flight checks to run *right now*, once, before wave 1. Each check is a command that verifies the condition (e.g. `which docker`, `pg_isready -h localhost`). If a check fails, surface it to the user and stop (with a paired operator channel, `tk tell` what failed — run start is execution, so the channel applies); don't start a wave on a broken environment.
 - **`[sandbox]`** — the sandbox this repo's runs get: an optional custom `image`, extra `toolchain` pins, and idempotent `setup` commands that warm its caches. You do not run these yourself: `tk herd spawn` applies them to each new worker worktree and a cloud sandbox applies them after its clone, from the tracked file at the commit the run was submitted with. Provisioning, not verification — `[environment.commands]` still decides whether the result is good enough to start a wave. See [`runners-config.md`](runners-config.md) → *The sandbox a run gets*.
 - **`.tick/config.md` → Rules** — project-specific constraints to include verbatim in every implementer prompt, plus any narrative testing hints the repo keeps in markdown.
+- **`.tick/config.md` → Standing orders** — decision classes the human pre-delegated to the run, with their defaults. This is rung 2 of the decide-and-log ladder (see *Decide and log*); an absent section just means that rung never matches.
 
 **Read them fresh at run start** — same rule as `.tick/learnings.md`. Do not inline a copy from a previous session; re-read the files from the worktree each time you start or resume a run. If they are absent, fall back to current behavior: implementers discover test commands themselves.
 
@@ -181,7 +184,7 @@ What survives is semantic, and it fails closed exactly as before:
 
 **Actor convention.** Export `TK_ACTOR=<runner>:orchestrator` at run start, such as `claude:orchestrator`, `codex:orchestrator`, `pi:orchestrator`, or `prime:orchestrator`. The `--actor` flag on `tk close` and `tk update` overrides `TK_ACTOR` for one call; precedence is `--actor` > `TK_ACTOR` > tick owner. Actor names are provenance, not ownership or routing: another runner may resume the same tick. `tk note` uses `--from agent|human` instead of `TK_ACTOR`. One feed quirk: because status changes take priority in activity detection, `tk approve` on a *terminal* awaiting type (approval/review/content/work) surfaces in the feed as a `close` entry and `tk reject` as a `note` entry — still stamped with the actor; non-terminal approvals (input/escalation/checkpoint) don't close the tick.
 
-**Run continuously.** Once the user has asked you to execute the epic, work wave to wave without stopping to ask "should I continue?". The only reasons to stop are: a blocker you can't resolve, genuine ambiguity that prevents progress, or the epic is done. Progress-summary check-ins between waves just cost the user time.
+**Run continuously.** Once the user has asked you to execute the epic, work wave to wave without stopping to ask "should I continue?". The only reasons to stop are: a blocker you can't resolve, genuine ambiguity that prevents progress, or the epic is done. Progress-summary check-ins between waves just cost the user time. The rule has a mechanical check: `tk frontier --check` exits 0 while dispatchable work exists and 1 when the run is legitimately at rest — before ending a turn you believe is a stopping point, run it; an exit 0 means the turn is not over (`tk frontier` says what is actionable). Harnesses and substrates may wire the same predicate into their own turn-end mechanism (under herdr, the guard hook does — see `herdr-runner.md`).
 
 ## Discipline rules
 
@@ -190,6 +193,8 @@ These rules complement the "run continuously" guidance above. Name them internal
 - **Scope never shrinks.** You may split, merge, or reorder ticks, and scope may grow (bugs, discovered gaps) — but only the human removes scope. If the Epic-close retro's outside-in verification finds an undelivered scope item, fix it now; never relabel it "follow-up."
 - **No known-failure closes.** A tick cannot close with failing acceptance criteria. There is no "close with known issues" state — it passes, or it stays open/blocked/awaiting.
 - **Name the stall instinct.** Completing a large body of work triggers the instinct to summarize and hand control back. Epic boundaries with a close-out tick are waypoints, not stopping points. The "run continuously" rule above is the explicit counter to this instinct. **The operational test: end a turn on a *dispatch*, never on a *close*.** Writing the retro and closing the epic is the most satisfying output of a run and reads like a finished task — which is exactly why the stall lands there. It is not enough to know the rule: field-observed 2026-08-14, an orchestrator that had quoted this very line still stopped after closing an epic in a "run the entire project" run, and the user had to ask "keep going, hope you didn't stop?". If a turn's last action was `tk close` on an epic or its close-out, the turn is not finished: the close-out's own acceptance is *retro **and** flesh out the next feasible epic*, so the same turn must plan and spawn the next epic's wave 1 (or name the blocker that prevents it).
+- **Chat is not an input surface during execution.** The human who launched the run is not watching the terminal — that is the premise of an autonomous run. A question written into your own session output blocks the *entire run* on a reader who is not there; `tk ask` blocks exactly one tick while the frontier keeps moving, and it degrades safely when no channel is paired (exit 4, tick parked awaiting — see *The operator channel*). During execution, every question takes a durable form: `tk ask`, or an `--awaiting` tick. A bare question in the session output is a stall, whatever its content — including "should I continue?", which requests no information at all.
+- **The PR gate is the approval surface for reversible decisions.** When the epic integrates through a PR + CI gate (the repo's `.tick/config.md` Rules decide), every reversible decision inside the epic reaches a human as part of that review, with the diff in front of them. Do not ask mid-run for sign-off the PR will provide — decide and log it (see *Decide and log*) and let the PR carry it. Gates on genuinely irreversible acts, and the never-rules above (scope removal, roadmap changes), are unaffected.
 - **Recursive continuation frontier.** The continuation engine ascends the project tree. Within a project, epic→epic boundaries auto-continue: when one epic closes, the next feasible epic in soft order begins immediately (skipping hard-blocked or gated epics). When every epic inside a project is done, the engine reaches the **project boundary**.
 - **Project checkpoint (default: stop).** A project boundary stops for a human checkpoint by default. The project's close-out tick carries `--awaiting checkpoint`, so `tk next` surfaces it as `action: await` and the run pauses for a human to look before the next project begins. When the project carries a designed goal (fact sheet as `[A<n>]` items in its `acceptance_criteria` — SKILL.md → "Project goals", protocol in `goal-design.md`), the checkpoint report walks those facts item by item under the same evidence rules as epic close-out (authorized `[evidence.acceptance]` mappings only; fail closed) and presents human-judgment facts as the sign-off agenda. Epic→epic boundaries within a project are unaffected — they still auto-continue. The planning fallback also surfaces completed projects via `CompletedProjectsNeedingCloseout` when all leaf descendants are closed but the project tick is still open.
 - **Autonomous mode (global override).** Pass `--autonomous` to `tk next`, or set `policy.autonomous_mode: true` in `.tick/config.json`, to flow through ALL project checkpoints hands-off. Autonomous mode bypasses **only** `awaiting: checkpoint` boundaries; approval, input, review, content, escalation, and work gates are never bypassed. When the project carries a goal fact sheet, flow-through is conditional: verify the facts first, and stop despite autonomous mode on any failed fact or any human-judgment fact — verification failure outranks autonomous flow-through.
@@ -354,6 +359,27 @@ Tag each finding with a **confidence** as well as a severity. Severity sets the 
 - **Type/contract design** — do shared types and API shapes encode their invariants, or can a caller construct an invalid state? Highest-leverage on the contracts a FOUNDATION-REVIEW already targets.
 - **Comment & doc accuracy** — comments that no longer match the code, stale docs, comment rot.
 - **Maintainability** — structural code smells: mysterious names, duplication, feature envy, data clumps, speculative generality. A curated Fowler baseline lives in `references/code-smells.md`; each smell is a judgment call, never a hard violation. Earn this axis on logic-heavy diffs; skip it for routine ones.
+
+## Decide and log
+
+Asking discharges responsibility, and mid-run the model reaches for it exactly because no other act does the same — which is why doctrine alone ("run continuously") keeps losing to the ask-instinct. This section supplies the competing act: a durable, auditable, human-reviewable *decision*, made and logged without stopping anything.
+
+Before surfacing any question during execution, walk this ladder — top rung that applies wins:
+
+1. **Look it up.** A question the codebase, git history, run config, or environment can answer is not a question (the same rule planning's decision frontier applies). Dispatch a cheap read-only agent if it is a real search.
+2. **Standing orders.** `.tick/config.md` → *Standing orders* pre-delegates decision classes with defaults (see *Run-start*). A question inside a delegated class is already answered: apply the default, log it (rung 3's form), proceed.
+3. **Reversible → decide and log.** A decision is reversible when un-making it costs a follow-up commit — anything that lands on the epic branch behind a PR gate qualifies, because a human reviews it there with the diff in front of them. Make the call, record it, keep moving:
+
+   ```bash
+   tk decide <tick-id> --question "<question>" --choice "<choice>" --reason "<why>" [--class <standing-order-class>]
+   ```
+
+   (`tk decide` refuses an *awaiting* tick — the parked question is the human's; settle it with `tk answer`/`tk approve` instead. A `--requires` tick accepts decisions: the gate still routes it to a human at close, who reads them there. On an older `tk` without the verb, the equivalent is `tk note <tick-id> "decision: <question> → <choice> — <why>"` — the same line `tk decide` writes.)
+
+   The log is what makes this legitimate rather than a silent guess: every checkpoint report, retro report, and PR body carries a **Decisions taken** table — `tk decisions <epic-or-project-id>` renders it (`--json` for report generation) — so the human reviews by exception instead of being interrupted per decision.
+4. **Irreversible, out of every delegated class, or scope-removing → the human's call.** Frontier still moving → park it and `tk tell`; frontier empty or stalling → `tk ask`. Never a bare question in the session output (see *Discipline rules*).
+
+**Standing orders** are written once per project, at goal-ready handoff (SKILL.md), as a `## Standing orders` section in `.tick/config.md` — a short list of decision classes with their defaults, for example: *library choice within the existing stack: decide and log; naming and internal API shape: decide and log; discovered bugs and gaps: create ticks, never ask; anything the PR review will see and a commit can revert: decide and log; data deletion, force-pushes, external side effects, roadmap changes: always ask.* They turn "am I allowed to decide this?" from a vibe into a lookup — the absence of the section simply means rung 2 never matches.
 
 ## The operator channel
 
@@ -536,6 +562,7 @@ Write a short summary as the epic's close reason or as a note on the epic tick. 
 
 - Learnings promoted, by destination (a few bullet points per tier that received anything).
 - Verification table: one row per scope item — scope item, verified yes/no, gap action if no.
+- Decisions taken: `tk decisions <epic-id>` renders the rows — tick, decision, why — flag any the human should revisit (see *Decide and log*).
 - Drift found and cleanup ticks created (or "none").
 - Proposed roadmap adjustments, if any, for the human to accept or reject (you may propose, not execute, roadmap changes).
 
