@@ -5,7 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.32.0] - 2026-08-31
+## [0.32.0] - UNRELEASED — do not tag from `main` yet
+
+> **Held deliberately (Peter, 2026-08-31).** Tagging this from `main` would
+> publish the cloud factory for the first time — 30 `tk factory` / `tk cloud`
+> command files plus the embedded Worker bundle, about 9% of the binary — in the
+> same release cycle it is being extracted out of this repo, and a later release
+> would then remove it again. The extraction (project `a4n`) is mid-flight; the
+> next tag comes once it settles what ships from where. This is why v0.31.1 was
+> cut from the v0.31.0 tag rather than from `main`.
 
 ### Added
 
