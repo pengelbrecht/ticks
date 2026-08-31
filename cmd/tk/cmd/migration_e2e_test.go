@@ -33,7 +33,7 @@ import (
 // server's expected credential instead of looking like a real one.
 
 const (
-	migrationTestPAT        = "ghu_abcdefabcdefabcdefabcdefabcdefabcdefab"
+	migrationTestPAT        = "not-a-real-github-token"
 	migrationTestGatewayKey = "sk-ant-abcdefabcdefabcdef"
 	migrationTestRepo       = "acme/widgets"
 )
@@ -50,14 +50,14 @@ func preSplitFixture(factoryURL, gatewayURL string) string {
 		"token=board-token",
 		"url=wss://ticks.sh/api/projects",
 		"factory_url=" + factoryURL,
-		"factory_token=tkf_abcdefabcdefabcdef",
+		"factory_token=not-a-real-factory-token",
 		"factory_version=1.9.0",
 		"factory_github_token=" + migrationTestPAT,
 		"factory_github_login=acme-bot",
 		"factory_github_repo=" + migrationTestRepo,
 		"factory_github_auth=device-flow",
 		"factory_github_token_expires_at=2026-09-30T00:00:00Z",
-		"factory_github_refresh_token=ghr_abcdefabcdefabcdefabcdefabcdefabcdefab",
+		"factory_github_refresh_token=not-a-real-github-token",
 		"factory_github_refresh_token_expires_at=2026-12-31T00:00:00Z",
 		"factory_gateway_url=" + gatewayURL,
 		"factory_gateway_provider=anthropic",
@@ -202,14 +202,14 @@ func TestPreSplitMachine_FactoryStillAuthenticatesAfterMigration(t *testing.T) {
 	}
 	for _, want := range []string{
 		"factory_url=" + factoryURL,
-		"factory_token=tkf_abcdefabcdefabcdef",
+		"factory_token=not-a-real-factory-token",
 		"factory_version=1.9.0",
 		"factory_github_token=" + migrationTestPAT,
 		"factory_github_login=acme-bot",
 		"factory_github_repo=" + migrationTestRepo,
 		"factory_github_auth=device-flow",
 		"factory_github_token_expires_at=2026-09-30T00:00:00Z",
-		"factory_github_refresh_token=ghr_abcdefabcdefabcdefabcdefabcdefabcdefab",
+		"factory_github_refresh_token=not-a-real-github-token",
 		"factory_github_refresh_token_expires_at=2026-12-31T00:00:00Z",
 		"factory_gateway_url=" + gatewayBase,
 		"factory_gateway_provider=anthropic",

@@ -20,14 +20,14 @@ bare-legacy-board-token
 token=board-token
 url=wss://ticks.sh/api/projects
 factory_url=https://ticks-factory.acme.workers.dev
-factory_token=tkf_abcdefabcdefabcdef
+factory_token=not-a-real-factory-token
 factory_version=1.9.0
-factory_github_token=ghu_abcdefabcdefabcdefabcdefabcdefabcdefab
+factory_github_token=not-a-real-github-token
 factory_github_login=acme-bot
 factory_github_repo=acme/widgets
 factory_github_auth=device-flow
 factory_github_token_expires_at=2026-09-30T00:00:00Z
-factory_github_refresh_token=ghr_abcdefabcdefabcdefabcdefabcdefabcdefab
+factory_github_refresh_token=not-a-real-github-token
 factory_github_refresh_token_expires_at=2026-12-31T00:00:00Z
 factory_gateway_url=https://gateway.ai.cloudflare.com/v1/acct-id/ticks-gw
 factory_gateway_provider=anthropic
@@ -67,14 +67,14 @@ func TestMigrationMovesAllFactoryKeys(t *testing.T) {
 
 	want := map[string]string{
 		credentials.KeyURL:                  "https://ticks-factory.acme.workers.dev",
-		credentials.KeyToken:                "tkf_abcdefabcdefabcdef",
+		credentials.KeyToken:                "not-a-real-factory-token",
 		credentials.KeyVersion:              "1.9.0",
-		credentials.KeyGitHubToken:          "ghu_abcdefabcdefabcdefabcdefabcdefabcdefab",
+		credentials.KeyGitHubToken:          "not-a-real-github-token",
 		credentials.KeyGitHubLogin:          "acme-bot",
 		credentials.KeyGitHubRepo:           "acme/widgets",
 		credentials.KeyGitHubAuth:           "device-flow",
 		credentials.KeyGitHubTokenExpires:   "2026-09-30T00:00:00Z",
-		credentials.KeyGitHubRefreshToken:   "ghr_abcdefabcdefabcdefabcdefabcdefabcdefab",
+		credentials.KeyGitHubRefreshToken:   "not-a-real-github-token",
 		credentials.KeyGitHubRefreshExpires: "2026-12-31T00:00:00Z",
 		credentials.KeyGatewayURL:           "https://gateway.ai.cloudflare.com/v1/acct-id/ticks-gw",
 		credentials.KeyGatewayProvider:      "anthropic",
@@ -307,7 +307,7 @@ func TestMigrationResumesAfterACrashBetweenTheTwoWrites(t *testing.T) {
 	if err != nil {
 		t.Fatalf("resumed loadCredentialsAt: %v", err)
 	}
-	if got := creds.Get(credentials.KeyGitHubToken); got != "ghu_abcdefabcdefabcdefabcdefabcdefabcdefab" {
+	if got := creds.Get(credentials.KeyGitHubToken); got != "not-a-real-github-token" {
 		t.Errorf("factory_github_token = %q after resume", got)
 	}
 	data, err := os.ReadFile(legacyPath)
