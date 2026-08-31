@@ -3,7 +3,7 @@
   "title": "Decide what tk upgrade's factory staleness warning becomes",
   "description": "SMALL AND INDEPENDENT — it does not depend on the split's shape, so it can run alongside the design tick.\n\ncmd/tk/cmd/upgrade.go:65-80 loads ~/.ticksrc, and if KeyFactoryURL is set, compares KeyFactoryVersion against the release being installed to warn that the user's deployed factory is behind. It is the clearest surviving ticks-\u003efactory coupling in a core command: tk upgrade knows what a factory is, what version it runs, and that it can be stale.\n\nDECIDE, and any of these can be right:\n- It moves to ticfac. 'ticfac upgrade' or a staleness check the factory does itself is the natural home once ticfac owns its own deployment.\n- It disappears. Nobody has ever deployed a factory from a release — tk factory has never shipped in any tag — so this warning has fired for exactly one person, on dev builds.\n- It survives generically. tk upgrade warns about ANY registered companion tool that declares a deployed version, knowing nothing about factories. More machinery than the problem probably deserves; include it only if you think it earns its place.\n\nThe bar is the project's rule: ticks ends with zero factory couplings. A warning that names a factory is a coupling however small, so 'keep it as is' is not on the list.\n\nImplement the decision, do not just record it. If it moves to ticfac, the destination is cloud/factory or internal/factory — both leave in Phase 5, so putting it there is putting it in the right repo already.",
   "notes": "2026-08-31 13:39 - runner-state: substrate=herdr kind=claude branch=tick/10l worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-10l workspace=wH3 base=b970c7ccc776a125e185c1ac3848aa9a7317b858 agent=tick-10l pane=wH3:p1 session=94f13f79-3a32-4a04-b00a-02cb540e1884",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -11,5 +11,7 @@
   "acceptance_criteria": "cmd/tk/cmd/upgrade.go contains no reference to a factory, and does not read KeyFactory* anything. The chosen disposition is implemented and its reasoning recorded at the site or in the extraction spec. If the warning survives anywhere, it works. go test ./cmd/... green.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-31T11:22:35.824796Z",
-  "updated_at": "2026-08-31T11:39:53.282411Z"
+  "updated_at": "2026-08-31T11:49:32.670898Z",
+  "closed_at": "2026-08-31T11:49:32.670898Z",
+  "closed_reason": "Completed: cmd/tk/cmd/upgrade.go contains no reference to a factory — verified by grep, zero matches. The staleness warning is deleted rather than preserved behind a helper; the equivalent check belongs to tk factory status, which already knows both the deployed version and its own build version. An accepted UX regression of the same shape as Phase 4b's."
 }
