@@ -41,6 +41,14 @@ func TestGraphUnjustifiedGateLint(t *testing.T) {
 		t.Notes = "2026-08-30 10:00 - gate: copy tone is a taste call planning cannot settle"
 	})
 
+	// "investigate:" embeds the substring but is prose, not a justification —
+	// it must NOT pass the lint (word-boundary match).
+	requires3 := tick.RequiresApproval
+	write("inv", func(t *tick.Tick) {
+		t.Requires = &requires3
+		t.Notes = "2026-08-30 10:01 - investigate: the retry path before deciding"
+	})
+
 	input := tick.AwaitingInput
 	write("inp", func(t *tick.Tick) { t.Awaiting = &input })
 
@@ -58,9 +66,13 @@ func TestGraphUnjustifiedGateLint(t *testing.T) {
 		t.Fatalf("decode graph json: %v\n%s", err, out)
 	}
 
-	got := strings.Join(g.UnjustifiedGates, ",")
-	if got != "bad,inp" && got != "inp,bad" {
-		t.Errorf("unjustified_gates = %v, want exactly [bad inp]", g.UnjustifiedGates)
+	want := map[string]bool{"bad": true, "inp": true, "inv": true}
+	got := map[string]bool{}
+	for _, id := range g.UnjustifiedGates {
+		got[id] = true
+	}
+	if len(got) != len(want) || !got["bad"] || !got["inp"] || !got["inv"] {
+		t.Errorf("unjustified_gates = %v, want exactly [bad inp inv]", g.UnjustifiedGates)
 	}
 
 	// Human output warns but still renders the graph.

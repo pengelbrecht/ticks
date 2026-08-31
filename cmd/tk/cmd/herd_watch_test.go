@@ -229,6 +229,43 @@ func TestGuardWorkingRearms(t *testing.T) {
 	}
 }
 
+func TestGuardBlockedToIdleRearmsBudget(t *testing.T) {
+	// Idle exhausts the budget → blocked (a human is summoned) → idle again
+	// without passing through working: the human interacted with the pane, so
+	// this is a FRESH stall episode. The guard must nudge again, not inherit
+	// the spent budget and go silent.
+	srv, repo, store, prompts := guardFixture(t, "idle", 1)
+	if err := store.Write(makeTestTask("t01")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	_ = runGuard(t, srv) // nudge 1 — budget spent
+	out := runGuard(t, srv)
+	if !strings.Contains(out, "chime-exhausted") {
+		t.Fatalf("second run should exhaust: %s", out)
+	}
+
+	blocked := herdtest.New(t, herdtest.Config{
+		Agents: []herdtest.Agent{{Name: "orc", PaneID: "w1:p1", Status: "blocked"}},
+	})
+	out = runGuard(t, blocked)
+	if !strings.Contains(out, "chime-blocked") {
+		t.Fatalf("blocked run should chime: %s", out)
+	}
+
+	out = runGuard(t, srv) // back to idle, frontier still actionable
+	if !strings.Contains(out, "nudge") || strings.Contains(out, "none") {
+		t.Fatalf("idle after blocked is a fresh episode and must nudge: %s", out)
+	}
+	if prompts.count() != 2 {
+		t.Errorf("prompts = %d, want 2 (one per episode)", prompts.count())
+	}
+	ws, ok := loadWatchState(repo)
+	if !ok || ws.NudgeCount != 1 || ws.ExhaustedNotified {
+		t.Errorf("re-armed episode state wrong: %+v", ws)
+	}
+}
+
 func TestGuardWithoutRegistrationIsQuiet(t *testing.T) {
 	ResetFlags()
 	_, store := setupTestRepo(t)

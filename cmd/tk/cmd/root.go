@@ -444,7 +444,6 @@ func ResetFlags() {
 	// Reset frontier flags
 	frontierCheck = false
 	frontierJSON = false
-	frontierAll = false
 	frontierOwner = ""
 	frontierAutonomous = false
 

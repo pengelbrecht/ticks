@@ -29,7 +29,7 @@ func frontierJSONReport(t *testing.T, args ...string) frontierReport {
 	t.Helper()
 	ResetFlags()
 	full := append([]string{"frontier"}, args...)
-	full = append(full, "--json", "--all")
+	full = append(full, "--json")
 	out := captureStdout(t, func() error { return ExecuteArgs(full) })
 	var r frontierReport
 	if err := json.Unmarshal([]byte(out), &r); err != nil {
@@ -65,7 +65,7 @@ func TestFrontierActionableImplementAndPlan(t *testing.T) {
 	// --check: actionable is exit 0.
 	ResetFlags()
 	_ = captureStdout(t, func() error {
-		return ExecuteArgs([]string{"frontier", "--check", "--all"})
+		return ExecuteArgs([]string{"frontier", "--check"})
 	})
 }
 
@@ -88,7 +88,7 @@ func TestFrontierAtRestOnAwaiting(t *testing.T) {
 
 	// --check: at rest is exit 1 (ExitGeneric), distinguishable from usage/repo errors.
 	ResetFlags()
-	err := ExecuteArgs([]string{"frontier", "--check", "--all"})
+	err := ExecuteArgs([]string{"frontier", "--check"})
 	if err == nil {
 		t.Fatal("frontier --check at rest should exit nonzero")
 	}
@@ -116,9 +116,17 @@ func TestFrontierCollectVsInFlight(t *testing.T) {
 		}
 	}
 
-	// Two workers: t01 has written its result (collectable), t02 has not
-	// (in flight — must NOT be actionable).
-	for _, id := range []string{"t01", "t02"} {
+	// Three workers: t01 has written a complete result (collectable), t02 has
+	// none, t03's result exists but carries no STATUS: line (mid-write or a
+	// crashed worker) — both of the latter are in flight, never actionable:
+	// pointing "collect" at a file tk herd collect will refuse is noise.
+	third := makeTestTask("t03")
+	third.Parent = "e01"
+	third.Status = tick.StatusInProgress
+	if err := store.Write(third); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	for _, id := range []string{"t01", "t02", "t03"} {
 		worktree := filepath.Join(repo, "worktrees", id)
 		if err := os.MkdirAll(worktree, 0o755); err != nil {
 			t.Fatalf("mkdir worktree: %v", err)
@@ -137,6 +145,10 @@ func TestFrontierCollectVsInFlight(t *testing.T) {
 	if err := os.WriteFile(result, []byte("STATUS: DONE\n"), 0o644); err != nil {
 		t.Fatalf("write result: %v", err)
 	}
+	partial := filepath.Join(repo, "worktrees", "t03", "RESULT-t03.md")
+	if err := os.WriteFile(partial, []byte("half a report, no status yet"), 0o644); err != nil {
+		t.Fatalf("write partial result: %v", err)
+	}
 
 	r := frontierJSONReport(t)
 	if !r.Actionable {
@@ -145,8 +157,12 @@ func TestFrontierCollectVsInFlight(t *testing.T) {
 	if len(r.Items) != 1 || r.Items[0].Action != "collect" || r.Items[0].TickID != "t01" {
 		t.Errorf("items = %+v, want exactly [collect t01]", r.Items)
 	}
-	if len(r.InFlight) != 1 || r.InFlight[0].TickID != "t02" || r.InFlight[0].Worker != "tick-t02" {
-		t.Errorf("in_flight = %+v, want [t02 via tick-t02]", r.InFlight)
+	inFlight := map[string]string{}
+	for _, f := range r.InFlight {
+		inFlight[f.TickID] = f.Worker
+	}
+	if len(inFlight) != 2 || inFlight["t02"] != "tick-t02" || inFlight["t03"] != "tick-t03" {
+		t.Errorf("in_flight = %+v, want t02 and t03 (a statusless result is not collectable)", r.InFlight)
 	}
 }
 
@@ -226,5 +242,23 @@ func TestFrontierScoped(t *testing.T) {
 	}
 	if !ids["in1"] || ids["out"] {
 		t.Errorf("scoped frontier should see in1 and not out: %+v", r.Items)
+	}
+}
+
+func TestFrontierScopedChildlessEpicIsNotDone(t *testing.T) {
+	// A childless open epic scoped by id yields a plan item; the report must
+	// not simultaneously claim "done: no open ticks in scope" — the scope
+	// container itself is part of the scope.
+	_, store := frontierTestSetup(t)
+	if err := store.Write(makeTestEpic("e01")); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	r := frontierJSONReport(t, "e01")
+	if !r.Actionable || len(r.Items) != 1 || r.Items[0].Action != "plan" {
+		t.Fatalf("childless scoped epic should be [plan e01]: %+v", r)
+	}
+	if r.Done {
+		t.Errorf("an actionable scope must not also report done: %+v", r)
 	}
 }

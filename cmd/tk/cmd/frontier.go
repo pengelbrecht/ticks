@@ -11,6 +11,7 @@ import (
 
 	"github.com/pengelbrecht/ticks/internal/config"
 	"github.com/pengelbrecht/ticks/internal/github"
+	herdcollect "github.com/pengelbrecht/ticks/internal/herd/collect"
 	"github.com/pengelbrecht/ticks/internal/herd/state"
 	"github.com/pengelbrecht/ticks/internal/query"
 	"github.com/pengelbrecht/ticks/internal/tick"
@@ -54,7 +55,10 @@ With --check, answer only with the exit code, for turn-end hooks and watchdogs:
   2+ the check itself failed (usage, no repo, unreadable store)
 
 With a scope id, judge only that container's children (and the container's own
-need for planning), like tk next <epic>. Without one, judge everything.
+need for planning), like tk next <epic>. Without one, judge everything. Unlike
+tk next, all owners' ticks are judged by default — the question is whether the
+RUN is at rest, not whether the caller has work; narrow with --owner if you
+really mean your own ticks.
 
 Autonomous mode (--autonomous, or policy.autonomous_mode in .tick/config.json)
 flows through awaiting: checkpoint boundaries exactly as tk next does.
@@ -71,7 +75,6 @@ Examples:
 var (
 	frontierCheck      bool
 	frontierJSON       bool
-	frontierAll        bool
 	frontierOwner      string
 	frontierAutonomous bool
 )
@@ -79,8 +82,7 @@ var (
 func init() {
 	frontierCmd.Flags().BoolVar(&frontierCheck, "check", false, "exit 0 when actionable work exists, 1 when legitimately at rest")
 	frontierCmd.Flags().BoolVar(&frontierJSON, "json", false, "output as JSON")
-	frontierCmd.Flags().BoolVarP(&frontierAll, "all", "a", false, "all owners")
-	frontierCmd.Flags().StringVarP(&frontierOwner, "owner", "o", "", "owner")
+	frontierCmd.Flags().StringVarP(&frontierOwner, "owner", "o", "", "narrow to one owner's ticks (default: all owners)")
 	frontierCmd.Flags().BoolVar(&frontierAutonomous, "autonomous", false, "flow through project-checkpoint boundaries (other awaiting types still gate); overrides policy.autonomous_mode when set")
 	rootCmd.AddCommand(frontierCmd)
 }
@@ -179,8 +181,14 @@ func evaluateFrontier(root, scopeID, owner string, autonomous bool) (frontierRep
 			for _, m := range manifests {
 				ws := workerState{agent: m.Agent}
 				resultPath := filepath.Join(m.Worktree, "RESULT-"+m.Tick+".md")
-				if _, statErr := os.Stat(resultPath); statErr == nil {
-					ws.resultPath = resultPath
+				// Existence alone is not evidence: a mid-write or crashed
+				// worker leaves a file `tk herd collect` will refuse
+				// (missing-result needs a STATUS: line). Mirror collect's own
+				// parse so "collect" here never points at a refusal there.
+				if body, readErr := os.ReadFile(resultPath); readErr == nil {
+					if status, _, _ := herdcollect.ParseStatus(string(body)); status != "" {
+						ws.resultPath = resultPath
+					}
 				}
 				workers[m.Tick] = ws
 			}
@@ -258,6 +266,18 @@ func evaluateFrontier(root, scopeID, owner string, autonomous bool) (frontierRep
 		report.InFlight = append(report.InFlight, inf)
 	}
 
+	// The scope container itself is part of the scope: a childless open epic
+	// yields a plan item from the planning fallback, and "done" must not
+	// contradict it just because the Parent filter sees zero children.
+	if scopeID != "" && !hasOpen {
+		for _, t := range all {
+			if t.ID == scopeID && t.Status != tick.StatusClosed {
+				hasOpen = true
+				break
+			}
+		}
+	}
+
 	report.Actionable = len(report.Items) > 0
 	report.Done = !hasOpen
 	return report, nil
@@ -269,10 +289,9 @@ func runFrontier(cmd *cobra.Command, args []string) error {
 		return NewExitError(ExitNoRepo, "failed to detect repo root: %v", err)
 	}
 
-	owner, err := resolveOwner(frontierAll, frontierOwner)
-	if err != nil {
-		return fmt.Errorf("failed to detect owner: %w", err)
-	}
+	// All owners by default: the predicate answers for the RUN, and the guard
+	// hook (which has no meaningful "current user") judges the same way.
+	owner := strings.TrimSpace(frontierOwner)
 
 	var scopeID string
 	if len(args) > 0 {

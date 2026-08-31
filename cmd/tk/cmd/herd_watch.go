@@ -382,7 +382,8 @@ func judgeOrchestrator(ctx context.Context, herd *client.Client, root string, ws
 
 	status := string(info.AgentStatus)
 	d.Status = status
-	transitioned := ws.LastStatus != status
+	prev := ws.LastStatus
+	transitioned := prev != status
 	ws.LastStatus = status
 
 	switch client.AgentStatus(status) {
@@ -419,9 +420,18 @@ func judgeOrchestrator(ctx context.Context, herd *client.Client, root string, ws
 		return d, nil
 
 	case client.StatusIdle, client.StatusDone:
-		// Leaving blocked without passing through working also ends the
-		// blocked episode (a human answered at the pane).
-		if transitioned {
+		// Arriving here FROM blocked means a human just interacted with the
+		// pane — answered or dismissed the prompt — without the orchestrator
+		// visibly working. That human contact ends the stall episode exactly
+		// as `working` does: re-arm everything, so a still-actionable
+		// frontier earns fresh nudges instead of inheriting a spent budget
+		// from before the human ever looked.
+		if transitioned && prev == string(client.StatusBlocked) {
+			ws.NudgeCount = 0
+			ws.LastNudgeAt = ""
+			ws.BlockedNotified = false
+			ws.ExhaustedNotified = false
+		} else if transitioned {
 			ws.BlockedNotified = false
 		}
 		// Consult the predicate: all owners, autonomous mode from policy.

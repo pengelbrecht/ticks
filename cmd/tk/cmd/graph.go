@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -43,6 +44,11 @@ var (
 	graphAll  bool
 	graphJSON bool
 )
+
+// gateJustificationRe matches a recorded gate justification. Word-bounded so
+// "investigate:"/"delegate:" prose cannot pass as one (the lint text runs
+// against lowercased description+notes).
+var gateJustificationRe = regexp.MustCompile(`\bgate:`)
 
 func init() {
 	graphCmd.Flags().BoolVarP(&graphAll, "all", "a", false, "include closed tasks")
@@ -145,6 +151,10 @@ type graphTask struct {
 // description or notes — e.g. `tk note <id> "gate: provider choice needs human
 // taste"`. This is a WARNING surface, never a refusal: gates stay cheap to
 // create interactively; the lint targets planner output.
+//
+// The match is word-bounded: "investigate:", "delegate:", "aggregate:" and
+// friends embed the substring but are not justifications, and a false
+// negative here silently defeats the one warning this lint exists to raise.
 func unjustifiedGates(children []tick.Tick) []string {
 	var out []string
 	for _, t := range children {
@@ -163,7 +173,7 @@ func unjustifiedGates(children []tick.Tick) []string {
 			continue
 		}
 		text := strings.ToLower(t.Description + "\n" + t.Notes)
-		if strings.Contains(text, "gate:") {
+		if gateJustificationRe.MatchString(text) {
 			continue
 		}
 		out = append(out, t.ID)
