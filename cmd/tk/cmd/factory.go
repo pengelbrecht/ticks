@@ -234,6 +234,7 @@ nothing configured, status says so and exits 0. No credential is ever printed.`,
 			Offline:           factoryStatusOffline,
 			GitHubAPIBase:     factoryStatusGitHubAPI,
 			CloudflareAPIBase: factoryStatusCFAPIBase,
+			CurrentVersion:    Version,
 		})
 		if err != nil {
 			return NewExitError(ExitIO, "%v", err)

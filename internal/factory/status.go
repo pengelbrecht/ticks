@@ -39,6 +39,11 @@ type StatusOptions struct {
 	// CloudflareAPIBase overrides https://api.cloudflare.com/client/v4
 	// (tests).
 	CloudflareAPIBase string
+
+	// CurrentVersion is the tk build running this status check. Compared
+	// against the deployed factory's recorded version (KeyFactoryVersion) to
+	// flag a factory left behind by an upgrade. Empty skips the comparison.
+	CurrentVersion string
 }
 
 // CredentialState is one rung's line in the report.
@@ -129,7 +134,8 @@ func Status(ctx context.Context, opts StatusOptions) (*StatusReport, error) {
 	if url != "" {
 		report.Deployment.Configured = true
 		report.Deployment.Summary = url
-		if version := cfg.Get(ticksrc.KeyFactoryVersion); version != "" {
+		version := cfg.Get(ticksrc.KeyFactoryVersion)
+		if version != "" {
 			report.Deployment.Summary += " (tk " + version + ")"
 		}
 		switch {
@@ -143,6 +149,14 @@ func Status(ctx context.Context, opts StatusOptions) (*StatusReport, error) {
 				report.Deployment.OK = true
 				report.Deployment.Detail = "live, and it accepts your token"
 			}
+		}
+		// The factory bundle is pinned to the tk version that deployed it
+		// (D16, "upgrades ride the repo"), so an upgrade leaves a deployed
+		// factory a version behind until the operator redeploys. This is the
+		// one place that says so — status is the pre-flight an operator
+		// already runs to see what's configured.
+		if opts.CurrentVersion != "" && version != "" && version != opts.CurrentVersion {
+			report.Deployment.Detail += fmt.Sprintf("; a version behind (you have tk %s) — run `tk factory deploy` to redeploy it from this build", opts.CurrentVersion)
 		}
 	}
 
