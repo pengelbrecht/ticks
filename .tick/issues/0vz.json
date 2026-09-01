@@ -1,0 +1,13 @@
+{
+  "id": "0vz",
+  "title": "Guard has no CLI-native trigger — it fires only from the herdr plugin",
+  "description": "Arming is fixed (tk herd spawn registers the orchestrator pane), but the thing that INVOKES tk herd guard is still the herdr-ticks plugin hook on pane.agent_status_changed. Ticks ships as a CLI and a skill set; the plugin is optional, so on a machine without it the guard is armed and never runs.\n\nCandidate CLI-native trigger: a harness stop-hook that runs `tk frontier --check` and refuses the turn end on exit 0. That is harness-specific (Claude Code Stop hooks, Codex equivalent) and belongs in the adapters, not in the plugin.\n\nDecide whether the plugin hook stays the only mechanical trigger under herdr, and whether a harness stop-hook is the substrate-neutral answer.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "Either a CLI/skill-native trigger exists and is documented in the adapters, or the limitation is stated explicitly in herdr-runner.md as plugin-only.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-01T10:27:38.759245Z",
+  "updated_at": "2026-09-01T10:27:38.759245Z"
+}
