@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -318,6 +319,55 @@ func runHerdSpawn(cmd *cobra.Command, args []string) error {
 		return NewExitError(ExitIO, "%v", err)
 	}
 
+	// 6b. Arm the orchestrator watchdog, if it is not already armed.
+	//
+	// This closes the asymmetry that left the guard dead in practice: a WORKER
+	// is supervised as a side effect of being dispatched (this manifest is what
+	// tk herd notify enumerates), while the ORCHESTRATOR was supervised only if
+	// somebody remembered to type `tk herd watch`. Nothing in the codebase ever
+	// typed it, so the guard hook file-tested for a registration that was never
+	// written and silently did nothing — on every run, since it shipped.
+	//
+	// Spawn is the right place: it is the one command guaranteed to run at run
+	// start under this substrate, it already writes here, and it runs in the
+	// orchestrator's own pane, so HERDR_PANE_ID identifies the very process
+	// dispatching this worker.
+	//
+	// Never overrides an existing registration — an explicit `tk herd watch`
+	// target wins, and re-arming every spawn would reset the guard's episode
+	// memory mid-stall, which is exactly when it must not be reset.
+	armedTarget, armErr := armOrchestratorWatch(root)
+	if armedTarget != "" {
+		// Arming just happened, so this is the FIRST spawn of the run — the one
+		// place a once-per-run environment check belongs. Under herdr, what
+		// actually INVOKES tk herd guard is the herdr-ticks plugin's hook, so an
+		// armed watch with no capable plugin is a watchdog that cannot fire.
+		//
+		// This is checked rather than assumed because the failure is silent and
+		// has happened: a plugin installed, enabled, and three weeks older than
+		// the guard hook passes every presence check and never runs the guard.
+		//
+		// Gated on HERDR_ENV: the check shells out to the real herdr binary, and
+		// it only means anything inside a herdr pane. Outside one there is no
+		// plugin host to be unhealthy, and a spawn under a fake client — every
+		// test in this package — must not reach for the developer's own
+		// multiplexer.
+		if os.Getenv("HERDR_ENV") != "1" {
+			// not in herdr: nothing to check
+		} else if st := inspectTicksPlugin(cmd.Context()); !st.healthy() {
+			fmt.Fprintf(errOut,
+				"warning: orchestrator watchdog armed on %s, but %s.\n"+
+					"         The guard cannot fire until this is fixed: tk herd plugin --install\n",
+				armedTarget, st.problem())
+		}
+	}
+	if armErr != nil {
+		// Advisory only. A run whose watchdog could not be armed is a run
+		// without a safety net, not a broken run — failing the dispatch here
+		// would be strictly worse than proceeding unwatched.
+		fmt.Fprintf(errOut, "warning: could not arm the orchestrator watchdog: %v\n", armErr)
+	}
+
 	if res.DispatchUnconfirmed {
 		fmt.Fprintf(errOut, "warning: the implementer prompt was submitted to %s but herdr never observed it start working "+
 			"(status %s). That is what a fast trivial tick looks like AND what a lost prompt looks like — "+
@@ -333,7 +383,8 @@ func runHerdSpawn(cmd *cobra.Command, args []string) error {
 			Note         string         `json:"note"`
 			PromptWaited bool           `json:"prompt_waited"`
 			Status       string         `json:"status"`
-		}{m, manifestPath, note, res.PromptWaited, string(res.FinalStatus)})
+			Watchdog     string         `json:"watchdog_armed,omitempty"`
+		}{m, manifestPath, note, res.PromptWaited, string(res.FinalStatus), armedTarget})
 		return nil
 	}
 
@@ -346,6 +397,9 @@ func runHerdSpawn(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(out, "agent     %s (kind %s, gate attempts %d)\n", res.AgentName, compiled.Kind, res.GateAttempts)
 	fmt.Fprintf(out, "argv      %s\n", strings.Join(res.Argv, " "))
 	fmt.Fprintf(out, "manifest  %s\n", rel)
+	if armedTarget != "" {
+		fmt.Fprintf(out, "watchdog  armed on %s\n", armedTarget)
+	}
 	fmt.Fprintln(out, note)
 	return nil
 }

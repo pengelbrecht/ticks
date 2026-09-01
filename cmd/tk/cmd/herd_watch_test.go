@@ -316,17 +316,53 @@ func TestWatchStatusAndClear(t *testing.T) {
 	}
 }
 
-func TestWatchRequiresExplicitTarget(t *testing.T) {
+// With no argument and no HERDR_PANE_ID, watch still refuses: outside a herdr
+// pane there is no orchestrator pane, and guessing one from what herdr has
+// FOCUSED would target the operator rather than the run.
+//
+// Note the t.Setenv: this suite is itself often run from inside a herdr pane,
+// where HERDR_PANE_ID is inherited, so the absence has to be explicit or the
+// test silently exercises the fallback instead.
+func TestWatchRefusesWhenNoTargetAndNotInAPane(t *testing.T) {
 	ResetFlags()
+	t.Setenv("HERDR_PANE_ID", "")
 	_, store := setupTestRepo(t)
 	if err := store.Ensure(); err != nil {
 		t.Fatalf("ensure store: %v", err)
 	}
 	err := ExecuteArgs([]string{"herd", "watch"})
 	if err == nil {
-		t.Fatal("watch with no target must refuse — nothing here guesses which pane the orchestrator is")
+		t.Fatal("watch with no target and no HERDR_PANE_ID must refuse")
 	}
 	if code := GetExitCode(err); code != ExitUsage {
 		t.Errorf("exit code = %d, want %d", code, ExitUsage)
+	}
+}
+
+// Inside a herdr pane, a bare `tk herd watch` targets THAT pane. herdr sets
+// HERDR_PANE_ID in the pane's own shell, so this is the server telling the
+// process its own identity — not the banned "whatever is focused" default.
+func TestWatchSelfTargetsFromPaneEnv(t *testing.T) {
+	ResetFlags()
+	t.Setenv("HERDR_PANE_ID", "w9T:p1")
+	_, store := setupTestRepo(t)
+	if err := store.Ensure(); err != nil {
+		t.Fatalf("ensure store: %v", err)
+	}
+	buf := captureCmdOutput(t)
+	if err := ExecuteArgs([]string{"herd", "watch"}); err != nil {
+		t.Fatalf("bare watch inside a pane: %v", err)
+	}
+	if out := buf.String(); !strings.Contains(out, "w9T:p1") || !strings.Contains(out, "HERDR_PANE_ID") {
+		t.Errorf("output should name the pane and how it was found: %s", out)
+	}
+
+	ResetFlags()
+	buf = captureCmdOutput(t)
+	if err := ExecuteArgs([]string{"herd", "watch", "--status"}); err != nil {
+		t.Fatalf("watch --status: %v", err)
+	}
+	if !strings.Contains(buf.String(), "w9T:p1") {
+		t.Errorf("registration should persist: %s", buf.String())
 	}
 }
