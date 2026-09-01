@@ -34,6 +34,12 @@ has other content and no stamp — it may be hand-edited, or belong to
 something else entirely — unless --force is given; refusal and --force
 apply independently to each detected target.
 
+--dir names the skill's OWN directory, not the folder your skills live in.
+Without --dir the skill name is appended for you (.claude/skills/ + ticks);
+with --dir it is not, so --dir ~/.claude/skills means "make that whole
+folder BE the ticks skill" and would delete every other skill in it. That
+target is refused outright, and --force does NOT override the refusal.
+
 The swap is atomic-ish per target: the new tree is written to a temp
 directory alongside the target, then the old target (if any) is removed
 and the temp directory renamed into place. Nothing from the old tree
@@ -43,8 +49,9 @@ Exit codes
   0  installed into every target
   1  no --dir and neither .claude/skills/ nor .agents/skills/ exists at the
      repo root; or a target failed for a reason other than being unmanaged
-  2  usage error, or a target exists and is not tk-managed (pass --force or
-     remove it first)
+  2  usage error; a target exists and is not tk-managed (pass --force or
+     remove it first); or a target holds other skills as children (--force
+     will not override this — pass a --dir one level deeper)
   3  no --dir and the working directory isn't inside a git repository
   4  no such skill is embedded in this binary`,
 	Args:         cobra.ExactArgs(1),
@@ -54,7 +61,9 @@ Exit codes
 
 func init() {
 	skillsInstallCmd.Flags().StringVar(&skillsInstallDir, "dir", "",
-		"install target directory (default: detect .claude/skills/, .agents/skills/ at the repo root)")
+		"the skill's OWN directory, e.g. ~/.claude/skills/ticks — NOT the parent "+
+			"folder holding your skills (default: detect .claude/skills/, .agents/skills/ "+
+			"at the repo root and append the skill name)")
 	skillsInstallCmd.Flags().BoolVar(&skillsInstallForce, "force", false,
 		"overwrite a target directory even if it has no tk stamp")
 	skillsCmd.AddCommand(skillsInstallCmd)
@@ -78,7 +87,15 @@ func runSkillsInstall(cmd *cobra.Command, args []string) error {
 		stamp, err := skills.Install(name, dir, skillsInstallForce)
 		if err != nil {
 			failCount++
-			if errors.Is(err, skills.ErrUnmanaged) {
+			// Deliberately checked BEFORE ErrUnmanaged and without a
+			// --force hint: --force is exactly what turns this mistake
+			// into 44 deleted skills. The fix is a different --dir.
+			if errors.Is(err, skills.ErrSkillsParent) {
+				fmt.Fprintf(os.Stdout, "refused %s: %v\n", dir, err)
+				if failCode == 0 {
+					failCode = ExitUsage
+				}
+			} else if errors.Is(err, skills.ErrUnmanaged) {
 				fmt.Fprintf(os.Stdout, "refused %s: %v (pass --force to overwrite)\n", dir, err)
 				if failCode == 0 {
 					failCode = ExitUsage

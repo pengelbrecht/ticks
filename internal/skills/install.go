@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -26,6 +27,49 @@ type Stamp struct {
 // and carries no StampFile — so overwriting it would destroy content tk
 // never wrote. Install wraps it; callers can match with errors.Is.
 var ErrUnmanaged = errors.New("target directory is not tk-managed (no " + StampFile + " stamp)")
+
+// ErrSkillsParent reports that Install's target directory is a skills PARENT
+// — it holds other skills as children rather than being one skill's own
+// directory. Installing there would delete every sibling skill, which is a
+// categorically different accident from overwriting one unmanaged skill, and
+// is why --force does NOT bypass this check.
+//
+// Field-observed 2026-09-01: `tk skills install ticks --dir ~/.claude/skills`
+// read as "put ticks in my skills folder" and in fact meant "make
+// ~/.claude/skills BE the ticks skill". The first attempt was refused as
+// ErrUnmanaged, --force silenced it, and 44 sibling skills were destroyed.
+// The stamp check could not see the difference; this one can.
+var ErrSkillsParent = errors.New("target directory holds other skills as children — installing here would delete them")
+
+// skillsInParent reports the names of child directories of dir that look like
+// installed skills (they contain a SKILL.md), which makes dir a skills parent
+// rather than a skill. A directory with its own SKILL.md at the root is a
+// skill — possibly one being upgraded — and is never a parent, whatever its
+// children look like. Symlinked children count: that is how skills.sh installs.
+func skillsInParent(dir string) []string {
+	if _, err := os.Stat(filepath.Join(dir, "SKILL.md")); err == nil {
+		return nil // dir is itself a skill
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	var found []string
+	for _, e := range entries {
+		// Follow symlinks: skills.sh installs into ~/.agents/skills and
+		// symlinks them into ~/.claude/skills, so the children a harness
+		// actually loads are usually links, not real directories.
+		child := filepath.Join(dir, e.Name())
+		info, err := os.Stat(child)
+		if err != nil || !info.IsDir() {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(child, "SKILL.md")); err == nil {
+			found = append(found, e.Name())
+		}
+	}
+	return found
+}
 
 // ReadStamp reads and parses the StampFile at the root of dir. It returns an
 // error (os.ErrNotExist in the chain, when absent) if the file is missing,
@@ -66,6 +110,30 @@ func Install(name, dir string, force bool) (Stamp, error) {
 	}
 
 	info, statErr := os.Stat(dir)
+
+	// A skills PARENT is refused before anything else, and --force does not
+	// bypass it: the cost of being wrong is every sibling skill, and no
+	// legitimate install targets a directory full of other skills.
+	if statErr == nil && info.IsDir() {
+		if siblings := skillsInParent(dir); len(siblings) > 0 {
+			// Name a few so the operator recognises the directory, but do
+			// not paste 59 skill names into a terminal — the "did you mean"
+			// is the actionable part and must not scroll away.
+			shown := siblings
+			if len(shown) > 5 {
+				shown = shown[:5]
+			}
+			listed := strings.Join(shown, ", ")
+			if len(shown) < len(siblings) {
+				listed += fmt.Sprintf(", and %d more", len(siblings)-len(shown))
+			}
+			return stamp, fmt.Errorf(
+				"install %s to %s: %w (%d found: %s) — did you mean %s?",
+				name, dir, ErrSkillsParent, len(siblings), listed,
+				filepath.Join(dir, name))
+		}
+	}
+
 	switch {
 	case statErr == nil && !info.IsDir():
 		return stamp, fmt.Errorf("install %s: %s exists and is not a directory", name, dir)

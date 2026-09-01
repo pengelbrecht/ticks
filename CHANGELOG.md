@@ -15,7 +15,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 > next tag comes once it settles what ships from where. This is why v0.31.1 was
 > cut from the v0.31.0 tag rather than from `main`.
 
+### Fixed
+
+- **`tk skills install` can no longer delete a directory full of other skills** —
+  `--dir` names the skill's *own* directory, but without `--dir` the skill name is
+  appended for you, and that asymmetry reads as "put ticks in my skills folder"
+  when it means "make this folder BE the ticks skill". Run as
+  `tk skills install ticks --dir ~/.claude/skills --force`, it destroyed 44 skills:
+  the stamp check *did* refuse the first attempt, but it could only say "not
+  tk-managed", which sounds like one stale directory, so `--force` looked like the
+  fix. Install now detects a skills **parent** — no `SKILL.md` at the root, but one
+  or more children that have one (symlinked children included, since that is how
+  skills.sh installs) — and refuses it as `ErrSkillsParent`, naming the siblings at
+  risk and the `--dir` you probably meant. **`--force` does not override this
+  refusal**, because the whole failure was `--force` being reached for after an
+  error message that undersold the blast radius, and no legitimate install ever
+  targets a folder full of other skills. The `--dir` help and command doc now state
+  the append asymmetry outright.
+
 ### Added
+
+- **The ticks skill is available to anyone who clones this repo (`skills/README.md`)** —
+  `.claude/skills/ticks` and `.agents/skills/ticks` are now checked-in symlinks back
+  to `skills/ticks/`, the source of truth, so a fresh clone has a working skill with
+  no install step and no second copy to drift. `skills/README.md` explains why
+  `tk skills install ticks` must not be run *inside* this repo: `--force` would swap
+  the symlink for a copy of whatever version the binary was last built from.
 
 - **Continuation doctrine against mid-epic orchestrator stalls (`skills/ticks/`)** — long autonomous runs were stalling on the orchestrator itself, in both shapes herdr can distinguish: `blocked` on its own harness's approval UI, and `idle` after voluntarily handing control back with an actionable frontier. The root causes are structural, not ignorance of the rules — every continuation rule was prompt-enforced and decayed with context distance, and asking was the only sanctioned way to discharge responsibility for a judgment call. The doctrine half ships now: a **Decide and log** ladder in `agent-runner.md` (look it up → standing orders → reversible: decide, `tk note "decision: …"`, proceed → irreversible: `tk ask`), with the PR + CI gate named as the approval surface for every reversible decision and a **Decisions taken** table required in retro/checkpoint reports and PR bodies; a **Standing orders** section in `.tick/config.md` (settled at goal-ready handoff) that pre-delegates decision classes so "am I allowed to decide this?" becomes a lookup; an explicit discipline rule that **chat is not an input surface during execution** — a question in session output stalls the whole run, `tk ask` stalls one tick; a ten-line `run-charter.md` re-read fresh at every post-wave gate as the context-decay countermeasure; and a herdr-runner section (*The orchestrator is an agent too*) requiring the orchestrator be launched with its kind's full-auto template and diagnosing stalls via `herdr agent explain`. The mechanical half is specified in `docs/design/orchestrator-continuation.md` and ships below.
 
