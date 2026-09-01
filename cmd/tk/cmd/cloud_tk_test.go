@@ -6,9 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
-
-	"github.com/pengelbrecht/ticks/internal/tick"
 )
 
 // The cloud commands read the tracker by running `tk show --json` and
@@ -144,15 +141,10 @@ func TestCloudTrackerReadsTicksOwnedByAnyone(t *testing.T) {
 // than the user running the tests.
 func writeCloudTickOwnedBy(t *testing.T, repo, id, epic, owner string) {
 	t.Helper()
-	now := time.Now().UTC().Truncate(time.Second)
-	store := tick.NewStore(filepath.Join(repo, ".tick"))
-	if err := store.Write(tick.Tick{
-		ID: id, Title: "Tick " + id, Status: tick.StatusOpen, Priority: 2,
-		Type: tick.TypeTask, Parent: epic, Owner: owner, CreatedBy: owner,
-		CreatedAt: now, UpdatedAt: now,
-	}); err != nil {
-		t.Fatalf("write tick %s: %v", id, err)
-	}
+	writeCloudTickFixture(t, repo, cloudTickFixture{
+		ID: id, Title: "Tick " + id, Type: "task",
+		Parent: epic, Owner: owner, CreatedBy: owner,
+	})
 }
 
 // TestCloudSpawnExitCodesFromTheTkRead pins the mapping Phase 1 claims it did

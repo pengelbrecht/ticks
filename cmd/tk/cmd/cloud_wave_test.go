@@ -12,7 +12,6 @@ import (
 	"time"
 
 	cloudstate "github.com/pengelbrecht/ticks/internal/cloud/state"
-	"github.com/pengelbrecht/ticks/internal/tick"
 )
 
 // The verb family under test is the one a LOCAL orchestrator drives: spawn a
@@ -24,15 +23,10 @@ import (
 // writeCloudTick writes a child tick of an epic into the store.
 func writeCloudTick(t *testing.T, repo, id, epic string) {
 	t.Helper()
-	now := time.Now().UTC().Truncate(time.Second)
-	store := tick.NewStore(filepath.Join(repo, ".tick"))
-	if err := store.Write(tick.Tick{
-		ID: id, Title: "Tick " + id, Status: tick.StatusOpen, Priority: 2,
-		Type: tick.TypeTask, Parent: epic, Owner: "operator", CreatedBy: "operator",
-		CreatedAt: now, UpdatedAt: now,
-	}); err != nil {
-		t.Fatalf("write tick %s: %v", id, err)
-	}
+	writeCloudTickFixture(t, repo, cloudTickFixture{
+		ID: id, Title: "Tick " + id, Type: "task",
+		Parent: epic, Owner: "operator", CreatedBy: "operator",
+	})
 }
 
 // writeRunnersConfig declares the repo's substrate.
