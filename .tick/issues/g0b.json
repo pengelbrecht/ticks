@@ -1,0 +1,14 @@
+{
+  "id": "g0b",
+  "title": "Phase 5a — cut the last five cross-repo edges, in place",
+  "description": "SPLIT OUT OF PHASE 5 (Peter, 2026-09-01): he wants a planning session on the factory's ARCHITECTURE before ticfac is recreated. This half does not depend on that outcome and is worth doing either way — cutting these edges is right however the factory is internally reshaped.\n\nTHE WORK. The factory's own packages (internal/factory, internal/cloud, internal/gatewaytrace) are already clean. The ~23 command files in cmd/tk/cmd/{cloud,factory}*.go are NOT, and they leave with the factory, so every ticks package they import becomes a cross-repo import of an internal/ package — which Go forbids outright.\n\n  internal/tick        cloud_test.go, cloud_tk_test.go, cloud_wave_test.go — TESTS ONLY. Becomes tk CLI calls, the same answer Phase 1 gave for the non-test sites.\n  internal/github      cloud.go, cloud_wave.go — copy it. Do NOT promote: it handles OAuth device-flow token exchange, and a frozen public API around credential handling is what this project has consistently refused.\n  internal/tui         factory_dashboard.go — copy, or let ticfac own its own look. Same reasoning as the palette decision in Phase 2: two products may diverge and that is fine.\n  internal/herd/config cloud_wave.go — reads .tick/runners.toml. This one has a CONTRACT-shaped answer rather than a copy-shaped one: contracts/runners-config-contract.json now pins that format across languages.\n  internal/sandbox     cloud_branch.go, cloud_inrun.go — THE KNOT, and the one edge with no obvious right answer. internal/sandbox STAYS in ticks (herd_spawn uses sandbox.Setup) while cloud/sandbox/*.sh moves, and the command files bridging them leave. Decide deliberately.\n\nWHY IN PLACE, BEFORE THE MOVE: the same ordering that made Phases 1, 2 and 4b work. Do the hard change while both halves are in one tree and one test run can prove it. Moving first means debugging a repo split and five broken imports at once, with no working state to compare against.\n\nNOT A PHASE 1 DEFECT. Phase 1 cleaned the factory's packages and met its acceptance. These command files were STAYING in ticks under the plan of the day, because tk was going to dispatch to an external binary. That was cancelled on 2026-08-28, which is what turned their imports into a problem.",
+  "status": "open",
+  "priority": 1,
+  "type": "epic",
+  "owner": "noreply@anthropic.com",
+  "parent": "a4n",
+  "acceptance_criteria": "No file under cmd/tk/cmd/{cloud,factory}*.go imports a ticks internal/ package that stays in ticks. Nothing is promoted out of internal/ to achieve it. The internal/sandbox knot is decided in writing with its reasoning. go test ./... green, and the factory suite green.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-01T08:12:05.356419Z",
+  "updated_at": "2026-09-01T08:12:05.356419Z"
+}
