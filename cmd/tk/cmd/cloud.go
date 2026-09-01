@@ -20,7 +20,6 @@ import (
 
 	"github.com/pengelbrecht/ticks/internal/factory"
 	"github.com/pengelbrecht/ticks/internal/factory/credentials"
-	"github.com/pengelbrecht/ticks/internal/github"
 )
 
 var (
@@ -756,7 +755,7 @@ func printCloudRunList(out io.Writer, response cloudStatusResponse) {
 }
 
 func cloudRequestedBy() string {
-	requestedBy, err := github.DetectOwner(nil)
+	requestedBy, err := cloudDetectOwner()
 	if err != nil || strings.TrimSpace(requestedBy) == "" {
 		return "operator"
 	}
@@ -848,7 +847,7 @@ func prepareCloudSubmission(ctx context.Context, root, epicID string) (baseSHA, 
 		}
 	}
 
-	project, err = github.DetectProject(nil)
+	project, err = cloudDetectProject()
 	if err != nil {
 		return "", "", "", fmt.Errorf("cannot determine the GitHub project for epic %q: %w", epicID, err)
 	}

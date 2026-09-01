@@ -15,6 +15,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
 	"github.com/spf13/cobra"
 
@@ -22,8 +23,19 @@ import (
 	"github.com/pengelbrecht/ticks/internal/factory/credentials"
 	"github.com/pengelbrecht/ticks/internal/factory/dashboard"
 	"github.com/pengelbrecht/ticks/internal/gatewaytrace"
-	"github.com/pengelbrecht/ticks/internal/tui"
 )
+
+// factoryPinColorProfile is a deliberate COPY of internal/tui.PinColorProfile
+// (color.go), not an import.
+//
+// The Phase 2 palette decision is the precedent this follows: `tk tui` and
+// `tk factory dashboard` are two products that may legitimately diverge in
+// look, and binding their visual identity together through a shared package
+// is a coupling neither one wants (5yk). The one-line body is copied rather
+// than factored out to a third package for the same reason.
+func factoryPinColorProfile(p termenv.Profile) {
+	lipgloss.SetColorProfile(p)
+}
 
 var (
 	factoryDashboardProject   string
@@ -159,7 +171,7 @@ func runFactoryDashboard(cmd *cobra.Command, args []string) error {
 
 	// Pin the colour profile the way `tk tui` and `tk herd dashboard` do:
 	// terminals that misreport under a multiplexer otherwise lose all colour.
-	tui.PinColorProfile(termenv.TrueColor)
+	factoryPinColorProfile(termenv.TrueColor)
 
 	var cache dashboard.Cache
 	if path, err := dashboard.CachePath(client.Endpoint()); err == nil {

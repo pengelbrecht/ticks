@@ -16,7 +16,6 @@ import (
 	cloudstate "github.com/pengelbrecht/ticks/internal/cloud/state"
 	"github.com/pengelbrecht/ticks/internal/factory"
 	"github.com/pengelbrecht/ticks/internal/factory/credentials"
-	"github.com/pengelbrecht/ticks/internal/github"
 	herdconfig "github.com/pengelbrecht/ticks/internal/herd/config"
 )
 
@@ -88,7 +87,7 @@ func cloudSubstrateGate(cfg *herdconfig.Config, verb string) error {
 // HAS a factory asks it whether this project is enrolled, and only enrolment
 // upgrades the arbiter from the local file lease to the project's RunRoom.
 func cloudArbiter(ctx context.Context) (cloudlease.Arbiter, *cloudClient, string, error) {
-	project, projectErr := github.DetectProject(nil)
+	project, projectErr := cloudDetectProject()
 	project = strings.TrimSpace(project)
 
 	if !cloudFactoryConfigured() {

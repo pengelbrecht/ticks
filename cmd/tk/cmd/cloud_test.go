@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/pengelbrecht/ticks/internal/factory/credentials"
-	"github.com/pengelbrecht/ticks/internal/tick"
 )
 
 type cloudFactoryRequest struct {
@@ -136,20 +135,58 @@ func setupCloudRepo(t *testing.T, withEpic bool) (repo, remote, sha string) {
 
 func writeCloudEpic(t *testing.T, repo, id string) {
 	t.Helper()
+	writeCloudTickFixture(t, repo, cloudTickFixture{
+		ID: id, Title: "Cloud test epic", Type: "epic",
+		Owner: "operator", CreatedBy: "operator",
+	})
+}
+
+// cloudTickFixture is the handful of fields a cloud test needs to seed a
+// tick on disk. It exists so writeCloudTickFixture stays a plain literal at
+// every call site instead of a long positional argument list.
+type cloudTickFixture struct {
+	ID        string
+	Title     string
+	Type      string
+	Parent    string
+	Owner     string
+	CreatedBy string
+}
+
+// writeCloudTickFixture writes a tick fixture directly as the JSON document
+// cloudReadTracker parses back out via `tk show`/`tk list --all` (cloud.go).
+//
+// It is a copy of what internal/tick's Store.Write does for these fields, not
+// an import of it: Phase 1 already treats the tracker as a JSON contract for
+// READS in cloud.go rather than importing internal/tick's Go API, and a test
+// file in this package follows the same rule for writes, so that neither side
+// of a cloud-command test depends on the tracker's internal Go types (5yk).
+// Keep the field set in sync by hand with internal/tick.Tick's JSON tags if
+// cloudReadTracker ever starts reading more of them.
+func writeCloudTickFixture(t *testing.T, repo string, f cloudTickFixture) {
+	t.Helper()
+	if f.ID == "" {
+		t.Fatalf("tick fixture is missing an id")
+	}
 	now := time.Now().UTC().Truncate(time.Second)
-	store := tick.NewStore(filepath.Join(repo, ".tick"))
-	if err := store.Write(tick.Tick{
-		ID:        id,
-		Title:     "Cloud test epic",
-		Status:    tick.StatusOpen,
-		Priority:  2,
-		Type:      tick.TypeEpic,
-		Owner:     "operator",
-		CreatedBy: "operator",
-		CreatedAt: now,
-		UpdatedAt: now,
-	}); err != nil {
-		t.Fatalf("write cloud epic: %v", err)
+	doc := map[string]any{
+		"id": f.ID, "title": f.Title, "status": "open", "priority": 2,
+		"type": f.Type, "owner": f.Owner, "created_by": f.CreatedBy,
+		"created_at": now, "updated_at": now,
+	}
+	if f.Parent != "" {
+		doc["parent"] = f.Parent
+	}
+	data, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		t.Fatalf("encode tick fixture %s: %v", f.ID, err)
+	}
+	dir := filepath.Join(repo, ".tick", "issues")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("mkdir .tick/issues: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, f.ID+".json"), data, 0o644); err != nil {
+		t.Fatalf("write tick fixture %s: %v", f.ID, err)
 	}
 }
 
