@@ -1,0 +1,18 @@
+{
+  "id": "q71",
+  "title": "Close out Phase 5a: PR, CI gate, retro",
+  "description": "Per .tick/config.md: push the epic branch, open a PR, do not complete until CI is green. No direct merge to main.\n\nRetro against g0b's acceptance, verifying the code.\n\nDO NOT PLAN PHASE 5. It is gated on a planning session with Peter about the factory's architecture, and is marked awaiting checkpoint deliberately. Report that the gate is the next step rather than planning through it. Do surface anything this epic learned that the session should know — especially the sandbox decision and the constraints behind it.",
+  "status": "open",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "wl7"
+  ],
+  "parent": "g0b",
+  "role": "closeout",
+  "acceptance_criteria": "A PR exists with green CI; not merged directly to main. The retro verifies the code. Phase 5 is NOT planned; the report names the architecture session as the next step and hands it whatever this epic learned.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-01T08:13:50.087832Z",
+  "updated_at": "2026-09-01T08:13:50.087832Z"
+}

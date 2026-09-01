@@ -1,0 +1,19 @@
+{
+  "id": "wl7",
+  "title": "Final review of the Phase 5a diff",
+  "description": "Review the full epic diff. Three things:\n\n1. IS THE CUT ACTUALLY COMPLETE? Grep cmd/tk/cmd/{cloud,factory}*.go yourself for every ticks internal/ import. The phase's whole claim is that these files could be lifted into another repo and still compile. Test that claim directly rather than reading the diff: what would 'go build' say if this directory were a different module?\n\n2. NOTHING PROMOTED. Every phase of this project has had the same negative acceptance — no package leaves internal/, no new exported API is created to serve the factory. Confirm it, and note that copies are the intended answer here.\n\n3. THE --all TRAP. If any tk list call walks descendants without --all, that is a silent correctness bug: tk list defaults to the caller's own ticks and an epic's descendants are filed by whoever created them. Phase 1 paid for this once. Check every call site, and check the tests would catch its removal rather than merely passing today.\n\nCommit RESULT-\u003cid\u003e.md — for a review tick the report is the deliverable.",
+  "status": "open",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "5yk",
+    "vr4"
+  ],
+  "parent": "g0b",
+  "role": "review",
+  "acceptance_criteria": "Every remaining internal/ import in the factory command files is enumerated and each is either gone or justified. Nothing was promoted out of internal/. Every tk list descendant walk uses --all and a test would catch its removal. go test ./... green.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-01T08:13:50.04461Z",
+  "updated_at": "2026-09-01T08:13:50.04461Z"
+}

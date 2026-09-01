@@ -2265,3 +2265,7 @@
 {"ts":"2026-09-01T08:12:05.356731Z","tick":"g0b","action":"create","actor":"claude:orchestrator","epic":"a4n","data":{"priority":1,"title":"Phase 5a — cut the last five cross-repo edges, in place","type":"epic"}}
 {"ts":"2026-09-01T08:12:05.454899Z","tick":"5hm","action":"block","actor":"claude:orchestrator","epic":"a4n","data":{"blockers":["9oy","g0b"],"title":"Phase 5 — create ticfac and move"}}
 {"ts":"2026-09-01T08:12:05.481227Z","tick":"5hm","action":"awaiting","actor":"claude:orchestrator","epic":"a4n","data":{"awaiting":"checkpoint","title":"Phase 5 — create ticfac and move"}}
+{"ts":"2026-09-01T08:13:49.95088Z","tick":"5yk","action":"create","actor":"claude:orchestrator","epic":"g0b","data":{"priority":1,"title":"Cut the tracker, GitHub and TUI edges from the factory command files","type":"task"}}
+{"ts":"2026-09-01T08:13:49.998796Z","tick":"vr4","action":"create","actor":"claude:orchestrator","epic":"g0b","data":{"priority":1,"title":"Decide the sandbox knot and the runners.toml read","type":"task"}}
+{"ts":"2026-09-01T08:13:50.044869Z","tick":"wl7","action":"create","actor":"claude:orchestrator","epic":"g0b","data":{"priority":1,"title":"Final review of the Phase 5a diff","type":"task"}}
+{"ts":"2026-09-01T08:13:50.088066Z","tick":"q71","action":"create","actor":"claude:orchestrator","epic":"g0b","data":{"priority":1,"title":"Close out Phase 5a: PR, CI gate, retro","type":"task"}}
