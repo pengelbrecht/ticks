@@ -63,15 +63,29 @@ The factory's ~50 `internal/` import edges look like ~50 things needing promotio
 to a public Go API. **They are not** — this was established by reading them, and
 the first draft of the plan got it wrong by counting instead:
 
-- The **tracker** touch is five symbols (`tick.NewStore`, `tick.Tick`,
+- The **tracker** touch was five symbols (`tick.NewStore`, `tick.Tick`,
   `tick.TypeEpic`, `tick.TypeTask`, `tick.StatusOpen`), in the thin
-  `cmd/tk/cmd/cloud*.go` wrappers — not in the factory packages at all.
+  `cmd/tk/cmd/cloud*.go` wrappers — not in the factory packages at all. **Cut by
+  tick `5yk`** (Phase 5a): the three test files that still called the Go store
+  directly to seed fixtures (`cloud_test.go`, `cloud_tk_test.go`,
+  `cloud_wave_test.go`) now write the on-disk tick JSON straight
+  (`writeCloudTickFixture` in `cloud_test.go`), the same move Phase 1 made for
+  reads. `cmd/tk/cmd/{cloud,factory}*.go` imports no `internal/tick` symbol.
 - 11 edges are `internal/ticksrc` (the credentials file), which splits anyway.
 - 3 are `operator.Pending` used as a **JSON wire type** in
   `internal/factory/dashboard/client.go:121,168` — never a tracker call.
 - The rest are one-offs: 8 colour constants, one GitHub function, a git exec
   helper, and (the enumeration originally undercounted this) EIGHT collect
-  symbols, not two.
+  symbols, not two. **The GitHub function is also cut (tick `5yk`)**:
+  `cloud.go`/`cloud_wave.go`'s `github.DetectOwner`/`DetectProject` calls are
+  now `cloudDetectOwner`/`cloudDetectProject`, copied into
+  `cmd/tk/cmd/cloud_github.go` with a comment explaining why (`internal/github`
+  also carries OAuth device-flow token exchange, and a frozen public API around
+  credential handling has been refused three times for the same reason — it is
+  never partially promoted). The same tick also cut the one `internal/tui` edge
+  in this family, `factory_dashboard.go`'s `tui.PinColorProfile`, copied as
+  `factoryPinColorProfile` — the Phase 2 palette precedent (divergent look is
+  intended, see "The two board copies" below) applied to a third file.
 
 **Two edges survive Phase 1 on purpose, and neither is a borrowing:**
 `internal/ticksrc` is deferred to the credentials split, which needs a migration
