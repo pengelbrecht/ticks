@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/pengelbrecht/ticks/internal/factory"
-	"github.com/pengelbrecht/ticks/internal/sandbox"
 )
 
 // Tick t4y.
@@ -34,10 +33,10 @@ func TestCloudBranchRecordsThroughTheRunsOwnDoor(t *testing.T) {
 		}
 		return http.StatusNotFound, map[string]any{"error": "not_found"}
 	})
-	t.Setenv(sandbox.EnvRunID, "run_t4y")
-	t.Setenv(sandbox.EnvEpic, "epic1")
-	t.Setenv(sandbox.EnvFactoryURL, endpoint)
-	t.Setenv(sandbox.EnvFactoryToken, "tkr_run_scoped")
+	t.Setenv(cloudEnvRunID, "run_t4y")
+	t.Setenv(cloudEnvEpic, "epic1")
+	t.Setenv(cloudEnvFactoryURL, endpoint)
+	t.Setenv(cloudEnvFactoryToken, "tkr_run_scoped")
 	buf := captureCmdOutput(t)
 
 	if err := ExecuteArgs([]string{"cloud", "branch", "tick-run/epic1", "--detail", "run branch"}); err != nil {
@@ -79,9 +78,9 @@ func TestCloudBranchReportsAnAlreadyRecordedBranchWithoutFailing(t *testing.T) {
 		// first. Records are evidence and are never overwritten.
 		return http.StatusOK, map[string]any{"recorded": false}
 	})
-	t.Setenv(sandbox.EnvRunID, "run_t4y")
-	t.Setenv(sandbox.EnvFactoryURL, endpoint)
-	t.Setenv(sandbox.EnvFactoryToken, "tkr_run_scoped")
+	t.Setenv(cloudEnvRunID, "run_t4y")
+	t.Setenv(cloudEnvFactoryURL, endpoint)
+	t.Setenv(cloudEnvFactoryToken, "tkr_run_scoped")
 	buf := captureCmdOutput(t)
 
 	if err := ExecuteArgs([]string{"cloud", "branch", "tick-run/epic1"}); err != nil {
@@ -99,9 +98,9 @@ func TestCloudBranchSurfacesTheFactorysOwnRefusal(t *testing.T) {
 			"detail": "tick/other/meo belongs to epic \"other\"",
 		}
 	})
-	t.Setenv(sandbox.EnvRunID, "run_t4y")
-	t.Setenv(sandbox.EnvFactoryURL, endpoint)
-	t.Setenv(sandbox.EnvFactoryToken, "tkr_run_scoped")
+	t.Setenv(cloudEnvRunID, "run_t4y")
+	t.Setenv(cloudEnvFactoryURL, endpoint)
+	t.Setenv(cloudEnvFactoryToken, "tkr_run_scoped")
 	captureCmdOutput(t)
 
 	err := ExecuteArgs([]string{"cloud", "branch", "tick/other/meo"})
@@ -116,8 +115,8 @@ func TestCloudBranchSurfacesTheFactorysOwnRefusal(t *testing.T) {
 }
 
 func TestCloudBranchWithoutAFactoryCredentialSaysWhatThatCosts(t *testing.T) {
-	t.Setenv(sandbox.EnvFactoryURL, "")
-	t.Setenv(sandbox.EnvFactoryToken, "")
+	t.Setenv(cloudEnvFactoryURL, "")
+	t.Setenv(cloudEnvFactoryToken, "")
 	captureCmdOutput(t)
 
 	err := ExecuteArgs([]string{"cloud", "branch", "tick-run/epic1"})

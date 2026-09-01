@@ -136,11 +136,7 @@ func runCloudSpawn(cmd *cobra.Command, args []string) error {
 	// The substrate, first and cheapest. A run whose workers are herdr panes
 	// must not get containers as well — the mirror image of `tk herd spawn`'s
 	// own refusal, and for the same reason: two workers on one tick.
-	cfg, err := herdLoadConfig(root, cloudSpawnConfig)
-	if err != nil {
-		return ExitError{Code: ExitGeneric, Message: err.Error()}
-	}
-	if err := cloudSubstrateGate(cfg, "tk cloud spawn"); err != nil {
+	if err := cloudSubstrateGate(root, cloudSpawnConfig, "tk cloud spawn"); err != nil {
 		return err
 	}
 

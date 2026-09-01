@@ -10,7 +10,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pengelbrecht/ticks/internal/sandbox"
 	"github.com/spf13/cobra"
 )
 
@@ -101,8 +100,8 @@ func runCloudBranch(cmd *cobra.Command, args []string) error {
 // "the token is dead", "that is not your epic" and "somebody already claimed
 // it" happened — they are three different operator problems.
 func recordCloudBranch(ctx context.Context, out io.Writer, branch, detail string) error {
-	endpoint := strings.TrimRight(strings.TrimSpace(os.Getenv(sandbox.EnvFactoryURL)), "/")
-	token := strings.TrimSpace(os.Getenv(sandbox.EnvFactoryToken))
+	endpoint := strings.TrimRight(strings.TrimSpace(os.Getenv(cloudEnvFactoryURL)), "/")
+	token := strings.TrimSpace(os.Getenv(cloudEnvFactoryToken))
 	if endpoint == "" || token == "" {
 		return NewExitError(ExitGeneric,
 			"this container has no factory endpoint or credential, so it cannot record "+

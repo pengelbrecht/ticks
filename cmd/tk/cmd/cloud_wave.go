@@ -16,8 +16,6 @@ import (
 	cloudstate "github.com/pengelbrecht/ticks/internal/cloud/state"
 	"github.com/pengelbrecht/ticks/internal/factory"
 	"github.com/pengelbrecht/ticks/internal/factory/credentials"
-	"github.com/pengelbrecht/ticks/internal/github"
-	herdconfig "github.com/pengelbrecht/ticks/internal/herd/config"
 )
 
 // The `tk cloud` dispatch verb family: spawn, wait, collect, reconcile (D19).
@@ -54,23 +52,42 @@ type cloudWaveVerb struct {
 // substrate cannot both start a worker on one tick, and an orchestrator that
 // picked the wrong verb is told which one serves this run rather than being
 // left to infer it from a routing failure.
-func cloudSubstrateGate(cfg *herdconfig.Config, verb string) error {
-	override, err := herdconfig.ParseOverride(os.Getenv(herdconfig.SubstrateEnvVar), herdconfig.SubstrateEnvVar)
+//
+// Unlike substrateGate, this does NOT take a *config.Config: it reads
+// [orchestration].substrate itself, through cloudConfiguredSubstrate
+// (cloud_substrate.go) — a narrow, DUPLICATED reader, not the shared
+// package. See that file's header comment for why: this command leaves ticks
+// with the factory, internal/herd/config does not, and Go forbids an
+// external module from importing another module's internal/ package.
+//
+// It is deliberately cheaper than the full decision procedure — the request
+// is the file plus $TICKS_SUBSTRATE, and probing for herdr cannot change
+// whether this verb is the right one. Zero dials, no half-made workspace,
+// same rule substrateGate applies.
+func cloudSubstrateGate(root, configPath, verb string) error {
+	override, err := cloudParseSubstrateOverride(os.Getenv(cloudSubstrateEnvVar), cloudSubstrateEnvVar)
 	if err != nil {
 		return ExitError{Code: ExitUsage, Message: err.Error()}
 	}
-	requested := herdconfig.Requested(cfg, override)
-	if requested == herdconfig.SubstrateCloud {
+	requested := override.substrate
+	if requested == "" {
+		configured, err := cloudConfiguredSubstrate(root, configPath)
+		if err != nil {
+			return NewExitError(ExitGeneric, "%v", err)
+		}
+		requested = configured
+	}
+	if requested == cloudSubstrateCloud {
 		return nil
 	}
 
-	source := fmt.Sprintf("%s requests substrate = %q", herdconfig.FileName, string(requested))
+	source := fmt.Sprintf("%s requests substrate = %q", cloudRunnersConfigFileName, string(requested))
 	remedy := fmt.Sprintf("set %s=cloud for this run to state that containers are the substrate that is effective here — the checkout is read, never rewritten",
-		herdconfig.SubstrateEnvVar)
-	if override.Substrate != "" {
-		source = fmt.Sprintf("%s=%s is set for this run", override.Source, string(override.Substrate))
+		cloudSubstrateEnvVar)
+	if override.substrate != "" {
+		source = fmt.Sprintf("%s=%s is set for this run", override.source, string(override.substrate))
 		remedy = fmt.Sprintf("unset %s, or set it to cloud, to dispatch this wave as containers",
-			herdconfig.SubstrateEnvVar)
+			cloudSubstrateEnvVar)
 	}
 	return ExitError{Code: ExitWrongSubstrate, Message: fmt.Sprintf(
 		"%s: workers for this run are not dispatched as cloud sandboxes, and `%s` dispatches nothing else. "+
@@ -88,7 +105,7 @@ func cloudSubstrateGate(cfg *herdconfig.Config, verb string) error {
 // HAS a factory asks it whether this project is enrolled, and only enrolment
 // upgrades the arbiter from the local file lease to the project's RunRoom.
 func cloudArbiter(ctx context.Context) (cloudlease.Arbiter, *cloudClient, string, error) {
-	project, projectErr := github.DetectProject(nil)
+	project, projectErr := cloudDetectProject()
 	project = strings.TrimSpace(project)
 
 	if !cloudFactoryConfigured() {

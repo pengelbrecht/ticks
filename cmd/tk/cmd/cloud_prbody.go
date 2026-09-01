@@ -6,7 +6,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/pengelbrecht/ticks/internal/sandbox"
 	"github.com/spf13/cobra"
 )
 
@@ -93,24 +92,24 @@ func runCloudPRBody(cmd *cobra.Command, _ []string) error {
 	}
 	ctx := cmd.Context()
 
-	head := firstNonEmpty(cloudPRBodyHead, os.Getenv(sandbox.EnvRunBranch))
+	head := firstNonEmpty(cloudPRBodyHead, os.Getenv(cloudEnvRunBranch))
 	if head == "" {
 		branch, err := getCurrentBranch(root)
 		if err != nil || strings.TrimSpace(branch) == "" || branch == "HEAD" {
 			return NewExitError(ExitUsage,
 				"cannot tell which branch this PR is opened from: pass --head <branch> (a run sandbox exports it as %s)",
-				sandbox.EnvRunBranch)
+				cloudEnvRunBranch)
 		}
 		head = strings.TrimSpace(branch)
 	}
 
-	runBase := firstNonEmpty(cloudPRBodyRunBase, os.Getenv(sandbox.EnvBaseSHA))
+	runBase := firstNonEmpty(cloudPRBodyRunBase, os.Getenv(cloudEnvBaseSHA))
 	if runBase == "" {
 		// Without it, "what this run created" is a guess — and a guessed
 		// cargo list is worse than none, because it reads as a checked one.
 		return NewExitError(ExitUsage,
 			"cannot tell which commits this run created: pass --run-base <sha>, the commit the run was submitted from (a run sandbox exports it as %s)",
-			sandbox.EnvBaseSHA)
+			cloudEnvBaseSHA)
 	}
 
 	base := cloudPRBodyBase
@@ -151,8 +150,8 @@ func runCloudPRBody(cmd *cobra.Command, _ []string) error {
 	}
 
 	fmt.Fprint(cmd.OutOrStdout(), renderCloudPRBody(cloudPRBodyInput{
-		Epic:    firstNonEmpty(cloudPRBodyEpic, os.Getenv(sandbox.EnvEpic), cloudPRBodyEpicFromBranch(head)),
-		RunID:   os.Getenv(sandbox.EnvRunID),
+		Epic:    firstNonEmpty(cloudPRBodyEpic, os.Getenv(cloudEnvEpic), cloudPRBodyEpicFromBranch(head)),
+		RunID:   os.Getenv(cloudEnvRunID),
 		Head:    head,
 		Base:    base,
 		RunBase: runBase,
@@ -273,10 +272,10 @@ func cloudPRBodyShallow(ctx context.Context, root string) bool {
 // branch from another base already holds the name), so the heading has an epic
 // even outside a sandbox.
 func cloudPRBodyEpicFromBranch(branch string) string {
-	if !strings.HasPrefix(branch, sandbox.RunBranchPrefix) {
+	if !strings.HasPrefix(branch, cloudRunBranchPrefix) {
 		return ""
 	}
-	return strings.TrimPrefix(branch, sandbox.RunBranchPrefix)
+	return strings.TrimPrefix(branch, cloudRunBranchPrefix)
 }
 
 func cloudPRBodyShort(sha string) string {
