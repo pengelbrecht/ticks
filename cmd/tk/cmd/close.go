@@ -3,6 +3,7 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/pengelbrecht/ticks/internal/config"
 	"github.com/pengelbrecht/ticks/internal/github"
 	"github.com/pengelbrecht/ticks/internal/tick"
 )
@@ -178,6 +180,25 @@ func runClose(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// The continuation verdict, printed on the close itself.
+	//
+	// "End a turn on a dispatch, never on a close" is the doctrine, and a close
+	// is where the stall reliably lands: finishing a body of work triggers the
+	// instinct to summarise and hand control back. Every countermeasure so far
+	// has been something SEPARATE that had to be installed or remembered — a
+	// herdr plugin hook (absent on a machine without herdr, and it was three
+	// weeks stale on the maintainer's own), a run-start registration nobody
+	// typed, a rule in a reference file that decays with context distance.
+	//
+	// This one rides the command the orchestrator is already running, so there
+	// is nothing to install, nothing to configure and no multiplexer, harness
+	// or plugin in the path. It cannot be uninstalled without uninstalling tk.
+	//
+	// Advisory in both directions: a frontier that cannot be evaluated is
+	// silent rather than fatal, because failing a close over an advisory would
+	// be strictly worse than the stall it prevents.
+	printCloseContinuation(os.Stderr, root, t)
+
 	if closeJSON {
 		enc := json.NewEncoder(os.Stdout)
 		if err := enc.Encode(t); err != nil {
@@ -186,4 +207,40 @@ func runClose(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// printCloseContinuation reports whether this close is a stopping point.
+//
+// Loud for an epic or a closeout tick — where the doctrine says the stall
+// actually lands — and one quiet line otherwise, so a wave of ordinary closes
+// does not drown the signal it exists to carry.
+func printCloseContinuation(w io.Writer, root string, t tick.Tick) {
+	autonomous := false
+	if cfg, err := config.LoadOrDefault(filepath.Join(root, ".tick", "config.json")); err == nil {
+		autonomous = cfg.Policy.GetAutonomousMode()
+	}
+	rep, err := evaluateFrontier(root, "", "", autonomous)
+	if err != nil {
+		return // advisory only; never fail a close over it
+	}
+
+	// A close-out tick's own acceptance is "retro AND flesh out the next
+	// feasible epic", so closing one is the single most stall-prone moment in
+	// a run — it reads like the end and is the middle.
+	loud := t.Type == tick.TypeEpic || t.Role == tick.RoleCloseout
+
+	if !rep.Actionable {
+		if loud {
+			fmt.Fprintln(w, "frontier: at rest — every open path waits on a human, is in flight, or the scope is done.")
+		}
+		return
+	}
+	if !loud {
+		fmt.Fprintf(w, "frontier: %s\n", rep.summary())
+		return
+	}
+	fmt.Fprintf(w, "\nTHIS IS NOT A STOPPING POINT. frontier: %s\n", rep.summary())
+	fmt.Fprintln(w, "End the turn on a dispatch, never on a close: plan and launch the next")
+	fmt.Fprintln(w, "feasible work in THIS turn, or name the blocker that prevents it.")
+	fmt.Fprintln(w, "(`tk frontier` for the full list; re-read the run charter in the ticks skill.)")
 }
