@@ -647,6 +647,201 @@ its call site in `cmd/tk/cmd/upgrade.go`, delete its coverage in
 `internal/factory/status.go`'s `Status()` alongside its existing
 deployment-summary line.
 
+## Phase 5a decisions — the sandbox knot and the runners.toml read (tick `vr4`)
+
+*(Decided 2026-09-01. Context: Phase 5 was split into 5a — cut the last five
+cross-repo edges in `cmd/tk/cmd/{cloud,factory}*.go` in place, in this tree —
+and a deferred architecture session on the factory's internal shape, before
+`ticfac` is recreated. This tick did the two edges with no obvious precedent
+to copy: `cloud_wave.go`'s read of `.tick/runners.toml`, and `internal/sandbox`
+— the one package this document already flagged, in Finding 1, as staying in
+ticks while the command files that touch it leave. Both are done; the
+[sandbox image question below](#the-open-question-this-does-not-resolve)
+stays open for the architecture session, deliberately.)*
+
+### The runners.toml read
+
+`cloudSubstrateGate` (`cmd/tk/cmd/cloud_wave.go`, called from `cloud_spawn.go`)
+turned out to need exactly one field of `.tick/runners.toml` —
+`[orchestration].substrate` — plus the `$TICKS_SUBSTRATE` override that can
+replace it. Not the whole validating parser `internal/herd/config` is: `tk
+herd spawn`/`tk herd reconcile` need that (every table, full validation,
+version gating), and stay in ticks for it.
+
+**Decision: a narrow, duplicated reader of that one field**
+(`cmd/tk/cmd/cloud_substrate.go`), not a copy of the Go parser and not a call
+through `tk`. Two alternatives were checked and rejected:
+
+- **Shell out to `tk`.** Finding 3's general answer for factory/ticks edges,
+  and it was the first thing checked. No existing `tk` subcommand answers this
+  *specific* question cheaply: `tk sandbox substrate` returns the resolved
+  substrate but runs the *full* decision procedure, including a herdr
+  availability probe — exactly the cost `cloudSubstrateGate` exists to avoid
+  paying before refusing (a dispatch verb deciding whether it is the right
+  verb must cost zero dials; see that function's own doc comment, unchanged
+  from before this tick). Inventing a new probe-free `tk` subcommand purely to
+  serve this one call site was judged a worse trade than a 100-line duplicate.
+- **A published contract fixture**, the Phase 2 pattern already used for
+  `sandbox.image` and `orchestration.max_parallel`
+  (`contracts/runners-config-contract.json`). Checked and it does not fit:
+  that mechanism exists to hold together **two independent parsers in two
+  languages** (Go and TypeScript) that both have to stay, because a Worker
+  cannot run Go and a laptop CLI cannot run in a Worker. This edge is
+  Go-parsing-Go-again, forced apart only by the `internal/` module boundary,
+  not by a language boundary — the same shape as the credential file split in
+  "Phase 3 decisions" above, which duplicated ~90 lines rather than share a
+  package for the identical reason. Consistency with that precedent argued
+  for the same answer here.
+
+The duplicate is deliberately **permissive** beyond the one field it reads: a
+missing file, a missing `[orchestration]` table, or any other table/key
+resolves to `auto`, same as `config.Config.Substrate`'s nil-safe default. It
+does **not** replicate version gating or unknown-key rejection — a
+`runners.toml` that is broken in some *other* table still gets caught, just
+not here: by `tk herd spawn`/`reconcile` (real parser) and, downstream, by the
+container's own `tk sandbox setup`. This gate answers one question — which
+dispatch verb owns this run — and a file broken elsewhere is not that
+question's problem to raise. The one place it is **not** permissive is the
+substrate value itself: an unrecognised value is refused, matching
+`config.ParseOverride`'s fail-closed rule, because that value is the thing the
+gate actually branches on.
+
+**Constraint for the architecture session:** if a second field of
+`runners.toml` ever needs to cross this same boundary, re-open this decision
+rather than growing the duplicate ad hoc. At two independently-maintained
+fields the contract-fixture mechanism (extend
+`contracts/runners-config-contract.json`) is very likely the better answer —
+it is already how this project pins `sandbox.image` and `max_parallel`, and a
+JSON fixture asserted from two Go binaries is no different in kind from one
+asserted from Go and TypeScript. One field, permissively read, did not clear
+that bar; a second one might.
+
+### The sandbox knot
+
+The shape, unchanged from this document's Finding 1 and the epic note: `tk
+sandbox …` (`cmd/tk/cmd/sandbox.go`) and `internal/sandbox`'s Go logic stay in
+ticks — `herd_spawn.go:134` calls `sandbox.Setup` in-process for a **local**
+worktree, identically to how the cloud entrypoint calls the same function
+through `tk sandbox setup`. `cloud/sandbox/*.sh` (the image's shell scripts)
+leaves with the factory. `cloud_branch.go` and `cloud_inrun.go` — the two
+command files this tick owned — sit exactly on that seam: they run as `tk
+cloud …` *from inside* a booted container, reading environment variables the
+image's entrypoint exported, but they never call `sandbox.Setup` or any other
+function with logic in it. Checked line by line: every reference from these
+two files (and `cloud_prbody.go`, folded in — see below) into
+`internal/sandbox` is to one of ~10 `Env*` name constants
+(`TICKS_FACTORY_URL`, `TICKS_PASS`, `TICKS_RUN_ID`, …) or `RunBranchPrefix`.
+
+**Decision: duplicate the ~10 constants these command files actually use**
+(`cmd/tk/cmd/cloud_container_env.go`), not the package, not a shared
+sub-package, and no call to `tk` for a value the container already put in
+these commands' own environment. The reasoning is the credential-file
+precedent again, sharpened: these are not even parsed values, they are
+*string literals* — an environment variable's NAME. Renaming one is already a
+breaking change to every running (or previously-built) container image
+regardless of which repo's Go constant holds the string, so duplicating the
+spelling carries none of the drift risk duplicating *behaviour* would —
+spelling does not silently diverge the way a parser does. `internal/sandbox`
+keeps being the source of truth for the names on the ticks side (it is what
+`herd_spawn.go`'s local path and the container's own `tk sandbox …`
+subcommands read); the factory-bound copy is now `cmd/tk/cmd/cloud_container_env.go`'s
+job, with a comment saying why it exists and that the names are not its to
+change.
+
+**Scope note:** the epic text names `cloud_branch.go`/`cloud_inrun.go`
+specifically, but `cloud_prbody.go` (not explicitly assigned to either Phase
+5a tick) turned out to import `internal/sandbox` too, for the same
+reason — five more of the same constants. Left unfixed it would have failed
+this tick's own acceptance criterion ("`cmd/tk/cmd/{cloud,factory}*.go` do not
+import `internal/herd/config` or `internal/sandbox`", stated without a file
+list) and the epic's identically-worded one, so it is folded into this same
+duplicate rather than left for a third tick to discover. Flagging this here
+because it is a decomposition gap worth noting, not a scope decision worth
+re-litigating: a mechanical grep for `internal/sandbox` and
+`internal/herd/config` imports across `cmd/tk/cmd/{cloud,factory}*.go` at the
+start of the architecture session would have caught it sooner than reading
+the epic prose did.
+
+### Constraints for the architecture session
+
+These are facts found while doing this tick's narrow cut, not decisions —
+they bear on the deferred question of how the factory is internally reshaped,
+and are recorded here so that session does not have to re-derive them.
+
+1. **`internal/sandbox` is not a constants package that happens to also hold
+   `Setup` — `Setup` is the load-bearing half.** `setup.go`'s own doc comment
+   states the design in one sentence: "One implementation serves both
+   substrates: the cloud entrypoint calls it through `tk sandbox setup` after
+   the clone, and `tk herd spawn` calls it on a fresh worktree." Any future
+   shape that tries to make `internal/sandbox` "belong" wholly to one side has
+   to either duplicate `Setup`'s ~250 lines (drops the "one implementation"
+   guarantee the comment is explicit about wanting) or keep a cross-repo call
+   of some kind. This tick did not have to solve that because `Setup` is never
+   called from a command file that leaves — only from `herd_spawn.go`, which
+   stays — but the architecture session will hit it the moment anyone asks
+   "could `internal/sandbox` move instead."
+
+2. **`internal/sandbox`'s ~6,400 lines of Go test *execute*
+   `cloud/sandbox/*.sh`** (`entrypoint_test.go`, `worker_entrypoint_test.go`,
+   `entrypoint_keeper_test.go`, `entrypoint_realtk_test.go`, `git_door_test.go`,
+   `deliver_questions_test.go`, `benchmark_test.go`, `modelbench_test.go`, and
+   `setup_test.go`, confirmed by grepping for `exec.Command`/`exec.CommandContext`
+   in this tick). If `cloud/sandbox/**` moves to the factory's repo and
+   `internal/sandbox` does not, these tests either (a) need the sibling repo
+   checked out in ticks' own CI — a cross-repo test dependency this project
+   has otherwise avoided creating — (b) move to the factory repo despite
+   testing a package (`internal/sandbox`) that stays there, which only works
+   if the factory repo can still exercise `tk sandbox …` as a built binary
+   (it already `go install`s one for the image, so this is plausible but
+   unverified), or (c) get re-authored as assertions the factory repo owns in
+   its own idiom (shell/TS), leaving ticks with tests of `Setup`/`worker.go`/
+   `model.go` as pure Go units and no test that boots a real container. This
+   document's existing Open Question 1 already named the schedule risk
+   ("those tests stay in ticks" — stated as a fact, not yet as a plan); this
+   tick's contribution is naming the three ways the schedule risk resolves so
+   the session can pick one instead of discovering it mid-move.
+
+3. **The `TICKS_*` environment-variable contract now has *four* independent
+   spellings, and only the shell/Go pair inside `cloud/sandbox` is guarded by
+   anything.** `internal/sandbox`'s `Env*` constants (ticks), `cloud/sandbox/*.sh`
+   (leaves with the factory, but already sourced from one `common.sh`, so it
+   is one spelling not several), `cloud/factory/src/sandbox.ts` (the control
+   plane that sets these variables when it boots a container — confirmed it
+   reads `input.substrate` and writes `env.TICKS_SUBSTRATE`, i.e. it is a
+   producer of these names, not a consumer of `.tick/runners.toml`), and now
+   this tick's `cmd/tk/cmd/cloud_container_env.go` (a fourth, independent
+   copy). None of the four is asserted against the others by a test — unlike
+   `runners.toml`'s two readers, which Phase 2 already put a contract fixture
+   under. A rename that touches one of the four and misses another fails
+   *silently*: a container boots, an env var it expects is unset or
+   misspelled, and the failure surfaces as "why is this empty" deep in a run
+   rather than as a build-time refusal. **Not fixed by this tick** — the
+   values are static strings today and did not justify inventing a fixture
+   mechanism for a set that has not drifted yet — but worth the architecture
+   session weighing a `contracts/sandbox-env-contract.json` (same shape as
+   `runners-config-contract.json`: name, owner, which of the four readers
+   consume it) the same way `sandbox-image-cases.json` already pins the
+   *values* two of these four readers accept.
+
+4. **`cloud/sandbox/required-tk-commands` already anticipates two binaries in
+   the image**, per "What gets built" item 4 above: `tk sandbox …` stays a
+   `tk` dependency, `cloud branch` becomes a `ticfac` command the image gets
+   from `ticfac` itself. This tick's duplication is orthogonal to that split —
+   `cmd/tk/cmd/cloud_container_env.go` moves wholesale with `cloud_branch.go`/
+   `cloud_inrun.go`/`cloud_prbody.go` whichever way "does `tk cloud …` follow
+   the factory" (Open Question 3) resolves, and needs no rework either way.
+
+### The open question this does not resolve
+
+Open Question 1, restated precisely now that the command-file edge is cut:
+**does `cloud/sandbox/**` move to the factory's new repo, or does the image
+belong with whatever ships `tk`?** This tick makes that answer *deferrable*
+rather than blocking — the Go import edge that would have forced an answer
+before any file could move is gone — but does not supply the answer.
+Constraint 2 above is the reason it is hard: whichever repo does **not** keep
+`cloud/sandbox/**` inherits a test-execution problem that has no zero-cost
+fix, only the three tradeoffs listed there.
+
 ## Order of operations
 
 Strangler, not flag day. Ticks stays green throughout; the factory does not move

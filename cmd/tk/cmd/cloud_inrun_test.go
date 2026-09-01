@@ -5,8 +5,6 @@ import (
 	"net/http"
 	"strings"
 	"testing"
-
-	"github.com/pengelbrecht/ticks/internal/sandbox"
 )
 
 // Tick wiy.
@@ -25,12 +23,12 @@ import (
 // environment the control plane sets on a `wave` phase boot.
 func inRunEnv(t *testing.T, endpoint string) {
 	t.Helper()
-	t.Setenv(sandbox.EnvPass, "1")
-	t.Setenv(sandbox.EnvRunID, "run_inrun")
-	t.Setenv(sandbox.EnvEpic, "epic1")
-	t.Setenv(sandbox.EnvFactoryURL, endpoint)
-	t.Setenv(sandbox.EnvFactoryToken, "tkr_run_scoped")
-	t.Setenv(sandbox.EnvFactoryProject, "example-org/example-repo")
+	t.Setenv(cloudEnvPass, "1")
+	t.Setenv(cloudEnvRunID, "run_inrun")
+	t.Setenv(cloudEnvEpic, "epic1")
+	t.Setenv(cloudEnvFactoryURL, endpoint)
+	t.Setenv(cloudEnvFactoryToken, "tkr_run_scoped")
+	t.Setenv(cloudEnvFactoryProject, "example-org/example-repo")
 }
 
 // The whole point: from inside a run, spawn asks its own supervisor rather
@@ -122,7 +120,7 @@ func TestCloudSpawnOutsideARunStillSubmitsARun(t *testing.T) {
 	})
 	configureCloudFactory(t, endpoint)
 	// Deliberately NOT inRunEnv: no pass, so no in-run dispatch.
-	t.Setenv(sandbox.EnvPass, "")
+	t.Setenv(cloudEnvPass, "")
 	captureCmdOutput(t)
 
 	if err := ExecuteArgs([]string{"cloud", "spawn", "epic1", "--ticks", "aaa"}); err != nil {
@@ -149,11 +147,11 @@ func TestCloudSpawnOutsideARunStillSubmitsARun(t *testing.T) {
 // the agent inside it believes. Permission is the control plane's to give:
 // this is what keeps a closeout — which gets no pass — from starting new work.
 func TestCloudSpawnWithoutAPassIsNotAnInRunDispatch(t *testing.T) {
-	t.Setenv(sandbox.EnvRunID, "run_inrun")
-	t.Setenv(sandbox.EnvFactoryURL, "https://factory.example.test")
-	t.Setenv(sandbox.EnvFactoryToken, "tkr_run_scoped")
+	t.Setenv(cloudEnvRunID, "run_inrun")
+	t.Setenv(cloudEnvFactoryURL, "https://factory.example.test")
+	t.Setenv(cloudEnvFactoryToken, "tkr_run_scoped")
 	for _, pass := range []string{"", "0", "-1", "closeout"} {
-		t.Setenv(sandbox.EnvPass, pass)
+		t.Setenv(cloudEnvPass, pass)
 		if _, ok := cloudInRunContext(); ok {
 			t.Errorf("TICKS_PASS=%q was accepted as a dispatching pass", pass)
 		}
@@ -165,13 +163,13 @@ func TestCloudSpawnWithoutAPassIsNotAnInRunDispatch(t *testing.T) {
 // manifests it wrote died with it.
 func TestInRunPassInheritsTheWaveTheControlPlaneDispatched(t *testing.T) {
 	base := strings.Repeat("c", 40)
-	t.Setenv(sandbox.EnvPass, "2")
-	t.Setenv(sandbox.EnvRunID, "run_inrun")
-	t.Setenv(sandbox.EnvEpic, "epic1")
-	t.Setenv(sandbox.EnvFactoryURL, "https://factory.example.test")
-	t.Setenv(sandbox.EnvFactoryProject, "example-org/example-repo")
-	t.Setenv(sandbox.EnvWaveTicks, "aaa, bbb ")
-	t.Setenv(sandbox.EnvWaveBase, base)
+	t.Setenv(cloudEnvPass, "2")
+	t.Setenv(cloudEnvRunID, "run_inrun")
+	t.Setenv(cloudEnvEpic, "epic1")
+	t.Setenv(cloudEnvFactoryURL, "https://factory.example.test")
+	t.Setenv(cloudEnvFactoryProject, "example-org/example-repo")
+	t.Setenv(cloudEnvWaveTicks, "aaa, bbb ")
+	t.Setenv(cloudEnvWaveBase, base)
 
 	manifests := cloudInheritedManifests("epic1", nil)
 	if len(manifests) != 2 {
@@ -205,9 +203,9 @@ func TestInRunPassInheritsTheWaveTheControlPlaneDispatched(t *testing.T) {
 
 // Nothing is inherited outside a run, so every existing refusal is untouched.
 func TestNoWaveIsInheritedOutsideACloudRun(t *testing.T) {
-	t.Setenv(sandbox.EnvPass, "")
-	t.Setenv(sandbox.EnvWaveTicks, "aaa")
-	t.Setenv(sandbox.EnvWaveBase, strings.Repeat("c", 40))
+	t.Setenv(cloudEnvPass, "")
+	t.Setenv(cloudEnvWaveTicks, "aaa")
+	t.Setenv(cloudEnvWaveBase, strings.Repeat("c", 40))
 	if got := cloudInheritedManifests("epic1", nil); got != nil {
 		t.Errorf("a local checkout inherited a wave: %#v", got)
 	}
