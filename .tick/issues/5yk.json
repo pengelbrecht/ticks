@@ -2,6 +2,7 @@
   "id": "5yk",
   "title": "Cut the tracker, GitHub and TUI edges from the factory command files",
   "description": "THREE OF THE FIVE EDGES. Each has an answer this project has already settled elsewhere — apply it rather than re-deriving.\n\n1. internal/tick — TESTS ONLY: cloud_test.go, cloud_tk_test.go, cloud_wave_test.go. Uses NewStore, Tick, TypeEpic, TypeTask, StatusOpen. Phase 1 replaced the non-test sites with 'tk show --json' and 'tk list --all --json' behind one helper in cloud.go; do the same for the tests. NOTE THE TRAP Phase 1 found and paid for: 'tk list' defaults to the caller's OWN ticks, and an epic's descendants are filed by whoever created them — so '--all' is load-bearing and its absence is a SILENT correctness bug, not a crash.\n\n2. internal/github — cloud.go, cloud_wave.go. COPY it, with a comment saying why it is a copy. Do NOT promote it out of internal/: it handles OAuth device-flow token exchange, and this project has refused a frozen public API around credential handling three times now for the same reason.\n\n3. internal/tui — factory_dashboard.go. Copy, or let the factory own its own. The Phase 2 palette decision is the precedent: two products may legitimately diverge in look, and binding their visual identity together is a coupling neither wants. Either answer is fine; an unstated one is not.\n\nSCOPE: cmd/tk/cmd/{cloud,factory}*.go only. Do NOT touch cloud_branch.go, cloud_inrun.go or cloud_wave.go's runners.toml read — a sibling tick owns those two edges and runs in parallel with you.\n\nPromote NOTHING out of internal/. That has been the negative acceptance of every phase in this project and it is checked.",
+  "notes": "2026-09-01 10:14 - runner-state: substrate=herdr kind=claude branch=tick/5yk worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-5yk workspace=wH9 base=c6afa3aae1cf35a94e15c0b4af3b7d51990997a5 agent=tick-5yk pane=wH9:p1 session=bd038c43-ed7c-44b7-9df3-c97a5acfb7e5",
   "status": "open",
   "priority": 1,
   "type": "task",
@@ -10,5 +11,5 @@
   "acceptance_criteria": "cmd/tk/cmd/{cloud,factory}*.go import none of internal/tick, internal/github or internal/tui. Nothing was promoted out of internal/. Each copy carries a comment saying why it is a copy. The tk list calls use --all where descendants are walked. go test ./... green.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-01T08:13:49.950604Z",
-  "updated_at": "2026-09-01T08:13:49.950604Z"
+  "updated_at": "2026-09-01T08:14:19.26689Z"
 }

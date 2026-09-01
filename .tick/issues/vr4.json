@@ -2,6 +2,7 @@
   "id": "vr4",
   "title": "Decide the sandbox knot and the runners.toml read",
   "description": "THE OTHER TWO EDGES — one has a contract-shaped answer, one is the knot with no obvious right answer.\n\n1. internal/herd/config — cloud_wave.go reads .tick/runners.toml. This one is EASIER THAN IT LOOKS NOW: contracts/runners-config-contract.json pins that format across languages as of Phase 2, and cloud/factory/src already re-implements the parse in TypeScript against that contract. So the answer is probably 'parse it against the contract' or 'read it through tk', not 'copy the Go parser'. Check what cloud_wave.go actually needs from it — it may be one or two fields.\n\n2. internal/sandbox — cloud_branch.go, cloud_inrun.go. THE KNOT, and the spec has flagged it as an open question since the project started. The shape:\n   - internal/sandbox (Go) STAYS in ticks — cmd/tk/cmd/herd_spawn.go calls sandbox.Setup.\n   - cloud/sandbox/*.sh (the image) MOVES with the factory.\n   - internal/sandbox has ~6,400 lines of Go test that EXECUTE those shell scripts.\n   - cloud/sandbox/required-tk-commands means the container needs 'tk sandbox ...' to keep existing.\n   - And these two command files bridge the halves, and leave.\n   Decide it deliberately and write the reasoning where Phase 5 will find it — docs/projects/2026-08-27-factory-extraction/. This is the decision that most shapes what the move actually looks like, and getting it wrong is expensive to unwind after the repos split.\n\nNote that Peter wants a planning session on the factory's architecture before ticfac is recreated, so your answer may be revisited — write down the CONSTRAINTS you found, not just the conclusion, so that session has something to work from.\n\nSCOPE: cloud_wave.go's config read, cloud_branch.go, cloud_inrun.go. A sibling tick owns the tracker/github/tui edges in the same directory — do not touch those.",
+  "notes": "2026-09-01 10:14 - runner-state: substrate=herdr kind=claude branch=tick/vr4 worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-vr4 workspace=wHA base=c6afa3aae1cf35a94e15c0b4af3b7d51990997a5 agent=tick-vr4 pane=wHA:p1 session=5a39766f-9429-4ec5-afb8-ccf80621eec3",
   "status": "open",
   "priority": 1,
   "type": "task",
@@ -10,5 +11,5 @@
   "acceptance_criteria": "cmd/tk/cmd/{cloud,factory}*.go do not import internal/herd/config or internal/sandbox. The sandbox decision and its constraints are written into the extraction spec, not just a code comment. Nothing promoted out of internal/. go test ./... green.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-01T08:13:49.998537Z",
-  "updated_at": "2026-09-01T08:13:49.998537Z"
+  "updated_at": "2026-09-01T08:14:19.292778Z"
 }
