@@ -7,6 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.31.2] - 2026-09-01
+
+Cut from the `v0.31.1` tag, not from `main`, for the reason `main`'s own
+`[0.32.0]` entry gives: tagging `main` today would make the cloud factory's
+public debut in the same cycle it is being extracted out of the repo. This
+release carries one fix that should not wait for that to settle.
+
+### Fixed
+
+- **`tk skills install` can no longer delete a directory full of other skills** —
+  `--dir` names the skill's *own* directory, but without `--dir` the skill name is
+  appended for you, and that asymmetry reads as "put ticks in my skills folder"
+  when it means "make this folder BE the ticks skill". Run as
+  `tk skills install ticks --dir ~/.claude/skills --force`, it destroyed 44 skills:
+  the stamp check *did* refuse the first attempt, but it could only say "not
+  tk-managed", which sounds like one stale directory, so `--force` looked like the
+  fix. Install now detects a skills **parent** — no `SKILL.md` at the root, but one
+  or more children that have one (symlinked children included, since that is how
+  skills.sh installs) — and refuses it, naming the siblings at risk and the `--dir`
+  you probably meant. **`--force` does not override this refusal**, because the
+  whole failure was `--force` being reached for after an error message that
+  undersold the blast radius, and no legitimate install ever targets a folder full
+  of other skills. The `--dir` help and command doc now state the append asymmetry
+  outright.
+
+### Added
+
+- **The ticks skill ships with the repo** — `.claude/skills/ticks` and
+  `.agents/skills/ticks` are checked-in symlinks to `skills/ticks/`, the source of
+  truth, so a clone has a working skill with no install step and no second copy to
+  drift. `skills/README.md` explains why `tk skills install ticks` must not be run
+  inside the ticks repo itself.
+
+### Not in this release
+
+The mechanical continuation work — `tk frontier`, `tk decide`, the orchestrator
+watchdog and the `tk close` continuation verdict — is on `main` and **not** here.
+It depends on infrastructure that landed after `v0.31.1` and is entangled with the
+factory command surface, so back-porting it would mean re-implementing the feature
+on an old base rather than cherry-picking it. It ships in the next minor release.
+
 ## [0.31.1] - 2026-08-27
 
 ### Fixed
