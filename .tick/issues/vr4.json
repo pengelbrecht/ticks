@@ -11,7 +11,7 @@
   "acceptance_criteria": "cmd/tk/cmd/{cloud,factory}*.go do not import internal/herd/config or internal/sandbox. The sandbox decision and its constraints are written into the extraction spec, not just a code comment. Nothing promoted out of internal/. go test ./... green.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-01T08:13:49.998537Z",
-  "updated_at": "2026-09-01T08:47:11.744285Z",
-  "closed_at": "2026-09-01T08:47:11.744285Z",
-  "closed_reason": "Completed: the runners.toml read no longer imports internal/herd/config, and the internal/sandbox edge is cut. The sandbox knot is decided with its constraints written into the extraction spec so the architecture session has raw material rather than a verdict to accept or unpick."
+  "updated_at": "2026-09-01T11:24:15.640473Z",
+  "closed_at": "2026-09-01T11:24:15.640473Z",
+  "closed_reason": "Completed: cloud_wave.go sandbox knot and runners.toml read resolved — neither import survives (524186cb)"
 }

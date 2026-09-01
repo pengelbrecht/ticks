@@ -11,7 +11,7 @@
   "acceptance_criteria": "cmd/tk/cmd/{cloud,factory}*.go import none of internal/tick, internal/github or internal/tui. Nothing was promoted out of internal/. Each copy carries a comment saying why it is a copy. The tk list calls use --all where descendants are walked. go test ./... green.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-01T08:13:49.950604Z",
-  "updated_at": "2026-09-01T08:47:11.721608Z",
-  "closed_at": "2026-09-01T08:47:11.721608Z",
-  "closed_reason": "Completed: cmd/tk/cmd/{cloud,factory}*.go no longer import internal/tick, internal/github or internal/tui. Tracker reads in tests moved to tk CLI calls with --all where descendants are walked; github and tui copied with reasons at the site; nothing promoted out of internal/."
+  "updated_at": "2026-09-01T11:24:15.613801Z",
+  "closed_at": "2026-09-01T11:24:15.613801Z",
+  "closed_reason": "Completed: tracker, GitHub and TUI edges cut from the factory command files (918cc36d)"
 }
