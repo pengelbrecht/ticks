@@ -16,7 +16,7 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/pengelbrecht/ticks/internal/ticksrc"
+	"github.com/pengelbrecht/ticks/internal/factory/credentials"
 )
 
 // `tk factory setup` is the first-run walk for a personal factory, and it is
@@ -42,7 +42,7 @@ import (
 // before it is stored — a token that authenticates nowhere is not a
 // configuration, it is a future green-start trap. And a stored credential goes
 // to exactly two places: a Worker secret in the operator's account
-// (write-only) and ~/.ticksrc (0600), so `tk factory status` can re-check it.
+// (write-only) and ~/.ticfacrc (0600), so `tk factory status` can re-check it.
 // Never the repository — see SecretSinks and the test that walks it.
 
 const (
@@ -155,7 +155,7 @@ type SetupOptions struct {
 	// the default under the ticks home directory.
 	BundleDir string
 
-	// ConfigPath overrides the ~/.ticksrc location (tests).
+	// ConfigPath overrides the ~/.ticfacrc location (tests).
 	ConfigPath string
 
 	// HasCommand is passed straight through to a deploy started from the
@@ -287,7 +287,7 @@ const gitHubAppUpgradeNote = "Upgrade path (later, optional): your OWN GitHub Ap
 	"that App's private key, which is why ticks cannot ship it.\n" +
 	"See docs/factory-credentials.md."
 
-// GitHub credential kinds, as recorded in ~/.ticksrc. They are not cosmetic:
+// GitHub credential kinds, as recorded in ~/.ticfacrc. They are not cosmetic:
 // only a device-flow credential can be renewed without a browser, and only a
 // device-flow credential is bounded by the repositories chosen at install — so
 // the two fail differently and recover differently, and a report that cannot
@@ -329,19 +329,19 @@ func credentialFromUserToken(token *UserToken) githubCredential {
 }
 
 // storedGitHubCredential reads back what a previous walk settled.
-func storedGitHubCredential(cfg *ticksrc.File) githubCredential {
+func storedGitHubCredential(cfg *credentials.File) githubCredential {
 	cred := githubCredential{
-		Token:        cfg.Get(ticksrc.KeyFactoryGitHubToken),
-		Auth:         cfg.Get(ticksrc.KeyFactoryGitHubAuth),
-		RefreshToken: cfg.Get(ticksrc.KeyFactoryGitHubRefreshToken),
+		Token:        cfg.Get(credentials.KeyGitHubToken),
+		Auth:         cfg.Get(credentials.KeyGitHubAuth),
+		RefreshToken: cfg.Get(credentials.KeyGitHubRefreshToken),
 	}
 	if cred.Auth == "" && cred.Token != "" {
 		// Written before this file recorded how the credential was obtained.
 		// Anything already there was typed in by hand.
 		cred.Auth = AuthPAT
 	}
-	cred.ExpiresAt = parseDeadline(cfg.Get(ticksrc.KeyFactoryGitHubTokenExpires))
-	cred.RefreshExpiresAt = parseDeadline(cfg.Get(ticksrc.KeyFactoryGitHubRefreshExpires))
+	cred.ExpiresAt = parseDeadline(cfg.Get(credentials.KeyGitHubTokenExpires))
+	cred.RefreshExpiresAt = parseDeadline(cfg.Get(credentials.KeyGitHubRefreshExpires))
 	return cred
 }
 
@@ -473,20 +473,20 @@ func Setup(ctx context.Context, opts SetupOptions) (*SetupResult, error) {
 }
 
 // setupDeployment settles rung 1: a factory to configure. An existing one is
-// probed the same way a fresh deploy is, so a stale ~/.ticksrc entry pointing
+// probed the same way a fresh deploy is, so a stale ~/.ticfacrc entry pointing
 // at a factory that no longer answers is caught here rather than at run time.
 func setupDeployment(
 	ctx context.Context,
 	in *bufio.Reader,
 	out io.Writer,
 	client *http.Client,
-	cfgp **ticksrc.File,
+	cfgp **credentials.File,
 	opts SetupOptions,
 	bundleDir string,
 	result *SetupResult,
 ) error {
 	cfg := *cfgp
-	url := strings.TrimSuffix(cfg.Get(ticksrc.KeyFactoryURL), "/")
+	url := strings.TrimSuffix(cfg.Get(credentials.KeyURL), "/")
 
 	if url == "" {
 		fmt.Fprintf(out, "\nNo factory is deployed for this account yet.\n")
@@ -527,7 +527,7 @@ func setupDeployment(
 		return nil
 	}
 
-	if err := verifyOnce(ctx, client, url, cfg.Get(ticksrc.KeyFactoryToken)); err != nil {
+	if err := verifyOnce(ctx, client, url, cfg.Get(credentials.KeyToken)); err != nil {
 		return fmt.Errorf("the factory recorded in %s did not answer: %w\n"+
 			"Run `tk factory deploy` to (re)deploy it, then run setup again", cfg.Path(), err)
 	}
@@ -555,7 +555,7 @@ func setupGitHub(
 	raw io.Reader,
 	out io.Writer,
 	client *http.Client,
-	cfg *ticksrc.File,
+	cfg *credentials.File,
 	opts SetupOptions,
 	result *SetupResult,
 ) error {
@@ -644,7 +644,7 @@ func reuseStoredGitHubCredential(
 	in *bufio.Reader,
 	out io.Writer,
 	client *http.Client,
-	cfg *ticksrc.File,
+	cfg *credentials.File,
 	opts SetupOptions,
 	apiBase string,
 	repo string,
@@ -682,7 +682,7 @@ func reuseStoredGitHubCredential(
 		// about to expire.
 		storedRepo := repo
 		if storedRepo == "" {
-			storedRepo = cfg.Get(ticksrc.KeyFactoryGitHubRepo)
+			storedRepo = cfg.Get(credentials.KeyGitHubRepo)
 		}
 		if err := storeGitHubCredential(ctx, w, out, cfg, opts, stored, login, storedRepo); err != nil {
 			return false, githubCredential{}, err
@@ -699,7 +699,7 @@ func reuseStoredGitHubCredential(
 	}
 
 	result.GitHubLogin = login
-	result.GitHubRepo = cfg.Get(ticksrc.KeyFactoryGitHubRepo)
+	result.GitHubRepo = cfg.Get(credentials.KeyGitHubRepo)
 	result.GitHubAuth = stored.Auth
 	result.GitHubTokenExpiresAt = stored.ExpiresAt
 	fmt.Fprintf(out, "Keeping the stored GitHub credential.\n")
@@ -791,7 +791,7 @@ func storeGitHubCredential(
 	ctx context.Context,
 	w *wrangler,
 	out io.Writer,
-	cfg *ticksrc.File,
+	cfg *credentials.File,
 	opts SetupOptions,
 	cred githubCredential,
 	login string,
@@ -800,13 +800,13 @@ func storeGitHubCredential(
 	if err := putSecret(ctx, w, opts, SecretGitHubToken, cred.Token); err != nil {
 		return err
 	}
-	cfg.Set(ticksrc.KeyFactoryGitHubToken, cred.Token)
-	cfg.Set(ticksrc.KeyFactoryGitHubLogin, login)
-	cfg.Set(ticksrc.KeyFactoryGitHubRepo, repo)
-	cfg.Set(ticksrc.KeyFactoryGitHubAuth, cred.Auth)
-	cfg.Set(ticksrc.KeyFactoryGitHubTokenExpires, formatDeadline(cred.ExpiresAt))
-	cfg.Set(ticksrc.KeyFactoryGitHubRefreshToken, cred.RefreshToken)
-	cfg.Set(ticksrc.KeyFactoryGitHubRefreshExpires, formatDeadline(cred.RefreshExpiresAt))
+	cfg.Set(credentials.KeyGitHubToken, cred.Token)
+	cfg.Set(credentials.KeyGitHubLogin, login)
+	cfg.Set(credentials.KeyGitHubRepo, repo)
+	cfg.Set(credentials.KeyGitHubAuth, cred.Auth)
+	cfg.Set(credentials.KeyGitHubTokenExpires, formatDeadline(cred.ExpiresAt))
+	cfg.Set(credentials.KeyGitHubRefreshToken, cred.RefreshToken)
+	cfg.Set(credentials.KeyGitHubRefreshExpires, formatDeadline(cred.RefreshExpiresAt))
 	if err := cfg.Save(); err != nil {
 		return err
 	}
@@ -865,13 +865,13 @@ func setupGateway(
 	raw io.Reader,
 	out io.Writer,
 	client *http.Client,
-	cfg *ticksrc.File,
+	cfg *credentials.File,
 	opts SetupOptions,
 	result *SetupResult,
 ) error {
 	gatewayURL := strings.TrimSpace(opts.GatewayURL)
 	if gatewayURL == "" {
-		stored := cfg.Get(ticksrc.KeyFactoryGatewayURL)
+		stored := cfg.Get(credentials.KeyGatewayURL)
 		fmt.Fprintf(out, "\nModel access\n")
 		fmt.Fprintf(out, "All cloud model traffic goes through one AI Gateway in your own Cloudflare\n")
 		fmt.Fprintf(out, "account, which is what makes spend visible and a run's access revocable.\n")
@@ -900,7 +900,7 @@ func setupGateway(
 
 	choice := strings.TrimSpace(opts.Provider)
 	if choice == "" {
-		if stored := cfg.Get(ticksrc.KeyFactoryGatewayProvider); stored != "" {
+		if stored := cfg.Get(credentials.KeyGatewayProvider); stored != "" {
 			choice = stored
 		} else {
 			fmt.Fprintf(out, "\nWhich provider is behind the gateway?\n")
@@ -925,7 +925,7 @@ func setupGateway(
 	key := strings.TrimSpace(opts.ProviderKey)
 	if provider.NeedsKey() {
 		if key == "" {
-			key = cfg.Get(ticksrc.KeyFactoryGatewayKey)
+			key = cfg.Get(credentials.KeyGatewayKey)
 		}
 		if key == "" {
 			typed, err := promptSecret(in, raw, out, provider.KeyHint+": ")
@@ -973,9 +973,9 @@ func setupGateway(
 		fmt.Fprintf(out, "%s stored as a Worker secret\n", provider.SecretName)
 		result.ProviderKeyStored = true
 	}
-	cfg.Set(ticksrc.KeyFactoryGatewayURL, gatewayURL)
-	cfg.Set(ticksrc.KeyFactoryGatewayProvider, provider.ID)
-	cfg.Set(ticksrc.KeyFactoryGatewayKey, key)
+	cfg.Set(credentials.KeyGatewayURL, gatewayURL)
+	cfg.Set(credentials.KeyGatewayProvider, provider.ID)
+	cfg.Set(credentials.KeyGatewayKey, key)
 	if err := cfg.Save(); err != nil {
 		return err
 	}
@@ -1017,14 +1017,14 @@ func setupCostTelemetry(
 	w *wrangler,
 	out io.Writer,
 	client *http.Client,
-	cfg *ticksrc.File,
+	cfg *credentials.File,
 	opts SetupOptions,
 	gatewayURL string,
 	result *SetupResult,
 ) error {
 	token := strings.TrimSpace(opts.CloudflareAPIToken)
 	if token == "" {
-		token = cfg.Get(ticksrc.KeyFactoryCloudflareAPIToken)
+		token = cfg.Get(credentials.KeyCloudflareAPIToken)
 	}
 	if token == "" {
 		fmt.Fprintf(out, "\nCost telemetry is not configured.\n")
@@ -1042,7 +1042,7 @@ func setupCostTelemetry(
 			if err != nil {
 				return err
 			}
-			cfg.Set(ticksrc.KeyFactoryWorkersAIBillingMode, mode)
+			cfg.Set(credentials.KeyWorkersAIBillingMode, mode)
 			if err := cfg.Save(); err != nil {
 				return err
 			}
@@ -1066,7 +1066,7 @@ func setupCostTelemetry(
 	// moved off the invoice.
 	expected := strings.TrimSpace(opts.WorkersAIBillingMode)
 	if expected == "" {
-		expected = cfg.Get(ticksrc.KeyFactoryWorkersAIBillingMode)
+		expected = cfg.Get(credentials.KeyWorkersAIBillingMode)
 	}
 	mode, err := CheckWorkersAIBilling(ctx, BillingOptions{
 		HTTPClient:         client,
@@ -1082,8 +1082,8 @@ func setupCostTelemetry(
 	if err := putSecret(ctx, w, opts, SecretCloudflareAPIToken, token); err != nil {
 		return err
 	}
-	cfg.Set(ticksrc.KeyFactoryCloudflareAPIToken, token)
-	cfg.Set(ticksrc.KeyFactoryWorkersAIBillingMode, mode)
+	cfg.Set(credentials.KeyCloudflareAPIToken, token)
+	cfg.Set(credentials.KeyWorkersAIBillingMode, mode)
 	if err := cfg.Save(); err != nil {
 		return err
 	}

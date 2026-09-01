@@ -240,6 +240,15 @@ documented, and ticks already supports it for humans and for the sandbox.
 - **`internal/herd/dashboard`** — one reference, and the comment at the import
   says it is deliberate. Check whether it survives at all once ticfac owns its
   own dashboard.
+- **`tk upgrade`'s factory-staleness warning** (`cmd/tk/cmd/upgrade.go`,
+  tick `10l`) — moved into `tk factory status` (`internal/factory/status.go`,
+  `StatusOptions.CurrentVersion`), which already reports the deployed
+  factory's pinned version and is the command an operator already runs to see
+  what is configured. Not generalized to "any companion tool with a version":
+  no second tool exists yet, and `tk upgrade` had no other reason to know
+  what a factory is. `internal/factory` leaves whole in Phase 5, so the
+  warning is already living in ticfac's future home. `cmd/tk/cmd/upgrade.go`
+  now has zero factory references.
 
 ### The cost to keep an eye on
 
@@ -336,8 +345,11 @@ divergence.
 recommend renaming) and `tk ask`/`tk answer` · `internal/herd/relay` ·
 `internal/sandbox/**` and `tk sandbox` · `internal/wave` ·
 `internal/tick` · `internal/herd/**` · `internal/github` · `internal/styles` ·
-`internal/ticksrc` · `schemas/**` · `Makefile`, `package.json`, `install.sh`,
-`.goreleaser.yaml` (all already factory-free).
+`schemas/**` · `Makefile`, `package.json`, `install.sh`,
+`.goreleaser.yaml` (all already factory-free). `internal/ticksrc` does **not**
+stay — see "Phase 3 decisions" below: it is deleted, and `~/.ticksrc` (board
+sync only, post-split) keeps its existing sole reader,
+`internal/tickboard/cloud/client.go`.
 
 ## What gets built
 
@@ -357,11 +369,11 @@ These are the actual deliverables. The move itself is the easy half.
    divergence must still fail someone's build. `skills/ticks/references/runners-config.schema.json`
    is the natural seed.
 
-3. **A credential-namespace API** for `~/.ticksrc`. It carries 30 `KeyFactory*`
+3. **The credential split.** `~/.ticksrc` carries fifteen `KeyFactory*`
    constants today, including live GitHub OAuth refresh tokens and a Cloudflare
-   API token. Either the factory writes its own file, or ticks exposes a
-   namespaced read/write API and stops defining factory keys. **Decide before
-   moving anything** — this touches real credentials on real machines.
+   API token. **Decided** in tick `elt` — see "Phase 3 decisions" below: the
+   factory writes its own file (`~/.ticfacrc`), not a namespaced API served
+   from ticks.
 
 4. **`ticfac` is its own binary with its own name.** `ticfac deploy`,
    `ticfac run`, `ticfac status`. No dispatch mechanism, no shim, no plugin
@@ -413,6 +425,228 @@ These are the actual deliverables. The move itself is the easy half.
    describe factory and cloud surfaces. Decide per-file whether it belongs to the
    ticks skill or a new factory skill.
 
+## Phase 3 decisions — the credential split (tick `elt`)
+
+*(Decided 2026-08-31. Context that shaped this, from the orchestrator: Phase 4b
+found that `tk ask`/`tk answer` — pure terminal commands — silently read
+`~/.ticksrc` and made live HTTPS calls to a deployed Worker with a real bearer
+token, because factory credentials lived in a file (and a package) the
+terminal path could reach. Nobody wrote that on purpose; a fallback chain
+found them because they were reachable. The question below is not "where
+should these keys go" but "what arrangement makes that class of accident
+structurally impossible" — every option is judged against that, not against
+tidiness.)*
+
+Mapping before deciding (epic `9hu`'s note): `internal/ticksrc` defines
+fifteen `KeyFactory*` constants against two non-factory ones (`KeyToken`,
+`KeyURL`, board sync). `internal/tickboard/cloud/client.go` parses
+`~/.ticksrc` by hand for the board keys and never imports `internal/ticksrc` —
+a second, independent parser of the same file. `cmd/tk/cmd/upgrade.go:59-79`
+reads `KeyFactoryURL`/`KeyFactoryVersion` to warn a deployed factory is stale
+— a `tk`-side reach into factory state, in a core command. Confirmed by grep
+while mapping this tick: `KeyToken`/`KeyURL` have **zero production readers**
+through `internal/ticksrc` today — board sync goes entirely through
+`internal/tickboard/cloud`'s own parser, and nothing in `tk` ever *writes*
+`token=`/`url=` (`board.go` only tells the user, in help text, to add it by
+hand).
+
+### A. Where factory credentials live
+
+**Decision: the factory gets its own file, `~/.ticfacrc` (0600), read and
+written by code living inside `internal/factory` that imports nothing from
+`internal/ticksrc`.** Not a namespaced API served from ticks.
+
+Rejected: a namespaced section of `~/.ticksrc` with a ticks-side API that
+"refuses to define factory keys" but still exposes a generic namespaced
+read/write. That option still puts factory credentials one call away from any
+command in the `tk` binary — the exact reachability that produced the
+`tk ask`/`tk answer` accident. A generic-namespace API is a coupling wearing
+a namespace: it doesn't enumerate `KeyFactoryGatewayProvider` by name, but it
+still hands out the *contents* of a factory-scoped key on request, from ticks
+code — which is the property that mattered. Physical separation — a
+different file, read by code that is unreachable from `tk`'s core commands
+unless they explicitly import `internal/factory` — makes the leak
+structurally impossible rather than merely undocumented.
+
+The credential-file mechanics (line-oriented, comment/unknown-line
+preserving, atomic temp+rename, 0600, `Get`/`Set`/`Save`) are adapted from
+`internal/ticksrc.File` almost unchanged — proven by six existing tests, no
+reason to redesign the format. They are **duplicated, not shared**, into
+`internal/factory` (e.g. `internal/factory/credentials.go`), because
+`internal/factory` relocates whole in Phase 5, and Go forbids an external
+module from importing anything under another module's `internal/`
+(Finding 3) — a shared helper package would just be a new dependency edge
+Phase 5 has to cut again. ~90 lines duplicated once is cheaper than a shared
+package that must later be promoted to a public API (a direction Finding 3
+already rejects) or cut a second time. Constants keep their current spelling
+minus the now-redundant `Factory` prefix (`KeyFactoryGitHubToken` becomes
+`credentials.KeyGitHubToken`, etc.) — a rename, not a reshape, settled here so
+the implementer doesn't have to.
+
+Consequence for "the chosen design leaves ticks with no enumeration of
+factory-specific keys": after this lands, whatever remains under
+`internal/ticksrc`'s old surface holds only `KeyToken`/`KeyURL` — see B, which
+finds it holds nothing at all, because the package itself goes away. Every
+`KeyFactory*` constant moves to `internal/factory`.
+
+### B. The two board keys — `internal/ticksrc` does not survive
+
+**Decision: delete `internal/ticksrc` as a package.** It was built for
+fifteen keys and, once they leave, it does not "serve two" — grep confirms
+**zero production call sites read `KeyToken`/`KeyURL` through
+`internal/ticksrc`** today. Board sync has always gone through
+`internal/tickboard/cloud/client.go`'s own hand-rolled `readConfigFile()`,
+which never imported `internal/ticksrc` in the first place. `internal/ticksrc`'s
+only real consumers are `internal/factory`, `internal/gatewaytrace`, and the
+`cmd/tk/cmd/{cloud,factory}*.go` wrappers — every one of them factory, every
+one of them already under "What moves". Keeping a package around to serve two
+keys nothing reads through it defends a header comment, not a capability.
+
+`internal/tickboard/cloud/client.go` keeps its existing reader unchanged — it
+already does the whole job for board sync (read-only; nothing in `tk` writes
+`~/.ticksrc`'s board keys, so there is no `Set`/`Save` need to replace).
+`~/.ticksrc`'s meaning going forward is simply "the board sync file" — the
+name stops describing a lie once the factory keys are gone.
+
+### C. The duplicate parser
+
+**Decision: they read different files, and each file keeps exactly one
+reader once migration completes.** `~/.ticksrc` (board, `token=`/`url=`)
+stays owned solely by `internal/tickboard/cloud`, unchanged. `~/.ticfacrc`
+(factory, up to fifteen keys) is owned solely by the new code in
+`internal/factory` (A). There is no shared library between them — A explains
+why: Phase 5's module boundary rules out a shared `internal/` package.
+
+This is not "two parsers of one format with no contract" surviving the split
+— that duplication is resolved by **elimination** (`internal/ticksrc`'s
+generic engine goes away with the package, B) rather than by convergence,
+because the two remaining readers no longer parse the same format at all: two
+files, two shapes, two owners, one reader each — which is what should have
+been true from the start.
+
+One real divergence worth recording so it isn't silently inherited:
+`internal/tickboard/cloud`'s reader treats a bare first line with no `=` as a
+legacy token value; `internal/ticksrc.File.Get` treats the same line as an
+unrecognized line it preserves but never parses
+(`TestLegacyBareTokenLineIsPreserved`). The new `internal/factory` credential
+code has no legacy bare-line convention to carry forward — the factory format
+has always been `key=value` — so this divergence does not recur there; it was
+specific to the board key's history and stays exactly where it already lives,
+`internal/tickboard/cloud`.
+
+### D. The migration
+
+The only irreversible constraint: a real machine's `~/.ticksrc` today can
+hold a live GitHub OAuth refresh token and a Cloudflare API token. The
+migration must never lose one, never strand a deployment mid-upgrade, and
+never rewrite a credentials file without telling the operator.
+
+**Mechanism — a merge-and-drain loader, run at the top of every
+factory-credential-touching command** (`tk factory setup`, `tk factory
+deploy`, `tk factory status`, `tk cloud …`, `tk channel`/dashboard/trace —
+every current `ticksrc.Load()`/`loadConfig()` call site in `internal/factory`
+and `cmd/tk/cmd/{cloud,factory}*.go`). Replace those calls with
+`factory.LoadCredentials()`, which on every invocation:
+
+1. Reads `~/.ticksrc` (if it exists) and checks it for any `factory_*`-prefixed
+   key, by a plain line scan — this does not need `internal/ticksrc`, which is
+   deleted (B); it is a few lines of `strings.HasPrefix`.
+2. For each `factory_*` key found there **that `~/.ticfacrc` does not already
+   have a value for**, copies it into the in-memory `~/.ticfacrc` credentials.
+   Never overwrites a value already present in the new file — a value set
+   post-migration (e.g. by rotating a token with `tk factory deploy
+   --rotate-token`) must not be clobbered by a stale copy from the old file.
+3. If anything was copied in step 2: `Save()`s `~/.ticfacrc` (atomic
+   temp+rename, 0600 — the pattern `ticksrc.File.Save` already uses), then
+   rewrites `~/.ticksrc` with every `factory_*` line removed and everything
+   else — `token=`, `url=`, comments, blank lines, any other unrecognized
+   line — preserved byte-for-byte in place (the same "preserve everything I
+   didn't touch" guarantee `ticksrc.File.Save` already gives), then prints
+   once to stderr:
+
+   > `Moved N factory credential(s) from ~/.ticksrc to ~/.ticfacrc. Board sync
+   > credentials in ~/.ticksrc are unchanged. See docs/factory-credentials.md.`
+
+4. If nothing was found in step 1 (fresh install, or migration already
+   complete), does nothing and prints nothing — silence is correct exactly
+   when there is nothing to protect.
+
+This is **idempotent and resumable from any crash point**: a process killed
+between step 3's two writes leaves `~/.ticfacrc` correct and `~/.ticksrc`
+still carrying the (now-redundant but harmless) old lines; the next
+invocation's scan in step 1 finds them again and finishes the drain. It does
+not gate on "does `~/.ticfacrc` exist" — it re-checks `~/.ticksrc`'s actual
+content every time, which is what also makes it self-healing against a
+restored backup dotfile.
+
+**How long the old shape is read:** indefinitely by default — the loader's
+cost is a stat and a small read of a local file, so there is no pressure to
+time-box it. `~/.ticksrc` reaches zero `factory_*` keys the first time any
+factory command runs post-upgrade on a given machine; there is no forced
+deadline before that. A follow-up tick may later delete the merge step once a
+declared deprecation window (e.g. two minor releases) makes it safe — that
+removal is out of scope here and is its own decision, not a consequence of
+this one.
+
+**Verification the acceptance criterion requires:** a migration test built on
+a fixture that is the *current* populated file shape — all fifteen
+`factory_*` keys with realistic-looking values, `token=`/`url=`, a comment
+line, and (for C's edge case) a legacy bare line — run through
+`LoadCredentials()`, asserting: (a) all fifteen values land in `~/.ticfacrc`
+and are readable by the new factory credential constants; (b) `~/.ticksrc`
+retains `token=`, `url=`, the comment, and the bare line, verbatim, with zero
+`factory_*` lines; (c) a second run is a true no-op (no notice printed, no
+file touched — check mtimes or content hash); (d) a stub-server `tk factory
+status` call against the migrated `~/.ticfacrc` succeeds, standing in for
+"still authenticates" in the epic's acceptance criterion.
+
+**What a user sees:** the one-time stderr line above, at the next factory
+command they run after upgrading — not at `tk upgrade` time itself (`tk
+upgrade` never touches this file; see E), and not as a silent rewrite.
+`docs/factory-credentials.md` and the CHANGELOG get a short note pointing at
+the new file location — writing those is implementation work for the next
+tick, not this one.
+
+### E. `tk upgrade`'s factory-stale warning
+
+**Decision: delete it from `tk upgrade` entirely; the equivalent check moves
+to `tk factory status` (→ `ticfac status` post-move), which already has
+everything it needs.**
+
+The epic note calls this "the clearest remaining ticks→factory coupling in a
+core command", and every other decision above (A–D) is built specifically so
+ticks ends up with zero `KeyFactory*` awareness. Keeping
+`factoryRedeployNotice` in `cmd/tk/cmd/upgrade.go` — even rewritten to call a
+factory-owned helper instead of enumerating constants itself — would still be
+a core `tk` command importing `internal/factory` on purpose: exactly the edge
+Finding 2(a) already flags as trivial-to-cut for `DefaultHarnessBytes`, and
+Goal 4 rules out for the finished state ("tk never learns that a factory
+exists"). No reason to let this one edge survive Phase 3 only to be cut again
+later.
+
+The replacement loses no capability: `internal/factory/status.go` already
+reads the deployed version (`report.Deployment.Summary += " (tk " + version +
+")"`) and already knows its own running binary's version the same way
+`deploy.go` already threads `opts.Version` through today
+(`cfg.Set(ticksrc.KeyFactoryVersion, opts.Version)`, soon
+`credentials.KeyVersion`). Extending `tk factory status` to compare the two
+and print the same "redeploy" hint is a same-shape, same-file change with a
+natural home, and it never has to leave `internal/factory`.
+
+**Accepted UX regression, stated plainly (same pattern as Phase 4b's accepted
+regression):** a user who runs `tk upgrade` and never separately runs `tk
+factory status` will not be proactively nagged that their deployed factory is
+stale, where they are today. Deliberate: the alternative is a permanent
+core-command dependency on the thing being extracted. `tk factory status` (or
+`deploy`) already gets run whenever anyone actually interacts with their
+deployment, which is the only time the notice is actionable anyway.
+
+Concretely for whoever implements this: delete `factoryRedeployNotice` and
+its call site in `cmd/tk/cmd/upgrade.go`, delete its coverage in
+`cmd/tk/cmd/factory_test.go`, and add the version comparison to
+`internal/factory/status.go`'s `Status()` alongside its existing
+deployment-summary line.
+
 ## Order of operations
 
 Strangler, not flag day. Ticks stays green throughout; the factory does not move
@@ -437,9 +671,13 @@ versioned artifact and repoint both the Go tests and the TS tests at it.
 *Done when:* deliberately breaking `cloud/factory/src/toml.ts` still fails a Go
 test, with the fixtures no longer read by relative path.
 
-**Phase 3 — split credentials.** Implement the `~/.ticksrc` namespace decision
-and migrate existing files. *Done when:* a machine with a deployed factory still
-authenticates after upgrading both sides.
+**Phase 3 — split credentials.** Implement the split decided in "Phase 3
+decisions" above (`~/.ticfacrc` owned by `internal/factory`, `internal/ticksrc`
+deleted, the merge-and-drain migration loader, `tk upgrade`'s factory-stale
+warning moved into `tk factory status`) and migrate existing files. *Done
+when:* a machine with a deployed factory still authenticates after upgrading
+both sides, proven by the migration test over a fixture of the current file
+shape.
 
 **Phase 4 — REMOVED.** This was "add git-style PATH subcommand dispatch to
 `tk`". It is deleted from the plan, not deferred: `ticfac` is its own binary
@@ -478,8 +716,11 @@ laptop and settles which process reads the bot.
   and `tk sandbox` in ticks resolves it, but it means `tk` keeps a command
   surface whose only consumer is the factory's container. Accepted, and noted:
   it is the one place the boundary stays untidy.
-- **Credential migration** (What gets built, 3). The only step that can break a
-  user's live deployment. Needs a migration path, not a cut.
+- **Credential migration** (What gets built, 3; decided in "Phase 3 decisions").
+  The only step that can break a user's live deployment. The merge-and-drain
+  loader is the mitigation: it never deletes a value from the old file without
+  having already durably written it to the new one, and it is idempotent
+  against a crash at any point.
 - **Phase 4b is the only user-visible behaviour change in the project.** Remote
   answering starts requiring a deployed factory. For anyone who had the local
   poller working this is a regression in reach, traded for one bot reader and no

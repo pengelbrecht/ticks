@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pengelbrecht/ticks/internal/ticksrc"
+	"github.com/pengelbrecht/ticks/internal/factory/credentials"
 )
 
 // The GitHub rung, walked the way an operator meets it after this change: no
@@ -81,19 +81,19 @@ func TestSetupGetsItsGitHubCredentialFromTheDeviceFlow(t *testing.T) {
 	}
 
 	rc := h.rc(t)
-	if got := rc.Get(ticksrc.KeyFactoryGitHubAuth); got != AuthDeviceFlow {
-		t.Errorf("%s = %q, want %q", ticksrc.KeyFactoryGitHubAuth, got, AuthDeviceFlow)
+	if got := rc.Get(credentials.KeyGitHubAuth); got != AuthDeviceFlow {
+		t.Errorf("%s = %q, want %q", credentials.KeyGitHubAuth, got, AuthDeviceFlow)
 	}
-	if got := rc.Get(ticksrc.KeyFactoryGitHubRefreshToken); got != testRefreshToken {
+	if got := rc.Get(credentials.KeyGitHubRefreshToken); got != testRefreshToken {
 		t.Errorf("%s was not mirrored — the credential cannot be renewed without a browser",
-			ticksrc.KeyFactoryGitHubRefreshToken)
+			credentials.KeyGitHubRefreshToken)
 	}
-	expiry := rc.Get(ticksrc.KeyFactoryGitHubTokenExpires)
+	expiry := rc.Get(credentials.KeyGitHubTokenExpires)
 	if expiry == "" {
-		t.Fatalf("%s is empty although GitHub sent expires_in", ticksrc.KeyFactoryGitHubTokenExpires)
+		t.Fatalf("%s is empty although GitHub sent expires_in", credentials.KeyGitHubTokenExpires)
 	}
 	if _, err := time.Parse(time.RFC3339, expiry); err != nil {
-		t.Errorf("%s = %q, want RFC 3339: %v", ticksrc.KeyFactoryGitHubTokenExpires, expiry, err)
+		t.Errorf("%s = %q, want RFC 3339: %v", credentials.KeyGitHubTokenExpires, expiry, err)
 	}
 
 	// The refresh token outlives the token it mints, so it stays on this
@@ -137,7 +137,7 @@ func TestSetupStopsWhenTheApprovedRepositoriesExcludeTheTarget(t *testing.T) {
 	if got := h.secret(SecretGitHubToken); got != "" {
 		t.Errorf("the unverified credential was pushed anyway: %q", got)
 	}
-	if got := h.rc(t).Get(ticksrc.KeyFactoryGitHubToken); got != "" {
+	if got := h.rc(t).Get(credentials.KeyGitHubToken); got != "" {
 		t.Errorf("the unverified credential was mirrored anyway: %q", got)
 	}
 }
@@ -186,11 +186,11 @@ func TestSetupGitHubTokenFlagBypassesTheDeviceFlow(t *testing.T) {
 		t.Error("the walk polled the device flow although a token was supplied")
 	}
 	rc := h.rc(t)
-	if got := rc.Get(ticksrc.KeyFactoryGitHubAuth); got != AuthPAT {
-		t.Errorf("%s = %q, want %q", ticksrc.KeyFactoryGitHubAuth, got, AuthPAT)
+	if got := rc.Get(credentials.KeyGitHubAuth); got != AuthPAT {
+		t.Errorf("%s = %q, want %q", credentials.KeyGitHubAuth, got, AuthPAT)
 	}
-	if got := rc.Get(ticksrc.KeyFactoryGitHubTokenExpires); got != "" {
-		t.Errorf("%s = %q, want empty for a hand-supplied token", ticksrc.KeyFactoryGitHubTokenExpires, got)
+	if got := rc.Get(credentials.KeyGitHubTokenExpires); got != "" {
+		t.Errorf("%s = %q, want empty for a hand-supplied token", credentials.KeyGitHubTokenExpires, got)
 	}
 }
 
@@ -262,12 +262,12 @@ func TestSetupRenewsAnExpiringStoredCredentialAndRepushesIt(t *testing.T) {
 			"expiring one", SecretGitHubToken, got)
 	}
 	rc := h.rc(t)
-	if got := rc.Get(ticksrc.KeyFactoryGitHubToken); got != "ghu_renewed" {
-		t.Errorf("%s = %q, want the renewed token", ticksrc.KeyFactoryGitHubToken, got)
+	if got := rc.Get(credentials.KeyGitHubToken); got != "ghu_renewed" {
+		t.Errorf("%s = %q, want the renewed token", credentials.KeyGitHubToken, got)
 	}
-	if got := rc.Get(ticksrc.KeyFactoryGitHubRefreshToken); got != "ghr_renewed" {
+	if got := rc.Get(credentials.KeyGitHubRefreshToken); got != "ghr_renewed" {
 		t.Errorf("%s = %q — GitHub rotates the refresh token, and keeping the old one strands the "+
-			"credential at the next expiry", ticksrc.KeyFactoryGitHubRefreshToken, got)
+			"credential at the next expiry", credentials.KeyGitHubRefreshToken, got)
 	}
 	if len(h.oauth.sentRefreshForms()) != 1 {
 		t.Errorf("refresh requests = %d, want exactly one", len(h.oauth.sentRefreshForms()))

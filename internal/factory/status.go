@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pengelbrecht/ticks/internal/ticksrc"
+	"github.com/pengelbrecht/ticks/internal/factory/credentials"
 )
 
 // `tk factory status` answers two questions the ladder leaves open: what is
@@ -23,7 +23,7 @@ import (
 
 // StatusOptions configures a status report.
 type StatusOptions struct {
-	// ConfigPath overrides the ~/.ticksrc location (tests).
+	// ConfigPath overrides the ~/.ticfacrc location (tests).
 	ConfigPath string
 
 	// Offline skips every live check.
@@ -39,6 +39,11 @@ type StatusOptions struct {
 	// CloudflareAPIBase overrides https://api.cloudflare.com/client/v4
 	// (tests).
 	CloudflareAPIBase string
+
+	// CurrentVersion is the tk build running this status check. Compared
+	// against the deployed factory's recorded version (KeyFactoryVersion) to
+	// flag a factory left behind by an upgrade. Empty skips the comparison.
+	CurrentVersion string
 }
 
 // CredentialState is one rung's line in the report.
@@ -124,12 +129,13 @@ func Status(ctx context.Context, opts StatusOptions) (*StatusReport, error) {
 	report := &StatusReport{ConfigPath: cfg.Path()}
 
 	// Deployment.
-	url := strings.TrimSuffix(cfg.Get(ticksrc.KeyFactoryURL), "/")
+	url := strings.TrimSuffix(cfg.Get(credentials.KeyURL), "/")
 	report.Deployment = CredentialState{Name: "deployment"}
 	if url != "" {
 		report.Deployment.Configured = true
 		report.Deployment.Summary = url
-		if version := cfg.Get(ticksrc.KeyFactoryVersion); version != "" {
+		version := cfg.Get(credentials.KeyVersion)
+		if version != "" {
 			report.Deployment.Summary += " (tk " + version + ")"
 		}
 		switch {
@@ -137,24 +143,32 @@ func Status(ctx context.Context, opts StatusOptions) (*StatusReport, error) {
 			report.Deployment.Detail = "not checked (--offline)"
 		default:
 			report.Deployment.Checked = true
-			if err := verifyOnce(ctx, client, url, cfg.Get(ticksrc.KeyFactoryToken)); err != nil {
+			if err := verifyOnce(ctx, client, url, cfg.Get(credentials.KeyToken)); err != nil {
 				report.Deployment.Detail = "rejected: " + err.Error()
 			} else {
 				report.Deployment.OK = true
 				report.Deployment.Detail = "live, and it accepts your token"
 			}
 		}
+		// The factory bundle is pinned to the tk version that deployed it
+		// (D16, "upgrades ride the repo"), so an upgrade leaves a deployed
+		// factory a version behind until the operator redeploys. This is the
+		// one place that says so — status is the pre-flight an operator
+		// already runs to see what's configured.
+		if opts.CurrentVersion != "" && version != "" && version != opts.CurrentVersion {
+			report.Deployment.Detail += fmt.Sprintf("; a version behind (you have tk %s) — run `tk factory deploy` to redeploy it from this build", opts.CurrentVersion)
+		}
 	}
 
 	// GitHub.
 	stored := storedGitHubCredential(cfg)
-	repo := cfg.Get(ticksrc.KeyFactoryGitHubRepo)
+	repo := cfg.Get(credentials.KeyGitHubRepo)
 	report.GitHub = CredentialState{Name: "github"}
 	if stored.Token != "" {
 		now := time.Now()
 		lifetime := DescribeGitHubLifetime(stored.ExpiresAt, now)
 		report.GitHub.Configured = true
-		report.GitHub.Summary = describeGitHub(stored.Auth, cfg.Get(ticksrc.KeyFactoryGitHubLogin), repo)
+		report.GitHub.Summary = describeGitHub(stored.Auth, cfg.Get(credentials.KeyGitHubLogin), repo)
 		switch {
 		case opts.Offline:
 			report.GitHub.Detail = "not checked (--offline) — " + lifetime
@@ -192,9 +206,9 @@ func Status(ctx context.Context, opts StatusOptions) (*StatusReport, error) {
 	}
 
 	// Gateway and the provider behind it.
-	gateway := strings.TrimSuffix(cfg.Get(ticksrc.KeyFactoryGatewayURL), "/")
-	providerID := cfg.Get(ticksrc.KeyFactoryGatewayProvider)
-	key := cfg.Get(ticksrc.KeyFactoryGatewayKey)
+	gateway := strings.TrimSuffix(cfg.Get(credentials.KeyGatewayURL), "/")
+	providerID := cfg.Get(credentials.KeyGatewayProvider)
+	key := cfg.Get(credentials.KeyGatewayKey)
 	report.Gateway = CredentialState{Name: "gateway"}
 	if gateway != "" {
 		report.Gateway.Configured = true
@@ -225,7 +239,7 @@ func Status(ctx context.Context, opts StatusOptions) (*StatusReport, error) {
 	}
 
 	// Cost telemetry: the credential the Run Workflow reads gateway spend with.
-	telemetry := cfg.Get(ticksrc.KeyFactoryCloudflareAPIToken)
+	telemetry := cfg.Get(credentials.KeyCloudflareAPIToken)
 	report.Telemetry = CredentialState{Name: "cost telemetry"}
 	if telemetry != "" {
 		report.Telemetry.Configured = true
@@ -252,7 +266,7 @@ func Status(ctx context.Context, opts StatusOptions) (*StatusReport, error) {
 	report.Billing = CredentialState{Name: "workers ai billing"}
 	if gateway != "" {
 		report.Billing.Configured = true
-		stored := cfg.Get(ticksrc.KeyFactoryWorkersAIBillingMode)
+		stored := cfg.Get(credentials.KeyWorkersAIBillingMode)
 		expected, expectedErr := ExpectedBillingMode(stored)
 		_, gatewayID, ok := gatewayIDs(gateway)
 		switch {

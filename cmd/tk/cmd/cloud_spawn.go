@@ -156,7 +156,7 @@ func runCloudSpawn(cmd *cobra.Command, args []string) error {
 	}
 
 	// The arbiter. Resolved before the push, so an un-enrolled checkout — the
-	// one that has to keep working offline — is answered from ~/.ticksrc alone.
+	// one that has to keep working offline — is answered from ~/.ticfacrc alone.
 	arbiter, client, _, err := cloudArbiter(ctx)
 	if err != nil {
 		return NewExitError(ExitGeneric, "%v", err)

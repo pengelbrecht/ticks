@@ -2,7 +2,7 @@
   "id": "n3q",
   "title": "Final review of the Phase 3 diff",
   "description": "Review the full epic diff. This is the last phase before the move, and the only one that can break a live deployment.\n\n1. IS THE COUPLING ACTUALLY ZERO? Grep for it yourself rather than trusting the diff's story. No ticks package should enumerate a factory-specific key, name a factory, or know a factory has a version. A namespaced API that still lists KeyFactoryGatewayProvider is a coupling wearing a namespace — that was the design bar and it is the one most likely to be quietly missed.\n\n2. IS THE MIGRATION SAFE ON A REAL FILE? Do it yourself with the real binary and a populated 0600 fixture. Run it twice. Run it on an already-migrated file. Run it on a file with no factory keys. Interrupt it if you can contrive that. A credentials file holding live OAuth refresh tokens and a Cloudflare API token is the worst place in this project to be approximately right — and permissions surviving a rewrite is the detail most often lost.\n\n3. DID THE DUPLICATE PARSER GET RESOLVED, or relabelled? internal/tickboard/cloud/client.go had its own hand-rolled reader of ~/.ticksrc that never imported internal/ticksrc. Two parsers of one format with no contract is the class this project has spent two phases removing. Confirm the outcome is convergence, separation, or a contract — not a comment saying they should agree.\n\n4. THE THING PHASE 4b FOUND. tk ask/answer silently read this file and called a deployed Worker. That hatch existed because factory credentials were reachable from the terminal path. Confirm the split makes that IMPOSSIBLE rather than merely absent — if a future command imported the credentials package by habit, would it be able to reach a factory token?\n\nRoute findings as new ticks unless trivial. Commit RESULT-\u003cid\u003e.md — for a review tick the report is the deliverable.",
-  "status": "open",
+  "status": "closed",
   "priority": 1,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -16,5 +16,7 @@
   "acceptance_criteria": "Zero factory couplings confirmed by independent grep, not by reading the diff. The migration is exercised by hand on a real 0600 fixture including the repeat and no-factory cases. The duplicate-parser outcome is confirmed resolved rather than relabelled. A verdict on whether the Phase 4b escape-hatch class is now structurally impossible. go test ./... green.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-31T11:23:03.075218Z",
-  "updated_at": "2026-08-31T11:23:03.075218Z"
+  "updated_at": "2026-08-31T16:09:34.938628Z",
+  "closed_at": "2026-08-31T16:09:34.938628Z",
+  "closed_reason": "Completed: all four verdicts confirmed independently rather than by reading the diff. Zero coupling — no package outside internal/factory names a factory key. Migration exercised BY HAND on a real 0600 fixture: idempotent, resumable, never clobbers a newer value. The duplicate parser is resolved by elimination and separation, not relabelled. And the Phase 4b escape hatch is STRUCTURALLY IMPOSSIBLE rather than merely absent, verified two ways — a future command importing the credentials package by habit cannot reach a factory token. One finding routed: operator-facing docs still instruct against the old file shape."
 }

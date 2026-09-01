@@ -26,8 +26,8 @@ const (
 	testClientID     = "Iv23liEXAMPLECLIENTID"
 	testDeviceCode   = "3584d83530557fdd1f46af8289938c8ef79f9dc5"
 	testUserCode     = "WDJB-MJHT"
-	testDeviceToken  = "ghu_EXAMPLEuserToServerToken0000000000"
-	testRefreshToken = "ghr_EXAMPLErefreshToken000000000000000"
+	testDeviceToken  = "not-a-real-github-token"
+	testRefreshToken = "not-a-real-github-token"
 )
 
 // tokenReply is one scripted answer from the access_token endpoint.

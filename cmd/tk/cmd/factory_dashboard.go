@@ -18,9 +18,10 @@ import (
 	"github.com/muesli/termenv"
 	"github.com/spf13/cobra"
 
+	"github.com/pengelbrecht/ticks/internal/factory"
+	"github.com/pengelbrecht/ticks/internal/factory/credentials"
 	"github.com/pengelbrecht/ticks/internal/factory/dashboard"
 	"github.com/pengelbrecht/ticks/internal/gatewaytrace"
-	"github.com/pengelbrecht/ticks/internal/ticksrc"
 	"github.com/pengelbrecht/ticks/internal/tui"
 )
 
@@ -128,13 +129,13 @@ func runFactoryDashboard(cmd *cobra.Command, args []string) error {
 		return NewExitError(ExitUsage, "--tail-bytes must be a positive number of bytes")
 	}
 
-	config, err := ticksrc.Load()
+	config, err := factory.LoadCredentials()
 	if err != nil {
 		return NewExitError(ExitGeneric, "cannot read factory configuration: %v", err)
 	}
 	client, err := dashboard.NewClient(
-		config.Get(ticksrc.KeyFactoryURL),
-		config.Get(ticksrc.KeyFactoryToken),
+		config.Get(credentials.KeyURL),
+		config.Get(credentials.KeyToken),
 		&http.Client{Timeout: 15 * time.Second},
 	)
 	if err != nil {

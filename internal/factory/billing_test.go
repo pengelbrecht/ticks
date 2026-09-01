@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pengelbrecht/ticks/internal/ticksrc"
+	"github.com/pengelbrecht/ticks/internal/factory/credentials"
 )
 
 // ---------------------------------------------------------------------------
@@ -112,7 +112,7 @@ func TestBillingCheckRefusesAGatewayThatNamesNoMode(t *testing.T) {
 	}
 }
 
-// A typo in ~/.ticksrc must not silently disable the assertion.
+// A typo in ~/.ticfacrc must not silently disable the assertion.
 func TestBillingCheckRefusesAnUnknownConfiguredMode(t *testing.T) {
 	h := newSetupHarness(t, "")
 	opts := h.billingOptions()
@@ -180,8 +180,8 @@ func TestSetupRecordsTheWorkersAIBillingMode(t *testing.T) {
 	if result.WorkersAIBillingMode != BillingModePostpaid {
 		t.Errorf("WorkersAIBillingMode = %q, want %q", result.WorkersAIBillingMode, BillingModePostpaid)
 	}
-	if got := h.rc(t).Get(ticksrc.KeyFactoryWorkersAIBillingMode); got != BillingModePostpaid {
-		t.Errorf("%s = %q, want %q", ticksrc.KeyFactoryWorkersAIBillingMode, got, BillingModePostpaid)
+	if got := h.rc(t).Get(credentials.KeyWorkersAIBillingMode); got != BillingModePostpaid {
+		t.Errorf("%s = %q, want %q", credentials.KeyWorkersAIBillingMode, got, BillingModePostpaid)
 	}
 	if h.cloudflare.gatewayCalls.Load() == 0 {
 		t.Error("the walk recorded a billing mode it never read")
@@ -201,7 +201,7 @@ func TestSetupRefusesAGatewayThatDriftedToUnifiedBilling(t *testing.T) {
 	if !strings.Contains(err.Error(), BillingModeUnified) {
 		t.Errorf("error does not name the mode it found: %v", err)
 	}
-	if got := h.rc(t).Get(ticksrc.KeyFactoryWorkersAIBillingMode); got != "" {
+	if got := h.rc(t).Get(credentials.KeyWorkersAIBillingMode); got != "" {
 		t.Errorf("a refused mode was recorded anyway: %q", got)
 	}
 	if got := h.secret(SecretCloudflareAPIToken); got != "" {
@@ -225,8 +225,8 @@ func TestSetupAcceptsAnExplicitUnifiedBillingMode(t *testing.T) {
 	if result.WorkersAIBillingMode != BillingModeUnified {
 		t.Errorf("WorkersAIBillingMode = %q, want %q", result.WorkersAIBillingMode, BillingModeUnified)
 	}
-	if got := h.rc(t).Get(ticksrc.KeyFactoryWorkersAIBillingMode); got != BillingModeUnified {
-		t.Errorf("%s = %q, want %q", ticksrc.KeyFactoryWorkersAIBillingMode, got, BillingModeUnified)
+	if got := h.rc(t).Get(credentials.KeyWorkersAIBillingMode); got != BillingModeUnified {
+		t.Errorf("%s = %q, want %q", credentials.KeyWorkersAIBillingMode, got, BillingModeUnified)
 	}
 }
 
@@ -253,11 +253,11 @@ func TestSetupWithoutTelemetrySaysTheBillingModeIsUnverified(t *testing.T) {
 
 func (h *setupHarness) storeTelemetryToken(t *testing.T, token string) {
 	t.Helper()
-	rc, err := ticksrc.LoadFrom(h.ticksrc)
+	rc, err := credentials.LoadFrom(h.ticfacrc)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rc.Set(ticksrc.KeyFactoryCloudflareAPIToken, token)
+	rc.Set(credentials.KeyCloudflareAPIToken, token)
 	if err := rc.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -357,11 +357,11 @@ func TestStatusRejectsAnUnreadableConfiguredMode(t *testing.T) {
 	h := newSetupHarness(t, "sk-provider-key")
 	h.configure(t, "sk-provider-key")
 	h.storeTelemetryToken(t, testCloudflareToken)
-	rc, err := ticksrc.LoadFrom(h.ticksrc)
+	rc, err := credentials.LoadFrom(h.ticfacrc)
 	if err != nil {
 		t.Fatal(err)
 	}
-	rc.Set(ticksrc.KeyFactoryWorkersAIBillingMode, "invoice")
+	rc.Set(credentials.KeyWorkersAIBillingMode, "invoice")
 	if err := rc.Save(); err != nil {
 		t.Fatal(err)
 	}

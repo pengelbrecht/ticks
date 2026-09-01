@@ -25,7 +25,7 @@
 //     the hit rate can be measured from — the acceptance criterion behind the
 //     caching work (tick l8z).
 //
-// The credentials are the operator's own, read from ~/.ticksrc: the gateway URL
+// The credentials are the operator's own, read from ~/.ticfacrc: the gateway URL
 // names the Cloudflare account and gateway, and the Cloudflare API token is the
 // same one `tk factory setup --cloudflare-api-token` verified against this
 // gateway's logs. Nothing here talks to the factory Worker, and nothing here
@@ -43,7 +43,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pengelbrecht/ticks/internal/ticksrc"
+	"github.com/pengelbrecht/ticks/internal/factory/credentials"
 )
 
 // DefaultAPIBase is Cloudflare's REST root, matching internal/factory.
@@ -87,14 +87,14 @@ func GatewayIDs(gatewayURL string) (account, gateway string, ok bool) {
 	return parts[1], parts[2], true
 }
 
-// ConfigFrom builds a Config from ~/.ticksrc.
+// ConfigFrom builds a Config from ~/.ticfacrc.
 //
 // Each refusal names the command that fixes it and says which half is missing:
 // a factory that routes model traffic but was never given a log-reading token
 // is a normal, documented state (cost telemetry is optional), and "no trace" is
 // not the same fact as "no factory".
-func ConfigFrom(file *ticksrc.File) (Config, error) {
-	gatewayURL := strings.TrimSpace(file.Get(ticksrc.KeyFactoryGatewayURL))
+func ConfigFrom(file *credentials.File) (Config, error) {
+	gatewayURL := strings.TrimSpace(file.Get(credentials.KeyGatewayURL))
 	if gatewayURL == "" {
 		return Config{}, fmt.Errorf(
 			"no AI Gateway is configured, so this run's model conversation cannot be read; run 'tk factory setup' first")
@@ -106,7 +106,7 @@ func ConfigFrom(file *ticksrc.File) (Config, error) {
 				"point it at https://gateway.ai.cloudflare.com/v1/<account-id>/<gateway> with 'tk factory setup' (got %q)",
 			gatewayURL)
 	}
-	token := strings.TrimSpace(file.Get(ticksrc.KeyFactoryCloudflareAPIToken))
+	token := strings.TrimSpace(file.Get(credentials.KeyCloudflareAPIToken))
 	if token == "" {
 		return Config{}, fmt.Errorf(
 			"no Cloudflare API token is configured, so the AI Gateway logs this trace reads cannot be reached; " +

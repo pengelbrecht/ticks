@@ -13,8 +13,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/pengelbrecht/ticks/internal/factory"
 	"github.com/pengelbrecht/ticks/internal/gatewaytrace"
-	"github.com/pengelbrecht/ticks/internal/ticksrc"
 )
 
 var (
@@ -42,7 +42,7 @@ var cloudTraceCmd = &cobra.Command{
 The control plane stores no messages; the conversation comes from the AI
 Gateway every run's model traffic is proxied through (D17), filtered by the
 run id the proxy stamps on each call. It reads the operator's own gateway
-directly with the credentials in ~/.ticksrc, so it needs the Cloudflare API
+directly with the credentials in ~/.ticfacrc, so it needs the Cloudflare API
 token 'tk factory setup --cloudflare-api-token' installs.
 
 Responses are streamed, so a logged response body carries no content at all.
@@ -95,7 +95,7 @@ func runCloudTrace(cmd *cobra.Command, args []string) error {
 		return NewExitError(ExitGeneric, "--call takes a 1-based call number, got %d", cloudTraceCall)
 	}
 
-	config, err := ticksrc.Load()
+	config, err := factory.LoadCredentials()
 	if err != nil {
 		return NewExitError(ExitGeneric, "cannot read factory configuration: %v", err)
 	}

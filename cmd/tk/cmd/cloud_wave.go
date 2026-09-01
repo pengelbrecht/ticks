@@ -14,9 +14,10 @@ import (
 	cloudcollect "github.com/pengelbrecht/ticks/internal/cloud/collect"
 	cloudlease "github.com/pengelbrecht/ticks/internal/cloud/lease"
 	cloudstate "github.com/pengelbrecht/ticks/internal/cloud/state"
+	"github.com/pengelbrecht/ticks/internal/factory"
+	"github.com/pengelbrecht/ticks/internal/factory/credentials"
 	"github.com/pengelbrecht/ticks/internal/github"
 	herdconfig "github.com/pengelbrecht/ticks/internal/herd/config"
-	"github.com/pengelbrecht/ticks/internal/ticksrc"
 )
 
 // The `tk cloud` dispatch verb family: spawn, wait, collect, reconcile (D19).
@@ -81,7 +82,7 @@ func cloudSubstrateGate(cfg *herdconfig.Config, verb string) error {
 // (D4/D19), making at most one network call and none at all when no factory
 // is configured.
 //
-// The order matters: a checkout with no factory is answered from ~/.ticksrc
+// The order matters: a checkout with no factory is answered from ~/.ticfacrc
 // alone, because the degenerate case — a fully local orchestrator with no
 // cloud enrolment — must keep working offline, forever. Only a checkout that
 // HAS a factory asks it whether this project is enrolled, and only enrolment
@@ -108,15 +109,15 @@ func cloudArbiter(ctx context.Context) (cloudlease.Arbiter, *cloudClient, string
 	return cloudlease.Resolve(project, true, enrolled), client, project, nil
 }
 
-// cloudFactoryConfigured reports whether ~/.ticksrc names a factory at all. It
+// cloudFactoryConfigured reports whether ~/.ticfacrc names a factory at all. It
 // reads the file and nothing else: the answer must not cost a request.
 func cloudFactoryConfigured() bool {
-	config, err := ticksrc.Load()
+	config, err := factory.LoadCredentials()
 	if err != nil {
 		return false
 	}
-	return strings.TrimSpace(config.Get(ticksrc.KeyFactoryURL)) != "" &&
-		strings.TrimSpace(config.Get(ticksrc.KeyFactoryToken)) != ""
+	return strings.TrimSpace(config.Get(credentials.KeyURL)) != "" &&
+		strings.TrimSpace(config.Get(credentials.KeyToken)) != ""
 }
 
 func cloudProjectEnrolled(ctx context.Context, client *cloudClient, project string) (bool, error) {
