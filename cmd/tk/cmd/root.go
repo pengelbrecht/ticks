@@ -66,6 +66,15 @@ const (
 	// verb", and an orchestrator must be able to tell that apart from a routing
 	// refusal (1) without parsing stderr.
 	ExitWrongSubstrate = 9
+
+	// ExitPluginUnhealthy reports that `tk herd plugin --check` found the
+	// herdr-ticks plugin unable to fire the orchestrator guard: absent,
+	// disabled, or — the case that actually happened — installed, enabled, and
+	// pinned to a commit older than the guard hook. Its own slot because the
+	// next action is "run tk herd plugin --install", which is neither a retry
+	// nor a config fix, and because a run must be able to tell "the watchdog
+	// cannot fire" apart from an ordinary failure without parsing stderr.
+	ExitPluginUnhealthy = 10
 )
 
 // ExitError is an error that carries a specific exit code.

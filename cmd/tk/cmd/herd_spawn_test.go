@@ -350,6 +350,11 @@ func TestHerdSpawnEndToEnd(t *testing.T) {
 // TestHerdSpawnJSONOutput pins the machine-readable shape the orchestrator
 // consumes, including the note it must pass to tk note itself.
 func TestHerdSpawnJSONOutput(t *testing.T) {
+	// This suite is often run from inside a herdr pane, where HERDR_ENV and
+	// HERDR_PANE_ID are inherited; a spawn test must not reach for the
+	// developer's own multiplexer or its plugin install.
+	t.Setenv("HERDR_ENV", "")
+	t.Setenv("HERDR_PANE_ID", "")
 	setupSpawnRepo(t, validRunners)
 	srv := newSpawnFakeHerd(t)
 	buf := captureCmdOutput(t)
@@ -491,6 +496,11 @@ func TestHerdSpawnRoleFallbackWarns(t *testing.T) {
 // signal, not noise: a role that resolved to itself warns about nothing and
 // leaves the field out of the manifest.
 func TestHerdSpawnNoRoleFallbackRecordsNoResolvedRole(t *testing.T) {
+	// This suite is often run from inside a herdr pane, where HERDR_ENV and
+	// HERDR_PANE_ID are inherited; a spawn test must not reach for the
+	// developer's own multiplexer or its plugin install.
+	t.Setenv("HERDR_ENV", "")
+	t.Setenv("HERDR_PANE_ID", "")
 	repo, _ := setupSpawnRepo(t, validRunners)
 	srv := newSpawnFakeHerd(t)
 	buf := captureCmdOutput(t)

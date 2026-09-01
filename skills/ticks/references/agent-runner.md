@@ -81,7 +81,9 @@ Orchestration produces commits and merges. If you're on `main`/`master`, create 
    human actions in the feed. (See "Actor convention" below.)
    Under the herdr substrate the first `tk herd spawn` also ARMS the orchestrator watchdog on
    your own pane, so there is no run-start ritual to forget; `tk herd watch --status` confirms it
-   and a bare `tk herd watch` arms it by hand. See herdr-runner.md → "The orchestrator is an
+   and a bare `tk herd watch` arms it by hand. Run `tk herd plugin --install` once here too: the
+   guard is armed by tk but INVOKED by the herdr-ticks plugin hook, and an install that is merely
+   present can still be too old to carry it. See herdr-runner.md → "The orchestrator is an
    agent too".
 1. tk graph <epic> --json          → waves + dispatch.now (how many to launch NOW)
 2. EPIC-SKELETON pre-flight (self-healing): if step 1's result carries a non-empty
