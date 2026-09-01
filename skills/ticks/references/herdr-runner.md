@@ -48,6 +48,7 @@ Pin with `TICKS_EPIC` only when you deliberately want one epic's slice — the `
 | `tk herd wait --agents …` | one `agent.list`, then ONE `events.subscribe` stream; blocks on pushed `pane.agent_status_changed` | event-driven fan-in with a hard deadline — **no polling** |
 | `tk herd collect [tick-id]` \| `--epic <id>` | commits on the branch, `RESULT-<tick-id>.md` with a `STATUS:` line, and the `.tick/` boundary diff | the durable result contract; terminal scraping is never a channel |
 | `tk herd cleanup [tick-id]` \| `--epic <id>` | workspace, then branch (`-d`), then the manifest LAST, then focus is put back where it was; `--preview` is the default and `--apply` performs exactly that plan | the four refusals: unmerged branch, blocked worker, working worker, missing manifest |
+| `tk herd plugin [--install]` | asks herdr what is installed and whether the event table carries `guard-hook.sh`; `--install` installs or updates from GitHub | the guard's trigger is provisioned, not assumed — presence is not capability |
 | `tk herd reconcile [--epic <id>]` | manifests → git → `agent.list` → `session.snapshot`, producing a PLAN and mutating nothing (except `--adopt`) | a live worker is never redispatched; contradictory evidence is `unknown` and proposes nothing |
 
 Exit codes share a spine but are **not** uniform — branch on each command's own table (`tk herd <cmd> --help` is authoritative):
@@ -60,6 +61,7 @@ Exit codes share a spine but are **not** uniform — branch on each command's ow
 | `3` | not inside a git repository | `spawn`, `collect`, `cleanup`, `reconcile` |
 | `4` | not found — **no such tick** for `spawn`, **no manifest file** for `collect`/`cleanup` | `spawn`, `collect`, `cleanup` |
 | `6` | the manifest could not be written | `spawn` |
+| `10` | `--check` and the guard hook cannot fire (absent, disabled, or too old) | `plugin` |
 
 Two traps in that table. `reconcile` **never** exits `4`: an epic with no manifests is a plan, so it reports an empty plan and exits `0`. And for `collect`/`cleanup`, `4` means the manifest *file is absent* — a manifest that exists but does not parse is `1`, precisely so a caller that reads `4` as "nothing was spawned" cannot spawn a duplicate on top of a live worker.
 
@@ -341,7 +343,11 @@ Four prohibitions:
 
 The five commands above drive a run. Four more — `tk herd paint`, `tk herd dashboard`, `tk herd notify`, `tk herd guard` — make one *visible and supervised*, and a herdr plugin, [`plugins/herdr-ticks/`](../../../plugins/herdr-ticks/README.md), wires them into the multiplexer so an operator sees the run without asking for it. (`tk herd guard` supervises the *orchestrator* — registration and decision table in [*The orchestrator is an agent too*](#the-orchestrator-is-an-agent-too).)
 
-**None of this is on the orchestrator's critical path.** The plugin is display and convenience: every command it runs is read-only with respect to `.tick/` (bar one small notification-state file), and a machine with no plugin installed runs waves identically. Do not make the loop depend on it, and never treat a badge or a chime as evidence — [`collect`](#result-contract) is still the only completion authority.
+**One part of this IS on the critical path now — the rest is not.** The dashboard, the badges, the actions and the worker chimes are display and convenience: every command they run is read-only with respect to `.tick/` (bar one small notification-state file), a machine without them runs waves identically, and a badge or a chime is never evidence — [`collect`](#result-contract) remains the only completion authority.
+
+The **guard hook** is the exception, and it is a deliberate one. It is what invokes `tk herd guard`, so under this substrate it is the trigger for the orchestrator watchdog: without it the watchdog is armed and never fires, which is a run that stalls unnoticed rather than a run that looks slightly plainer. That is why `tk herd plugin` exists and why the first `tk herd spawn` warns about it — a dependency you must not merely hope is satisfied. Everything else in this section still applies: do not make the *wave loop* depend on the plugin, because a machine without it must still dispatch, merge and collect identically.
+
+(This paragraph replaced a flat "none of this is on the orchestrator's critical path — do not make the loop depend on it", which was true when written and was falsified by the guard hook landing in the same component. Keeping it would have told a reader the guard was safe to skip.)
 
 What it provides:
 
