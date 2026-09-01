@@ -1,0 +1,13 @@
+{
+  "id": "uhw",
+  "title": "verify-herd-plugin.sh does not check the guard hook exists",
+  "description": "The live smoke script header asserts the plugin registers \"five paint hooks + one notify hook\" — six events. The manifest and README have SEVEN: guard-hook.sh was added on pane.agent_status_changed in 35c4b8ef (2026-08-31) and the verify script was never updated.\n\nSo the smoke passes whether or not the guard hook is registered. That is the one check that would have caught the guard being absent from the published plugin.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "The verify script asserts the guard hook is registered, and fails when it is missing.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-01T10:27:38.821424Z",
+  "updated_at": "2026-09-01T10:27:38.821424Z"
+}

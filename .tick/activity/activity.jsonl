@@ -2269,3 +2269,6 @@
 {"ts":"2026-09-01T08:13:49.998796Z","tick":"vr4","action":"create","actor":"claude:orchestrator","epic":"g0b","data":{"priority":1,"title":"Decide the sandbox knot and the runners.toml read","type":"task"}}
 {"ts":"2026-09-01T08:13:50.044869Z","tick":"wl7","action":"create","actor":"claude:orchestrator","epic":"g0b","data":{"priority":1,"title":"Final review of the Phase 5a diff","type":"task"}}
 {"ts":"2026-09-01T08:13:50.088066Z","tick":"q71","action":"create","actor":"claude:orchestrator","epic":"g0b","data":{"priority":1,"title":"Close out Phase 5a: PR, CI gate, retro","type":"task"}}
+{"ts":"2026-09-01T10:27:38.759866Z","tick":"0vz","action":"create","actor":"noreply@anthropic.com","data":{"priority":2,"title":"Guard has no CLI-native trigger — it fires only from the herdr plugin","type":"task"}}
+{"ts":"2026-09-01T10:27:38.821706Z","tick":"uhw","action":"create","actor":"noreply@anthropic.com","data":{"priority":2,"title":"verify-herd-plugin.sh does not check the guard hook exists","type":"task"}}
+{"ts":"2026-09-01T10:27:38.87843Z","tick":"0yo","action":"create","actor":"noreply@anthropic.com","data":{"priority":2,"title":"tk herd orchestrate is deferred with no tick trail","type":"task"}}

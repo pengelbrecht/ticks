@@ -48,6 +48,14 @@ const watchFile = ".watch-orchestrator.json"
 // policy as the notifier's memo.
 const watchStateVersion = 1
 
+// Nudge policy defaults, shared by the --nudge-max/--nudge-interval flags and by
+// armOrchestratorWatch, so a spawn-armed watch and a hand-armed one behave the
+// same.
+const (
+	watchDefaultNudgeMax      = 3
+	watchDefaultNudgeInterval = 2 * time.Minute
+)
+
 // watchState is the registration plus the guard's memory between events.
 type watchState struct {
 	Version int `json:"version"`
@@ -67,6 +75,53 @@ type watchState struct {
 	LastStatus        string `json:"last_status,omitempty"`
 	BlockedNotified   bool   `json:"blocked_notified,omitempty"`
 	ExhaustedNotified bool   `json:"exhausted_notified,omitempty"`
+}
+
+// orchestratorSelfTarget returns the pane id herdr exported into this process's
+// own environment, or "" when there is none.
+//
+// This is NOT the "whatever is focused" default the explicit-target rule bans.
+// That rule exists because a run asking herdr "which pane is in front?" gets an
+// answer about the OPERATOR, not about itself. HERDR_PANE_ID is different in
+// kind: herdr sets it in the pane's own shell, so a process reading it is being
+// told its own identity by the server, not inferring somebody else's.
+//
+// Only a direct child of the pane's shell has it — an orchestrator running `tk`
+// does, a plugin event hook does not. So this is a fallback for the commands the
+// orchestrator itself runs, never a substitute for an explicit target.
+func orchestratorSelfTarget() string {
+	return strings.TrimSpace(os.Getenv("HERDR_PANE_ID"))
+}
+
+// armOrchestratorWatch registers this process's own pane as the run's
+// orchestrator, unless a registration already exists. It returns the target it
+// armed, or "" when it armed nothing (already registered, or no HERDR_PANE_ID —
+// the run is not in a herdr pane, so there is no orchestrator pane to watch).
+//
+// Called by tk herd spawn so the watchdog is armed by DISPATCH rather than by
+// anyone remembering a run-start ritual; see the comment at its call site for
+// why that asymmetry is the whole bug this closes.
+//
+// Idempotent and never destructive: an existing registration is left exactly as
+// it is, including a hand-set --nudge-max and any live episode memory.
+func armOrchestratorWatch(root string) (string, error) {
+	if _, ok := loadWatchState(root); ok {
+		return "", nil
+	}
+	target := orchestratorSelfTarget()
+	if target == "" {
+		return "", nil
+	}
+	s := watchState{
+		Target:               target,
+		RegisteredAt:         time.Now().UTC().Format(time.RFC3339),
+		NudgeMax:             watchDefaultNudgeMax,
+		NudgeIntervalSeconds: int(watchDefaultNudgeInterval / time.Second),
+	}
+	if err := saveWatchState(root, s); err != nil {
+		return "", err
+	}
+	return target, nil
 }
 
 func watchStatePath(root string) string {
@@ -131,12 +186,18 @@ var (
 var herdWatchCmd = &cobra.Command{
 	Use:   "watch [agent-or-pane]",
 	Short: "Register the orchestrator pane for the guard to supervise",
-	Long: `Register the run's orchestrator — a herdr agent name or pane id — so the
-herdr-ticks plugin's guard hook supervises it from outside its own loop.
+	Long: `Register the run's orchestrator — a herdr agent name or pane id — so
+tk herd guard can supervise it from outside its own loop.
 
-The target is explicit, always: herdr commands that default to "whatever is
-focused" are never safe from a run, and nothing here guesses which pane the
-orchestrator is. Register at run start, right after opening the dashboard pane.
+With no argument, the target is this process's OWN pane, read from HERDR_PANE_ID.
+That is not the banned "whatever is focused" default — herdr sets that variable in
+the pane's own shell, so an orchestrator reading it is being told its own identity
+by the server rather than inferring somebody else's. Only a direct child of the
+pane's shell has it, so a bare "tk herd watch" works from the orchestrator and
+nowhere else; pass the agent name or pane id explicitly to register any other pane.
+
+You rarely need to run this by hand: the first "tk herd spawn" of a run arms the
+watch for you, the same way it writes each worker's manifest.
 
 What the guard then does on every agent status change is documented on
 tk herd guard.
@@ -150,6 +211,7 @@ Exit codes
   3  not inside a git repository
 
 Examples
+  tk herd watch                       # register THIS pane (from HERDR_PANE_ID)
   tk herd watch orchestrator          # register the agent herdr names "orchestrator"
   tk herd watch w3:p1                 # register by pane id
   tk herd watch --nudge-max 5 orc     # allow five nudges per stall episode
@@ -163,8 +225,8 @@ Examples
 func init() {
 	herdWatchCmd.Flags().BoolVar(&watchClear, "clear", false, "remove the registration")
 	herdWatchCmd.Flags().BoolVar(&watchStatus, "status", false, "show the current registration and guard memory")
-	herdWatchCmd.Flags().IntVar(&watchNudgeMax, "nudge-max", 3, "nudges per stall episode before the guard chimes and stops")
-	herdWatchCmd.Flags().DurationVar(&watchNudgeInterval, "nudge-interval", 2*time.Minute, "minimum time between nudges")
+	herdWatchCmd.Flags().IntVar(&watchNudgeMax, "nudge-max", watchDefaultNudgeMax, "nudges per stall episode before the guard chimes and stops")
+	herdWatchCmd.Flags().DurationVar(&watchNudgeInterval, "nudge-interval", watchDefaultNudgeInterval, "minimum time between nudges")
 	herdCmd.AddCommand(herdWatchCmd)
 }
 
@@ -196,8 +258,20 @@ func runHerdWatch(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	if len(args) != 1 || strings.TrimSpace(args[0]) == "" {
-		return NewExitError(ExitUsage, "an explicit target is required: the herdr agent name or pane id of the orchestrator")
+	target := ""
+	if len(args) == 1 {
+		target = strings.TrimSpace(args[0])
+	}
+	selfTargeted := false
+	if target == "" {
+		// No argument: fall back to this process's OWN pane. The operator still
+		// typed the command — what is dropped is having to look the id up.
+		target = orchestratorSelfTarget()
+		selfTargeted = target != ""
+	}
+	if target == "" {
+		return NewExitError(ExitUsage,
+			"no target given and HERDR_PANE_ID is not set: pass the orchestrator's herdr agent name or pane id explicitly (a bare `tk herd watch` only works from inside the orchestrator's own herdr pane)")
 	}
 	if watchNudgeMax < 0 {
 		return NewExitError(ExitUsage, "--nudge-max must be >= 0")
@@ -207,7 +281,7 @@ func runHerdWatch(cmd *cobra.Command, args []string) error {
 	}
 
 	s := watchState{
-		Target:               strings.TrimSpace(args[0]),
+		Target:               target,
 		RegisteredAt:         time.Now().UTC().Format(time.RFC3339),
 		NudgeMax:             watchNudgeMax,
 		NudgeIntervalSeconds: int(watchNudgeInterval / time.Second),
@@ -215,7 +289,11 @@ func runHerdWatch(cmd *cobra.Command, args []string) error {
 	if err := saveWatchState(root, s); err != nil {
 		return NewExitError(ExitIO, "%v", err)
 	}
-	fmt.Fprintf(out, "watching orchestrator %s (nudge max %d, interval %s)\n", s.Target, s.NudgeMax, watchNudgeInterval)
+	via := ""
+	if selfTargeted {
+		via = " (this pane, via HERDR_PANE_ID)"
+	}
+	fmt.Fprintf(out, "watching orchestrator %s%s (nudge max %d, interval %s)\n", s.Target, via, s.NudgeMax, watchNudgeInterval)
 	return nil
 }
 

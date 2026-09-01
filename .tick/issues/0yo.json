@@ -1,0 +1,13 @@
+{
+  "id": "0yo",
+  "title": "tk herd orchestrate is deferred with no tick trail",
+  "description": "docs/design/orchestrator-continuation.md section 4 defers `tk herd orchestrate \u003cepic\u003e` — spawning the orchestrator through the helper with its kind full-auto template, which would also eliminate the `blocked`-on-permission-prompt stall class.\n\nBlocked on a herdr wire shape: internal/herd/client/protocol.go models no pane-creation method other than worktree.create, and this repo does not guess wire shapes. Needs a pane-at-controller-checkout method pinned against a live herdr.\n\nFiled so the deferral is tracked rather than living only in a design doc. Note the spawn-arming change reduces its urgency: watchdog registration, one of its four stated benefits, is now automatic.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "Either the herdr method exists and tk herd orchestrate ships, or the tick records the decision not to build it.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-01T10:27:38.878053Z",
+  "updated_at": "2026-09-01T10:27:38.878053Z"
+}

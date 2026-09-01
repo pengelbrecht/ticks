@@ -11,3 +11,4 @@ Re-read this file at every post-wave gate and at every epic boundary — fresh f
 - After a close-out: plan and dispatch the next feasible epic's wave 1 in the same turn.
 - Out of ticks is not out of work: `tk next` decides — implement, plan, review, closeout, await, or done.
 - Before ending a turn you believe is a stopping point: `tk frontier --check`. Exit 0 means it is not one.
+- Under herdr, you are watched too: `tk herd spawn` arms the guard on your own pane. Confirm once with `tk herd watch --status`; if it says nothing is registered, run `tk herd watch`.
