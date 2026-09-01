@@ -2,7 +2,7 @@
   "id": "0jl",
   "title": "Close out Phase 4b: PR, CI gate, retro, then plan Phase 3",
   "description": "Per .tick/config.md: push the epic branch, open a PR, and do not complete close-out until CI is green on it. No direct merge to main.\n\nRELEASE NOTES MATTER MORE HERE THAN ANYWHERE ELSE IN THIS PROJECT. This is the only user-visible behaviour change: remote answering now requires a deployed factory. Terminal answering is unaffected and still works offline. Say both halves plainly — the second is what stops it reading as a capability loss.\n\nRetro against 9oy's definition of done, verifying the code. Then plan Phase 3 (9hu, the credentials split), which is the last phase before the move and the only one that can break a live deployment — it needs a migration path, not a cut. Note that tick 5zy will have had to make an assumption about where the factory token lives; Phase 3 should either confirm or correct it.",
-  "status": "open",
+  "status": "closed",
   "priority": 1,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -14,5 +14,7 @@
   "acceptance_criteria": "A PR exists with green CI; not merged directly to main. Release notes state both halves of the behaviour change. The retro verifies the code against 9oy's acceptance. Phase 3 has child ticks and a complete EPIC-SKELETON, and reconciles 5zy's credential assumption.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-28T13:05:49.961427Z",
-  "updated_at": "2026-08-28T13:05:49.961427Z"
+  "updated_at": "2026-09-01T08:11:31.828979Z",
+  "closed_at": "2026-09-01T08:11:31.828979Z",
+  "closed_reason": "Completed retroactively: PR #72 was merged with green CI on 2026-08-31 and Phase 3 was planned and executed off the back of it. The close-out ran as orchestrator work rather than as a dispatched tick, so this ticket stayed open behind work that had already happened. Recording it rather than leaving the epic unclosable."
 }
