@@ -12,7 +12,6 @@ import (
 
 	cloudlease "github.com/pengelbrecht/ticks/internal/cloud/lease"
 	cloudstate "github.com/pengelbrecht/ticks/internal/cloud/state"
-	"github.com/pengelbrecht/ticks/internal/sandbox"
 )
 
 // Dispatching from INSIDE a cloud run (tick wiy).
@@ -60,23 +59,23 @@ type cloudInRun struct {
 // regardless of what the agent inside believes. A closeout has no pass, so a
 // closeout cannot be talked into starting new work.
 func cloudInRunContext() (cloudInRun, bool) {
-	pass, err := strconv.Atoi(strings.TrimSpace(os.Getenv(sandbox.EnvPass)))
+	pass, err := strconv.Atoi(strings.TrimSpace(os.Getenv(cloudEnvPass)))
 	if err != nil || pass < 1 {
 		return cloudInRun{}, false
 	}
 	in := cloudInRun{
-		runID:    strings.TrimSpace(os.Getenv(sandbox.EnvRunID)),
-		project:  strings.TrimSpace(os.Getenv(sandbox.EnvFactoryProject)),
-		epic:     strings.TrimSpace(os.Getenv(sandbox.EnvEpic)),
+		runID:    strings.TrimSpace(os.Getenv(cloudEnvRunID)),
+		project:  strings.TrimSpace(os.Getenv(cloudEnvFactoryProject)),
+		epic:     strings.TrimSpace(os.Getenv(cloudEnvEpic)),
 		pass:     pass,
-		waveBase: strings.TrimSpace(os.Getenv(sandbox.EnvWaveBase)),
+		waveBase: strings.TrimSpace(os.Getenv(cloudEnvWaveBase)),
 	}
-	for _, id := range strings.Split(os.Getenv(sandbox.EnvWaveTicks), ",") {
+	for _, id := range strings.Split(os.Getenv(cloudEnvWaveTicks), ",") {
 		if trimmed := strings.TrimSpace(id); trimmed != "" {
 			in.waveTicks = append(in.waveTicks, trimmed)
 		}
 	}
-	if in.runID == "" || strings.TrimSpace(os.Getenv(sandbox.EnvFactoryURL)) == "" {
+	if in.runID == "" || strings.TrimSpace(os.Getenv(cloudEnvFactoryURL)) == "" {
 		return cloudInRun{}, false
 	}
 	return in, true
@@ -123,8 +122,8 @@ func (in cloudInRun) inheritedManifests() []cloudstate.Manifest {
 // this returns and will not until the pass exits: only the control plane holds
 // the binding that boots them, so the pass ending is the handshake.
 func (in cloudInRun) requestWave(ctx context.Context, baseSHA string, tickIDs []string) error {
-	endpoint := strings.TrimRight(strings.TrimSpace(os.Getenv(sandbox.EnvFactoryURL)), "/")
-	token := strings.TrimSpace(os.Getenv(sandbox.EnvFactoryToken))
+	endpoint := strings.TrimRight(strings.TrimSpace(os.Getenv(cloudEnvFactoryURL)), "/")
+	token := strings.TrimSpace(os.Getenv(cloudEnvFactoryToken))
 	if endpoint == "" || token == "" {
 		return NewExitError(ExitGeneric,
 			"this container has no factory endpoint or credential, so it cannot request a wave; "+
