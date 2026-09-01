@@ -1,0 +1,13 @@
+{
+  "id": "8p8",
+  "title": "Flaky: run-workflow cost-budget test rides the default 5s vitest timeout",
+  "description": "cloud/factory/test/run-workflow.test.ts:2612 — \"stops dispatching further batches once the cost budget is spent\" — failed with \"Test timed out in 5000ms\" on CI, then passed on a plain rerun with no code change. 1206 of 1207 passed both times.\n\nIt is not a code fault, it is a margin fault. Sibling tests in the same file legitimately take 5.6-5.8s (adopts both live workers 5784ms, recovers from git alone 5806ms, does not redo work 5679ms). Nothing in the file sets an explicit per-test timeout, so every one of them is running against the default and the whole cluster sits at or over the line. This one loses the coin flip when the runner is contended.\n\nFix: give the long cloud-wave tests an explicit timeout rather than leaving them on the default. Repo learnings already name this pattern (Orchestrator gates: timeout-class failures under load are contention, not code) - this is the same shape inside one suite.\n\nFound while landing PR #75, whose diff touches no file under cloud/factory.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "The long run-workflow tests carry explicit timeouts and the suite passes repeatedly without reruns.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-01T10:33:59.449969Z",
+  "updated_at": "2026-09-01T10:33:59.449969Z"
+}

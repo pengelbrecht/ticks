@@ -2272,3 +2272,4 @@
 {"ts":"2026-09-01T10:27:38.759866Z","tick":"0vz","action":"create","actor":"noreply@anthropic.com","data":{"priority":2,"title":"Guard has no CLI-native trigger — it fires only from the herdr plugin","type":"task"}}
 {"ts":"2026-09-01T10:27:38.821706Z","tick":"uhw","action":"create","actor":"noreply@anthropic.com","data":{"priority":2,"title":"verify-herd-plugin.sh does not check the guard hook exists","type":"task"}}
 {"ts":"2026-09-01T10:27:38.87843Z","tick":"0yo","action":"create","actor":"noreply@anthropic.com","data":{"priority":2,"title":"tk herd orchestrate is deferred with no tick trail","type":"task"}}
+{"ts":"2026-09-01T10:33:59.450608Z","tick":"8p8","action":"create","actor":"noreply@anthropic.com","data":{"priority":2,"title":"Flaky: run-workflow cost-budget test rides the default 5s vitest timeout","type":"task"}}
