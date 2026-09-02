@@ -91,11 +91,12 @@ the implementations disagreeing.
 | `collect-vocabulary.json` | the collect verdict/status vocabulary and the status-line parse cases | `internal/herd/collect/contract_test.go`, `internal/cloud/collect/contract_test.go` |
 | `tk-json-manifest.json` | the published `tk --json` command surface: every command a consumer may call, its argv, its output schema, and the contract version this build serves | `cmd/tk/cmd/tk_json_contract_test.go`, `internal/tkcontract` |
 | `credential-ownership.json` | which product owns each credential type, the `~/.ticfacrc` key set and its redacted example, and the stop/cost/security lifecycle rules | `internal/factory/credentials/contract_test.go` |
+| `ticfac-run-state.json` | the `.ticfac/` layout, the persistence policy (durable means pushed on origin) and the compare-and-swap rules, with record schemas, golden and negative examples, the `.gitignore` fragment and executable CAS sequences | `internal/factory/runstate/contract_test.go`, `internal/factory/runstate/cas_fake_test.go` |
 
 The TypeScript readers live in the factory's vitest suite (`worker-boot.test.ts`,
 `repo-config.test.ts`, `message-context.test.ts`, `tick-membership.test.ts`,
 `sweep-contract.test.ts`, `collect-vocabulary.test.ts`, `tk-json-manifest.test.ts`,
-`credential-ownership.test.ts`, and their siblings).
+`credential-ownership.test.ts`, `ticfac-run-state.test.ts`, and their siblings).
 They import from here by relative path — `../../../contracts/<name>.json` — and
 there is deliberately no second copy under `cloud/factory/test/fixtures/`. Two
 copies of a parity fixture is the one arrangement guaranteed to defeat it: a
@@ -143,6 +144,30 @@ same contract in its own language** — and proves it with the fixtures in this
 directory, `tracker-layout.json` first among them, not by inspection. Such an
 implementation is a consumer of the contract, not a second tracker. Every host
 that can run `tk` runs `tk`.
+
+### The run-state contract carries a fake, not just a table
+
+`ticfac-run-state.json` is the first fixture here whose case table is not
+input → expected but **a sequence of operations against a model**. `cas.fake`
+describes a five-operation in-memory git — a shared origin, and per-actor views
+of it that can go stale — and `cas.sequences` replays races, restarts and stale
+views against it. Both readers implement that fake independently
+(`internal/factory/runstate/cas_fake_test.go`,
+`cloud/factory/test/git-cas-fake.ts`).
+
+That shape is forced by what the contract pins. SPEC §4.2 defines an idempotent
+effect as one whose compare-and-swap proved it had not already happened, and
+the two hosts reach that compare-and-swap through different machinery: a local
+host through `git push --force-with-lease`, a Worker through the GitHub
+contents API. A static table cannot express "B's update is refused because A
+moved the ref after B fetched" — that is a sequence, and the guard is only
+observable as the difference between two orderings. Both readers also carry the
+negative control the same way: disable the guard and every sequence that
+expects a refusal must go red.
+
+Because the failure is the quiet kind. A CAS that has stopped guarding does not
+raise; it lets a second reconciler dispatch the same attempt, and the run pays
+for both jobs.
 
 ### What is NOT a contract
 

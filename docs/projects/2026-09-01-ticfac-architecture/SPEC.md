@@ -1198,6 +1198,22 @@ Rules:
   the project repository, because the coordination key is already
   repository + target ref.
 
+**Where this is frozen.** Everything in this section is pinned as a contract
+rather than left as prose, because two hosts implement it through different
+machinery and prose does not fail a build:
+
+| what | where |
+|---|---|
+| the layout, persistence policy, CAS rules, record schemas, golden and negative examples, the `.gitignore` fragment, and the CAS sequences | `contracts/ticfac-run-state.json` |
+| Go reader — schemas, policy, and `git check-ignore` against the real `.gitignore` | `internal/factory/runstate/contract_test.go` |
+| Go reader — the CAS sequences against an in-memory git fake | `internal/factory/runstate/cas_fake_test.go` |
+| TypeScript reader — the same sequences, the same golden examples, an independently written fake and schema validator | `cloud/factory/test/ticfac-run-state.test.ts`, `cloud/factory/test/git-cas-fake.ts`, `cloud/factory/test/schema-subset.ts` |
+
+The record schemas cover `checkpoint.json`, `attempts/<n>.json` and
+`decisions/<n>.json` in full. For `evidence/<key>.json` the contract pins only
+the path, the compare-and-swap mode and the envelope every committed file
+carries; the evidence record's own fields belong to §10.1's schema.
+
 The costs are known and bounded. Write cadence at roughly ten checkpoints per
 hour is negligible. A Worker pays GitHub API rate limits for these commits as
 it already does for `.tick/`; batch where possible and flush bulk evidence from
@@ -1273,6 +1289,10 @@ the reconciler plus two executors; runners are unchanged.
    [`credentials.md`](credentials.md)).
 6. Define the `.ticfac/` layout, checkpoint, and compare-and-swap rules
    (§10.4) alongside the schemas; run state never lands in D1 as authority.
+   Frozen as `contracts/ticfac-run-state.json`, read from Go
+   (`internal/factory/runstate/`) and TypeScript
+   (`cloud/factory/test/ticfac-run-state.test.ts`); the compare-and-swap
+   sequences run as table tests against an in-memory git fake on both sides.
 7. Inventory the lifecycle invariants the current implementation earned from
    live failures (Appendix A) and encode each as a conformance test that the
    reconciler and every executor must pass, before any reconciler code exists.

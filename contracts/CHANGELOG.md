@@ -62,3 +62,28 @@ byte changed, so an unchanged consumer is still correct but no longer complete.
 - `credential-ownership.json` — which credentials belong to ticfac and which to
   ticks, the `~/.ticfacrc` schema, grant grades and stop rules (tick uzq,
   SPEC §3.3).
+
+## 1.2.0
+
+MINOR. One contract added by ticfac Phase 0 (epic 692); no existing fixture
+byte changed, so an unchanged consumer is still correct but no longer complete.
+
+- `ticfac-run-state.json` — the `.ticfac/` layout, the persistence policy and
+  the compare-and-swap rules (tick x1w, SPEC §4.2 and §10.4). It carries the
+  record schemas for `checkpoint.json`, `attempts/<n>.json`,
+  `decisions/<n>.json` and the envelope of `evidence/<key>.json`, golden and
+  negative examples for each, the `.gitignore` fragment for the two
+  gitignored paths, and seven compare-and-swap sequences written as executable
+  table tests against an in-memory git fake.
+
+  Adopting it costs a consumer two things. First, the record shapes: a
+  reconciler that writes `.ticfac/` must satisfy these schemas, envelope
+  included — every committed file carries a `schema_version` and the
+  provenance fields of an evidence record. Second, and the reason the fixture
+  is executable rather than prose: the guard is against the **origin** ref, so
+  a host reaching it through the GitHub contents API and a host reaching it
+  through `git push --force-with-lease` must produce the same outcome for
+  every sequence in `cas.sequences`. The evidence record's own fields are
+  deliberately NOT pinned here — `evidence_envelope` is open past
+  `schema_version`, `key` and `provenance`, and the record's shape belongs to
+  the evidence schema of SPEC §10.1.

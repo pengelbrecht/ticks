@@ -9,8 +9,10 @@ status: active
 ## Compiled Truth
 
 **`contracts/` at the repo root holds every rule that more than one
-implementation has to obey.** Ten files today — nine behavioural case tables,
-plus `tk-json-manifest.json`, which is a different animal (below). Both languages read them, and a
+implementation has to obey.** Twelve files at bundle `1.2.0` — nine behavioural
+case tables, plus `tk-json-manifest.json` (a published API surface),
+`credential-ownership.json`, and `ticfac-run-state.json` (a case table over an
+in-memory *model*, not over inputs — see below). Both languages read them, and a
 one-sided edit fails a build — that is the whole point and it is proven, not
 assumed (see *Every contract is proven to bite*).
 
@@ -109,6 +111,45 @@ closed; the first offline developer adds the fallback that is the forbidden
 no-op); npm publish (a registry identity to maintain, for nine JSON files);
 git submodule (an un-initialised submodule is a very quiet empty directory).
 
+### `ticfac-run-state.json` pins a sequence, not an input
+
+Added by ticfac Phase 0 (tick `x1w`, SPEC §4.2/§10.4). It freezes the `.ticfac/`
+run-state layout, the persistence policy and the compare-and-swap rules — and it
+is the first fixture here whose case table is **a sequence of operations against
+a model** rather than input → expected.
+
+It has to be. SPEC §4.2 defines an idempotent effect as one whose
+compare-and-swap proved it had not already happened, and the guard is only
+observable as the difference between two orderings: *B's update is refused
+because A moved the ref after B fetched* is not a row in a table. So the
+contract carries `cas.fake` — a five-operation in-memory git (shared origin,
+per-actor views that can go stale) — and `cas.sequences` replays races,
+restarts and stale views against it. Both sides implement the fake
+independently: `internal/factory/runstate/cas_fake_test.go` and
+`cloud/factory/test/git-cas-fake.ts`.
+
+Two mechanisms, one rule, no compiler between them: a local host reaches the
+compare-and-swap through `git push --force-with-lease`, a Worker through the
+GitHub contents API (which is a compare-and-swap on the branch ref, and is
+already what the signal funnel relies on).
+
+The negative control is built into the fixture's readers rather than performed
+once by hand: **disable the guard and every sequence that expects a refusal must
+go red.** That inversion is checked on both sides on every run, because the
+failure mode is silent — a guard that has stopped guarding does not raise, it
+lets a second reconciler dispatch the same attempt and the run pays for both
+jobs.
+
+Two smaller things worth knowing about the file:
+
+- **The evidence record's fields are deliberately NOT pinned here.**
+  `evidence_envelope` is open past `schema_version`, `key` and `provenance`; the
+  record's own shape belongs to §10.1's evidence schema. This contract owns the
+  path, the guard and the envelope.
+- **The `.gitignore` fragment is asserted against the real file**, with
+  `git check-ignore` — ticks is a ticfac target like any other, so "the fragment
+  is defined" means git actually applies it, not that a JSON file mentions it.
+
 ## Every contract is proven to bite
 
 All nine case tables were broken on **both** the Go and the TypeScript side and
@@ -152,5 +193,9 @@ No silent-orphan contract was found.
   package that ships both — nothing can be true in a fixture and false on screen.
 
 ## Timeline
+- 2026-09-02 — `ticfac-run-state.json` added (bundle `1.2.0`): the `.ticfac/`
+  layout, persistence policy and compare-and-swap rules, with the first
+  model-based case table and a built-in guard-disabled negative control — tick
+  `x1w`
 - 2026-08-28 — `contracts/` established, distribution pinned, all nine proven to
   fail on drift, the runner's two readers wired in — @5a1e1f7f

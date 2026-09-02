@@ -1,6 +1,6 @@
 {
-  "$comment": "How the factory gets contracts/. Read cloud/factory/CONTRACTS.md before editing. `bundleVersion` is the EXACT contracts/bundle.json version this package is built against \u2014 it is checked in every mode, so a fixture edit here without a bundle re-cut fails the build. `mode` is flipped to \"pinned\" by the repo-extraction phase; `files` is the set of contracts the factory's vitest suite imports and must equal it exactly.",
-  "bundleVersion": "1.1.0",
+  "$comment": "How the factory gets contracts/. Read cloud/factory/CONTRACTS.md before editing. `bundleVersion` is the EXACT contracts/bundle.json version this package is built against — it is checked in every mode, so a fixture edit here without a bundle re-cut fails the build. `mode` is flipped to \"pinned\" by the repo-extraction phase; `files` is the set of contracts the factory's vitest suite imports and must equal it exactly.",
+  "bundleVersion": "1.2.0",
   "mode": "workspace",
   "module": "github.com/pengelbrecht/ticks",
   "ref": null,
@@ -14,6 +14,7 @@
     "signal-source-cases.json",
     "sweep-policy-cases.json",
     "sweep-selection-contract.json",
+    "ticfac-run-state.json",
     "tk-json-manifest.json",
     "tracker-layout.json",
     "worker-boot-contract.json"
