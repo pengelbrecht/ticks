@@ -18,14 +18,27 @@ ticfac owns every credential used to execute a job, including credentials needed
 to obtain or proxy model and source access. ticks owns the tracker and authoring
 surface. It owns no execution credential and has no Factory credential loader.
 
-| Credential or entitlement | Owner | Where it may live | What a job receives |
-|---|---|---|---|
-| Model access | ticfac | The provider credential is a ticfac deployment secret; the local file records only the configured gateway/provider/key mirror | A host-issued, run-scoped model credential; never the provider key |
-| AI Gateway and cost telemetry | ticfac | Gateway URL/provider and the optional telemetry credential are mirrored in `~/.ticfacrc`; deployment secrets are write-only | The host's model route and an ephemeral run credential |
-| Subscription broker / seat | ticfac | Broker credential and seat entitlement are deployment/operator state, following the same secret-sink rule | A seat-backed grant with its rate/quota semantics |
-| GitHub App and installation access | ticfac | The current compatibility token and metadata are mirrored in `~/.ticfacrc`; an operator App private key is a deployment secret | A source credential at the declared grade; a per-run installation token is host-issued when that rung is available |
-| Run token | ticfac | Not in `~/.ticfacrc`, a repository, a prompt, or a job result; only non-secret grant metadata may be recorded | A short-lived token scoped to the run/job and revoked on stop, budget trip, or finalization |
-| Source Git access | ticfac for jobs | The executor receives the host's Git remote and grade; ordinary SSH/credential-helper state for a human checkout remains outside this file | `write` or `read_only` source access, never an inferred broader grade |
+The rows below are the `ownership[]` array of
+[`contracts/credential-ownership.json`](../../../contracts/credential-ownership.json),
+in its order — the `credential_type` column names the fixture entry each row is.
+`internal/factory/credentials` parses this table and compares it to the fixture,
+so a row added, dropped or renamed on either side fails a test rather than
+becoming a quietly wrong document.
+
+| Credential or entitlement | `credential_type` | Owner | Where it may live | What a job receives |
+|---|---|---|---|---|
+| Factory deployment identity | `deployment` | ticfac | `factory_url`, `factory_token` and `factory_version` are mirrored in `~/.ticfacrc`; the Worker stores only the token's salted hash | Nothing. It authenticates a local CLI client to the Factory, and is never handed to a job |
+| Model access | `model_access` | ticfac | The provider credential is a ticfac deployment secret; the local file records only the configured gateway/provider/key mirror | A host-issued, run-scoped model credential; never the provider key |
+| AI Gateway and cost telemetry | `gateway` | ticfac | Gateway URL/provider and the optional telemetry credential are mirrored in `~/.ticfacrc`; deployment secrets are write-only | The host's model route and an ephemeral run credential |
+| Subscription broker / seat | `subscription_broker` | ticfac | Broker credential and seat entitlement are deployment/operator state, following the same secret-sink rule | A seat-backed grant with its rate/quota semantics |
+| GitHub App and installation access | `github_app_installation` | ticfac | The current compatibility token and metadata are mirrored in `~/.ticfacrc`; an operator App private key is a deployment secret | A source credential at the declared grade; a per-run installation token is host-issued when that rung is available |
+| Run token | `run_token` | ticfac | Not in `~/.ticfacrc`, a repository, a prompt, or a job result; only non-secret grant metadata may be recorded | A short-lived token scoped to the run/job and revoked on stop, budget trip, or finalization |
+
+**Source Git access is not a seventh row.** A job receives `write` or
+`read_only` source access, never an inferred broader grade, but the credential
+behind it is the GitHub App/installation row above — the grade is a property of
+the grant, not a credential of its own. Ordinary SSH or credential-helper state
+for a human checkout is outside this file entirely.
 
 The `ticks` side has no Factory execution credentials. Its ordinary Git
 authentication is supplied by Git/SSH tooling when a person works with a

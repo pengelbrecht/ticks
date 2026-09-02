@@ -47,22 +47,33 @@ jobs:
       # contract failure is legible in the CI log instead of being one line in
       # a full-suite run. This step is the reason a deliberate fixture break
       # fails a build: internal/contracts re-hashes contracts/ against the
-      # version cloud/factory pins, and every *_parity_test.go below executes
-      # the behavioural fixtures themselves. The TypeScript half runs in the
-      # `factory` and `ticks-runner` jobs against the SAME files — that is the
-      # whole mechanism (contracts/README.md).
+      # manifest and refuses a version re-cut with different bytes, and every
+      # contract/parity test below executes the behavioural fixtures
+      # themselves. Go never reads cloud/factory/contracts.pin.json — the pin
+      # is the CONSUMER's statement and only the TypeScript half checks it,
+      # which is the whole point of there being two halves. That half runs in
+      # the `factory` and `ticks-runner` jobs against the SAME files
+      # (contracts/README.md).
+      #
+      # Every Go package with a reader of contracts/ belongs in this list. A
+      # reader missing from it still runs in the full `Test` step below, but
+      # its failure stops being legible, which is the only thing this step buys.
       - name: Contract bundle and parity fixtures
         run: |
           go test -short \
             ./internal/contracts/... \
             ./internal/tkcontract/... \
             ./internal/factory/credentials/... \
+            ./internal/factory/jobprotocol/... \
+            ./internal/factory/runstate/... \
+            ./internal/factory/lifecycle/... \
             ./internal/herd/config/... \
             ./internal/herd/collect/... \
             ./internal/cloud/collect/... \
             ./internal/sandbox/... \
             ./internal/operator/... \
-            ./internal/tick/...
+            ./internal/tick/... \
+            ./cmd/tk/cmd/...
 
       - name: Test
         # -short skips live-API/CLI integration tests (internal/agent), which

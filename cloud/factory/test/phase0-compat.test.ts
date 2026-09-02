@@ -4,6 +4,15 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import bootContract from "../../../contracts/worker-boot-contract.json";
 import collectContract from "../../../contracts/collect-vocabulary.json";
 
+// The two deployable files this suite pins strings out of. Vite inlines a
+// `?raw` import at transform time, which is what makes reading them possible
+// at all in a suite that executes inside workerd with no filesystem — and it
+// is the difference between pinning `cloud/sandbox/worker.sh` and pinning a
+// copy of what it said once. A literal here drifts silently; these cannot.
+import RUN_WORKFLOW_TS from "../src/run-workflow.ts?raw";
+import WORKER_SH from "../../sandbox/worker.sh?raw";
+import WRANGLER_TOML from "../wrangler.toml?raw";
+
 import {
   BRANCH_CLAIM_PREFIX,
   GATEWAY_PREFIX,
@@ -647,10 +656,17 @@ describe("SPEC §8.1/§8.4: the orchestrator image and the vars that select it",
   });
 
   it("names the container application wrangler.toml declares", () => {
-    // `[[containers]] name` in wrangler.toml. The image is fixed by the
-    // deploy on this substrate, so this string is what a run's boot asks for
-    // and what its `run_image` stamp records.
-    expect(DEFAULT_SANDBOX_IMAGE).toBe("ticks-orchestrator");
+    // `[[containers]] name` in wrangler.toml, READ OUT OF wrangler.toml. The
+    // image is fixed by the deploy on this substrate, so this string is what a
+    // run's boot asks for and what its `run_image` stamp records — and the
+    // only thing that makes DEFAULT_SANDBOX_IMAGE true is that it equals what
+    // the deployable config declares. Comparing it to a literal here pins the
+    // constant against a copy of itself.
+    const containers = WRANGLER_TOML.slice(WRANGLER_TOML.indexOf("[[containers]]"));
+    const declared = /^name\s*=\s*"([^"]+)"/m.exec(containers);
+    expect(declared, "wrangler.toml has no [[containers]] name").not.toBeNull();
+
+    expect(DEFAULT_SANDBOX_IMAGE).toBe(declared![1]);
     expect(deploymentImage(env)).toBe(DEFAULT_SANDBOX_IMAGE);
   });
 
@@ -864,7 +880,14 @@ describe("SPEC §10.1: what a worker's RESULT report means", () => {
 
   /**
    * The three fallback reports `cloud/sandbox/worker.sh` writes when the agent
-   * wrote none, verbatim in their status lines.
+   * wrote none — READ OUT OF THE SCRIPT, not transcribed from it.
+   *
+   * The literals below are the pin; the script is the source. An earlier
+   * version of this block fed its own strings to `parseStatus`, which pins
+   * that the parser handles three sentences this file made up, and it had
+   * already drifted from `write_fallback_report` by a whole clause. Extracting
+   * the lines from `worker.sh` and asserting they equal these makes a reword
+   * of either side red.
    *
    * The point of all three is one rule: **the exit code is not the verdict.**
    * Run run_215b7cbf wrote "BLOCKED, re-dispatch" on all three of its
@@ -873,26 +896,76 @@ describe("SPEC §10.1: what a worker's RESULT report means", () => {
    * had it discarded. What survived on the branch decides; the exit code only
    * colours the wording.
    */
-  const FALLBACK_REPORTS: ReadonlyArray<{ shape: string; line: string; status: string }> = [
+  const FALLBACK_REPORTS: ReadonlyArray<{
+    shape: string;
+    line: string;
+    status: string;
+    /** The shell locals `write_fallback_report` interpolates into this line. */
+    vars: Record<string, string>;
+  }> = [
     {
       shape: "nothing landed",
       line:
         "STATUS: BLOCKED — the harness exited 124, wrote no report, and nothing landed on tick/692/mrq; re-dispatch this tick",
       status: STATUS_BLOCKED,
+      vars: { status: "124", landed: "0 work commit(s)", worker_branch: "tick/692/mrq" },
     },
     {
       shape: "exit 0 with work on the branch",
       line:
         "STATUS: DONE_WITH_CONCERNS — the harness exited 0 and 2 work commit(s) landed on tick/692/mrq, but no agent report exists; review the branch, and note nothing describes the work but the diff",
       status: STATUS_DONE_WITH_CONCERNS,
+      vars: { status: "0", landed: "2 work commit(s)", worker_branch: "tick/692/mrq" },
     },
     {
       shape: "a failed harness with work on the branch",
       line:
-        "STATUS: NEEDS_CONTEXT — the harness exited 124 and 1 work commit(s) landed on tick/692/mrq; a human has to review what is there before this tick is run again",
+        "STATUS: NEEDS_CONTEXT — the harness exited 124 and wrote no report, but 1 work commit(s) landed on tick/692/mrq; a human has to review what is there before this tick is run again",
       status: STATUS_NEEDS_CONTEXT,
+      vars: { status: "124", landed: "1 work commit(s)", worker_branch: "tick/692/mrq" },
     },
   ];
+
+  /**
+   * The `STATUS:` lines `write_fallback_report` actually writes, in the order
+   * the function writes them, with its shell locals substituted.
+   *
+   * Scoped to that one function on purpose: `worker.sh` mentions `STATUS:` in
+   * prose elsewhere, and a pin that widened to catch a comment would be a pin
+   * that fails for the wrong reason.
+   */
+  function fallbackStatusLinesInWorkerSh(): string[] {
+    const open = WORKER_SH.indexOf("write_fallback_report() {");
+    expect(open, "worker.sh no longer defines write_fallback_report").toBeGreaterThan(-1);
+    const close = WORKER_SH.indexOf("\n}\n", open);
+    expect(close, "write_fallback_report has no closing brace at column 0").toBeGreaterThan(open);
+
+    return WORKER_SH.slice(open, close)
+      .split("\n")
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith("STATUS: "));
+  }
+
+  function substituteShellVars(line: string, vars: Record<string, string>): string {
+    return line.replace(/\$\{(\w+)\}/g, (whole, name: string) =>
+      Object.hasOwn(vars, name) ? vars[name]! : whole
+    );
+  }
+
+  it("pins the fallback report lines worker.sh writes, read out of worker.sh", () => {
+    const written = fallbackStatusLinesInWorkerSh();
+    expect(written).toHaveLength(FALLBACK_REPORTS.length);
+
+    const rendered = written.map((line, i) =>
+      substituteShellVars(line, FALLBACK_REPORTS[i]!.vars)
+    );
+    expect(rendered).toEqual(FALLBACK_REPORTS.map((fallback) => fallback.line));
+
+    // Nothing was left unsubstituted: a line still carrying `${...}` would
+    // compare as a literal and quietly pass the equality above if the pin were
+    // updated to match it.
+    for (const line of rendered) expect(line).not.toContain("${");
+  });
 
   it("parses each fallback report the container writes when the agent wrote none", () => {
     const parsed = FALLBACK_REPORTS.map(
@@ -1154,12 +1227,20 @@ describe("SPEC §10.2 and Appendix A #1: revoke before teardown, evidence before
     expect(collectAt).toBeLessThan(destroyAt);
   });
 
-  it("revokes the run's credential before any container is torn down", async () => {
+  it("runs a cancelled wave's on_cancel hook before it destroys any container", async () => {
     // Appendix A #1: "Revoke before teardown: the money dies first, then the
     // work is rescued." Destroying a container is the stronger stop and the
     // slower one, and every second of teardown is a second the harness inside
     // it can still spend — so the credential dies the instant the wave is
     // found cancelled, ahead of the teardowns.
+    //
+    // WHAT THIS PINS, exactly: `dispatchWave`'s ORDERING — that a cancelled
+    // wave runs the canceller's `on_cancel` hook once, before the first
+    // teardown and before the salvage window. The hook below is this test's
+    // own; it journals rather than revoking, because a revoke needs the
+    // run-workflow step's env and params. That `on_cancel` is wired to
+    // `revokeRunTokens` in production is a separate claim, pinned by the test
+    // below it.
     const journal: string[] = [];
     const binding = new JournalBinding(journal);
     const collector = new JournalCollector(journal);
@@ -1217,6 +1298,31 @@ describe("SPEC §10.2 and Appendix A #1: revoke before teardown, evidence before
     const salvageAt = journal.findIndex((entry) => entry.includes("--cancel"));
     expect(revokeAt).toBeLessThan(salvageAt);
     expect(salvageAt).toBeLessThan(destroys[0]!);
+  });
+
+  it("wires that hook to revokeRunTokens, and revokes again before finalize tears down", () => {
+    // The half the harness test above cannot reach. `dispatchWave` proves the
+    // ordering; this proves the production canceller puts a REVOKE in the slot
+    // whose ordering was proved, and that the durable, replay-safe half runs
+    // before finalize destroys anything. Both are orderings inside
+    // `run-workflow.ts`, which this suite does not execute — so they are read
+    // out of the source, the same way `internal/factory/lifecycle` checks that
+    // an invariant's named symbols still exist in the file that claims them.
+    //
+    // A source read is a weak pin and is meant to be: it catches the wiring
+    // being deleted or reordered, not every way it could be made wrong.
+    const cancellerHook = /on_cancel:[\s\S]{0,400}?revokeRunTokens\(/.exec(RUN_WORKFLOW_TS);
+    expect(cancellerHook, "run-workflow.ts no longer revokes from a wave canceller's on_cancel")
+      .not.toBeNull();
+
+    const finalizeAt = RUN_WORKFLOW_TS.indexOf("export async function finalize(");
+    expect(finalizeAt, "run-workflow.ts no longer exports finalize()").toBeGreaterThan(-1);
+    const finalize = RUN_WORKFLOW_TS.slice(finalizeAt);
+    const revokeAt = finalize.indexOf("revokeRunTokens(");
+    const destroyAt = finalize.indexOf("sandbox.destroy()");
+    expect(revokeAt, "finalize() no longer revokes the run's gateway tokens").toBeGreaterThan(-1);
+    expect(destroyAt, "finalize() no longer destroys the run's sandboxes").toBeGreaterThan(-1);
+    expect(revokeAt).toBeLessThan(destroyAt);
   });
 
   it("keeps a revoked credential refused, so nothing a restart does re-issues it", async () => {

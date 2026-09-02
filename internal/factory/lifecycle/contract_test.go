@@ -311,11 +311,14 @@ func TestEveryInvariantCrossReferencesWhereItLivesToday(t *testing.T) {
 		}
 	}
 
-	// Not every invariant lives in run-workflow.ts — A5's timer is in the
-	// sandbox entrypoint and A11's release is in ci-remediation.ts — but most
-	// do, and an invariant that names no site in the file the SPEC says is
-	// 3,500 lines BECAUSE of these orderings has almost certainly lost its
-	// cross-reference rather than genuinely lacking one.
+	// Several invariants live in more than one place — A5's timer is in the
+	// sandbox entrypoint and A11's release is in ci-remediation.ts — but those
+	// are SECOND sites, not substitutes, and today all thirteen name a symbol
+	// in run-workflow.ts. The floor stays below thirteen so that an invariant
+	// genuinely relocated by the §9.2 decomposition is a fact about the code
+	// rather than a failure, while a majority that stops naming the file the
+	// SPEC says is 3,500 lines BECAUSE of these orderings is caught: that is a
+	// cross-reference rotting, not a rule moving.
 	if runWorkflow < 10 {
 		t.Errorf("only %d of 13 invariants cross-reference cloud/factory/src/run-workflow.ts", runWorkflow)
 	}
