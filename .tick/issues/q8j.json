@@ -3,7 +3,7 @@
   "title": "JobSpec/JobHandle/JobStatus/JobResult, role-result and evidence schemas",
   "description": "SPEC §4.3, §10.1 / §12 Phase 0 step 3. Versioned JSON schemas in the bundle for the four-operation executor protocol records and for role-result and evidence records, including the credentials grant on JobSpec (issued by host, source grade, metered vs flat-rate cost semantics) and revocation semantics on cancel. Provide golden example documents (the illustrative ones in the spec) that validate, and negative examples that do not.",
   "notes": "2026-09-02 14:20 - runner-state: substrate=herdr kind=claude branch=tick/q8j worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-q8j workspace=wJ7 base=acb08b9493dd8647918efbebac27079c64339946 agent=tick-q8j pane=wJ7:p1 session=9ec3f316-030c-42c6-83d0-f08e05744f83",
-  "status": "in_progress",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -14,6 +14,7 @@
   "acceptance_criteria": "Schemas live in the bundle with schema_version; golden examples validate and negative examples fail from both Go and TypeScript; JobSpec carries a credentials object with model and source grade; the schemas are referenced from the spec by path.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-02T11:28:24.675892Z",
-  "updated_at": "2026-09-02T12:20:21.885626Z",
-  "started_at": "2026-09-02T12:20:13.160895Z"
+  "updated_at": "2026-09-02T12:56:19.399597Z",
+  "closed_at": "2026-09-02T12:56:19.399597Z",
+  "closed_reason": "Completed: contracts/job-protocol.json freezes the four-operation executor records, role-result and evidence (7 records, schema_id+schema_version, credentials grant with metered/flat-rate cost, 13 golden/16 negative examples) with Go (internal/factory/jobprotocol) and TS readers; bundle 1.2.0"
 }

@@ -3,7 +3,7 @@
   "title": ".ticfac/ layout, checkpoint and compare-and-swap rules as schema and fixtures",
   "description": "SPEC §10.4 / §12 Phase 0 step 6. Define .ticfac/runs/\u003cid\u003e/{checkpoint.json, attempts/\u003cn\u003e.json, evidence/\u003ckey\u003e.json, decisions/\u003cn\u003e.json}, the gitignored .index.json and logs/, the persistence policy (durable means pushed on origin; churn on the run branch; terminal record lands once at publish; run branch tagged at terminal state; ticfac gc) and the compare-and-swap rules (create-if-absent for attempts, SHA-guarded update for checkpoints, against the origin ref). Schemas and golden fixtures in the bundle, plus the .gitignore fragment.",
   "notes": "2026-09-02 14:20 - runner-state: substrate=herdr kind=claude branch=tick/x1w worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-x1w workspace=wJ8 base=acb08b9493dd8647918efbebac27079c64339946 agent=tick-x1w pane=wJ8:p1 session=2e834d6b-9fd5-4dd2-a458-584127794c3a\n2026-09-02 14:43 - Merge conflict with q8j (both cut bundle 1.2.0): worker continued to merge 37bd328db9b9dde499c4c28566d079b735cdca06 and resolve as one 1.2.0 with both contracts. Seam for the retro: two same-wave ticks both adding a contract both bump the bundle — future planning gives the bundle cut to the LAST tick of a wave or to the orchestrator.",
-  "status": "in_progress",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -14,6 +14,7 @@
   "acceptance_criteria": "Record schemas exist in the bundle with golden examples validating from both languages; a fixture describes the CAS sequences for dispatch and checkpoint as executable table tests against an in-memory git fake; the .gitignore fragment for .ticfac/ is defined; the spec references the fixture paths.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-02T11:28:24.750076Z",
-  "updated_at": "2026-09-02T12:43:04.967919Z",
-  "started_at": "2026-09-02T12:20:21.933843Z"
+  "updated_at": "2026-09-02T12:56:19.447837Z",
+  "closed_at": "2026-09-02T12:56:19.447837Z",
+  "closed_reason": "Completed: contracts/ticfac-run-state.json freezes the .ticfac/ layout, persistence policy (durable = pushed on origin, tag at terminal state, gc), boundary, checkpoint/attempt/decision schemas, .gitignore fragment and 7 executable CAS sequences over an in-memory git fake; Go (internal/factory/runstate) and TS readers; resolved the 1.2.0 bundle union with q8j; surfaced the evidence-shape seam now tracked as atx"
 }
