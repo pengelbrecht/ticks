@@ -3,7 +3,7 @@
   "title": "Appendix A lifecycle invariants as a conformance suite",
   "description": "SPEC Appendix A / §12 Phase 0 step 7. Encode each of the thirteen invariants as a conformance test that any reconciler and any executor must pass, written against the Phase 0 schemas and a fake executor/reconciler harness so they can run before real reconciler code exists. Each test names its invariant and the live failure that earned it. Ships as part of the bundle so ticfac (Phase 1) inherits it unchanged.",
   "notes": "2026-09-02 15:35 - runner-state: substrate=herdr kind=claude branch=tick/8jz worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-8jz workspace=wJF base=91f398832006b1ef9e9c8f06e19643f34fc34cb8 agent=tick-8jz pane=wJF:p1 session=c03a97ed-255e-45b4-91de-fc074c343316",
-  "status": "in_progress",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -16,6 +16,7 @@
   "acceptance_criteria": "Thirteen named tests exist, one per Appendix A invariant, each runnable from the bundle against a fake harness; the suite is green against the fake and is documented as the required gate for every executor; run-workflow.ts symbols the invariant lives in today are cross-referenced in each test's comment.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-02T11:28:24.774001Z",
-  "updated_at": "2026-09-02T13:35:36.849847Z",
-  "started_at": "2026-09-02T13:35:27.581832Z"
+  "updated_at": "2026-09-02T14:11:09.734816Z",
+  "closed_at": "2026-09-02T14:11:09.734816Z",
+  "closed_reason": "Completed: contracts/lifecycle-invariants.json encodes Appendix A's 13 invariants with a fake harness, 18 sequences and per-invariant negative controls; TestA1..TestA13 in internal/factory/lifecycle and 13 named vitest cases; both readers grep run-workflow.ts for every cross-referenced symbol; gate block names reconciler and every executor; bundle 2.1.0"
 }
