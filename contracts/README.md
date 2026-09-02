@@ -93,12 +93,14 @@ the implementations disagreeing.
 | `credential-ownership.json` | which product owns each credential type, the `~/.ticfacrc` key set and its redacted example, and the stop/cost/security lifecycle rules | `internal/factory/credentials/contract_test.go` |
 | `job-protocol.json` | the versioned record schemas for the four-operation executor protocol (JobSpec, JobHandle, JobStatus, cancel acknowledgement, JobResult), the role-result envelope and **the bundle's one evidence record** (`ticfac.evidence.v1`, referenced by `ticfac-run-state.json`), with the golden documents each admits and the negative documents each must refuse | `internal/factory/jobprotocol/contract_test.go`, `internal/factory/jobprotocol/evidence_cross_contract_test.go` |
 | `ticfac-run-state.json` | the `.ticfac/` layout, the persistence policy (durable means pushed on origin) and the compare-and-swap rules, with record schemas, a reference to the evidence record it places but does not define, golden and negative examples, the `.gitignore` fragment and executable CAS sequences | `internal/factory/runstate/contract_test.go`, `internal/factory/runstate/cas_fake_test.go`, `internal/factory/runstate/evidence_cross_contract_test.go` |
+| `lifecycle-invariants.json` | SPEC Appendix A's thirteen lifecycle invariants as a conformance suite: each invariant's statement, the live failure that earned it, the symbols it lives in today, and executable sequences against a fake reconciler/executor harness with a named guard per rule | `internal/factory/lifecycle` (`invariants_test.go`, `harness_test.go`, `contract_test.go`) |
 
 The TypeScript readers live in the factory's vitest suite (`worker-boot.test.ts`,
 `repo-config.test.ts`, `message-context.test.ts`, `tick-membership.test.ts`,
 `sweep-contract.test.ts`, `collect-vocabulary.test.ts`, `tk-json-manifest.test.ts`,
 `credential-ownership.test.ts`, `job-protocol.test.ts`,
-`ticfac-run-state.test.ts`, `evidence-record.test.ts`, and their siblings).
+`ticfac-run-state.test.ts`, `evidence-record.test.ts`, `lifecycle-invariants.test.ts`, and their
+siblings).
 They import from here by relative path — `../../../contracts/<name>.json` — and
 there is deliberately no second copy under `cloud/factory/test/fixtures/`. Two
 copies of a parity fixture is the one arrangement guaranteed to defeat it: a
@@ -235,6 +237,56 @@ There are also, as of this wave, **two TypeScript strict-subset validators**:
 against the same subset of `internal/tkcontract/schema.go`. Both are left in
 place — they are test helpers rather than a contract, and unifying them is a
 call for the epic's final review, not for a merge.
+
+### The invariant suite is a gate, not a case table
+
+`lifecycle-invariants.json` is the second fixture here whose cases are
+sequences against a model rather than input -> expected, and the first that is
+a **claim about who has to run it**. SPEC Appendix A's thirteen invariants were
+each paid for by a failed live run; §12 Phase 0 step 7 says to encode them
+"before any reconciler code exists", which is why they are in `contracts/` and
+not in a package.
+
+Three things follow from that, and they are what make the file different from
+its neighbours:
+
+1. **It ships with its own executor.** `harness` describes a small state
+   machine — a stop record, credentials, jobs, an origin, a host step, a poll
+   cadence, holds, claims, a budget, evidence — with a closed op vocabulary,
+   and both readers implement it independently
+   (`internal/factory/lifecycle/harness_test.go`,
+   `cloud/factory/test/lifecycle-harness.ts`). No git, no container, no
+   network, no clock: the suite runs where the reconciler does not exist yet,
+   and ticfac inherits it unchanged.
+2. **Every rule names a guard, and every guard is proven to bite.** Fifteen
+   named guards, one or two per invariant. Each reader replays an invariant's
+   sequences with its guards turned OFF and requires at least one to stop
+   matching the contract. This is the run-state CAS negative control
+   generalised: these thirteen failures are all the quiet kind — a boundary
+   that stopped enforcing, a poll that stopped keeping alive, a fingerprint
+   nobody checks — and none of them raise. The vocabulary is closed over both
+   modes on purpose, because the guard-off answers (`recorded`,
+   `stuck_awaiting_claimer`, `reported_requested`) are exactly what a WRONG
+   implementation produces.
+3. **`gate` is part of the contract.** It names the reconciler and each
+   executor the SPEC plans, and says the invariants may not be waived by a
+   profile, a deployment var or a prompt. A new EXECUTOR re-runs this suite; a
+   new runner on an existing executor does not (§12 Phase 1 step 3: claude,
+   codex and pi are runners on one worktree-per-attempt executor, so Appendix A
+   is tested once).
+
+Each invariant also carries `earned_from` — the live failure — and `today`, the
+file-and-symbol list of where the rule lives now, which both readers CHECK by
+grepping the named file. §9.2 preserves run-workflow.ts's symbols when it is
+decomposed; this preserves the reasons, and a cross-reference nobody verifies
+rots into a list of names that used to exist.
+
+Appendix A #13's four fingerprint fields are the one thing the file does not
+define: `harness.fingerprint_fields` maps Appendix A's English names onto
+`job-protocol.json`'s `$defs.provenance` and both readers follow the pointer,
+asserting each field is a property of provenance *and* required by it. That is
+the bundle 2.0.0 rule applied a third time — a record two contracts describe is
+a record one of them must define.
 
 ### What is NOT a contract
 
