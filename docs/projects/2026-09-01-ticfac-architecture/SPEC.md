@@ -175,6 +175,18 @@ The final command names and schemas are a release decision, not an invitation
 for ticfac to reach into internal/. A command MUST fail closed when its
 requested JSON contract is unavailable or incompatible.
 
+One qualification, stated here so it is not discovered in Phase 2: a
+Cloudflare Workflow or isolate cannot execute a Go binary, so on that host the
+reconciler cannot shell out to tk. The current factory already resolves this —
+it reads .tick/ records from the pushed branch through the contents API and
+writes create-only tracker commits the same way, held to tk's behaviour by the
+tracker-layout parity fixture. That is the model: **tk --json defines the
+tracker contract; a host that cannot run tk implements the same contract in
+its own language and proves it with the pinned fixtures of §3.2.** Such an
+implementation is a consumer of the contract, not a second tracker — it
+performs only the reads and controlled writes listed above, and a fixture
+break fails its build. Every host that can run tk runs tk.
+
 ### 3.2 Pinned contracts
 
 The current cross-language fixtures under contracts/ exist because Go and
@@ -327,7 +339,7 @@ An illustrative JobSpec is deliberately substrate-neutral:
   "source": {
     "repository": "git@example/repo.git",
     "base_sha": "<sha>",
-    "write_ref": "refs/ticfac/run-42/tick-abc/attempt-1"
+    "write_ref": "refs/heads/ticfac/run-42/tick-abc/attempt-1"
   },
   "capabilities": {
     "persistence": "durable",
@@ -337,9 +349,22 @@ An illustrative JobSpec is deliberately substrate-neutral:
   "inputs": [{"kind": "tick", "id": "abc"}],
   "output_schema": "ticfac.job-result.implement-tick.v1",
   "artifact_prefix": "runs/run-42/jobs/tick-abc/attempt-1/",
+  "credentials": {"model": "issued-by-host", "source": "read-only"},
   "limits": {"wall_seconds": 3600, "max_cost_usd": 10}
 }
 ~~~
+
+Credentials are part of the protocol, not an adapter detail. The host issues
+every credential a job holds — model access, and source access at a declared
+grade — and records the grant in the attempt record. `cancel` MUST revoke
+those credentials before requesting a stop, and a cancelled handle can never
+obtain a fresh one: a kill switch is a durable refusal to issue, checked before
+every boot, not a revocation a restart can undo. Cost is a property of the
+credential, not of the job. A metered credential carries a cost budget
+enforced from gateway telemetry; a flat-rate credential (a subscription seat
+behind a broker) has no per-request cost to bound and says so — wall-clock and
+cancellation still apply, and quota exhaustion is reported as its own failure
+class, never as a broken route.
 
 The Cloudflare executor translates those capabilities to Computer Workspace
 and backend choices. A local or future host translates the same request to its
@@ -425,6 +450,12 @@ profiles:
 
 Names and file format are illustrative; the required behavior is resolution,
 policy validation, versioning, and provenance.
+
+This section describes the end state, not Phase 1. Phase 1 resolves a role to
+exactly four things — executor, runner, model, prompt — and records them.
+Every other field above earns its place when a real run needs it; the schema
+is versioned so that is cheap. Building the full profile machinery before a
+run has demanded it is the platform §4 says not to build.
 
 Prompt/context assembly is layered and deterministic:
 
@@ -846,6 +877,11 @@ There is no implicit promotion in the current explicit-backend API. The
 phase/capability policy and its tests are therefore a Cloudflare-executor
 responsibility.
 
+Sections 8.3–8.5 are design ahead of a preview API and are Phase 5 material.
+Nothing in Phases 0–4 depends on them, and they should be re-read against the
+Computer API that actually ships before any of it is implemented (§8.7).
+Principle 12 applies to this document as much as to the code.
+
 ### 8.6 Durable source versus derived execution state
 
 The executor must make restart behavior legible by separating durable facts from
@@ -947,6 +983,9 @@ implementation failed exactly this safe way.
 Deep coding happens in jobs. The orchestrator therefore needs no orchestrator
 container. It can start a role job from an isolate/service boundary, persist
 the JobResult, and continue reconciliation from a durable Workflow checkpoint.
+Tracker reads and controlled writes from the Workflow go through the
+contract-held implementation of §3.1; nothing here needs a container in order
+to talk to the tracker.
 A temporary orchestrator container is justified only if a
 specific control-plane operation requires a capability unavailable to the
 controller; it is not the default execution model.
@@ -1170,6 +1209,11 @@ on Workflow, Durable Object, R2, Sandbox, or Computer types.
 5. Define credential ownership and ~/.ticfacrc migration.
 6. Define the `.ticfac/` layout, checkpoint, and compare-and-swap rules
    (§10.4) alongside the schemas; run state never lands in D1 as authority.
+7. Inventory the lifecycle invariants the current implementation earned from
+   live failures (Appendix A) and encode each as a conformance test that the
+   reconciler and every executor must pass, before any reconciler code exists.
+   run-workflow.ts is 3,500 lines because of these orderings; §9.2 preserves
+   the symbols, this preserves the reasons.
 
 ### Phase 1: prove the smallest local vertical slice
 
@@ -1343,3 +1387,47 @@ The first production architecture is complete when all of the following hold:
   and serialized publication.
 - No Factory-specific command, credential, runner, or wave supervisor remains
   in ticks beyond an explicitly documented compatibility transition.
+
+## Appendix A: Lifecycle invariants earned from live runs
+
+Each of these was paid for by a failed cloud run before it was written down.
+They are conformance tests, not guidance: a reconciler or executor that
+violates one is wrong regardless of what the rest of this document says.
+
+1. **A stop is a durable refusal to issue credentials, checked before every
+   boot** — not a revocation a restart can undo. Revoke before teardown: the
+   money dies first, then the work is rescued.
+2. **A supervisor cannot report its own death.** A record written by the thing
+   that may be gone is not evidence of its liveness. Liveness is observed from
+   outside; the run record is not it.
+3. **No step outlives the host's cap.** Long waits are spread across bounded
+   steps that re-derive state from durable facts on each leg.
+4. **Polling is the keepalive.** The interval at which a live job is addressed
+   stays well under the substrate's sleep/wipe threshold, and that relationship
+   is pinned by a constant or a test, not by arithmetic in two files.
+5. **In-progress work is pushed on a timer.** Durability that depends on a job
+   remembering to push is not durability. A process exit or a missing handle is
+   never proof of completion, and a job that dies leaves its partial work on
+   origin.
+6. **A live job is never redispatched.** Adopt by stable identity; a fresh
+   attempt is created only when the previous one is proven dead.
+7. **Read back after write.** A recorded decision or wave is confirmed by
+   re-reading it before anything acts on it; a write that silently did not land
+   must not look like a finished epic.
+8. **An in-flight state is settled by whoever finds it next**, from durable
+   evidence (does the thing exist?), never by trusting the claimer to return.
+9. **Never collapse distinct failure classes into one message.** An expired
+   lease and a stolen one; an absent report and landed work; a record that is
+   unreadable and one that is outside the epic — each reports differently.
+10. **Boundaries are enforced by the substrate, not requested of the model.**
+    Compliance is a property of the model. The `.tick/` and `.ticfac/` rules
+    are made impossible to break, and every attempt is reported.
+11. **A struck-out unit is released by a person, never by the clock.** A
+    rolling window bounds the window, not the subject; a table with writes and
+    no reads is not a guard.
+12. **Effective budgets are reported after clamping.** An operator's number
+    silently replaced by a deployment ceiling is discovered from a cancelled
+    run; say the number that will govern at submission.
+13. **Evidence is fingerprinted to what it evaluated** — source SHA,
+    integration SHA, config digest, profile digest — and publication checks
+    freshness against the current target.
