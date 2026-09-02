@@ -1106,12 +1106,14 @@ source/evidence or recorded an explicit recovery/escalation outcome.
 ### 10.4 Run state in the repository
 
 ticfac keeps its run state in the repository it executes against, under a dot
-directory that mirrors `.tick/` in layout and in rules:
+directory that mirrors `.tick/` in layout and in its boundary rules — but
+**not** in its persistence policy, because run state and issue state have
+opposite requirements (see below):
 
 ~~~text
 .ticfac/
   runs/<run-id>/
-    checkpoint.json            one commit per state change; the run's audit log is git log on this path
+    checkpoint.json            one commit per state change, pushed at once; audit = log of the run branch
     attempts/<n>.json          created once per dispatch — existence is the idempotency marker
     evidence/<key>.json        bounded, redacted evidence records (§10.1)
     decisions/<n>.json         role-job requests and validated responses, with provenance
@@ -1124,12 +1126,47 @@ an evidence record. One file per record, so concurrent EpicRuns writing
 different `runs/<id>/` directories merge cleanly — the same argument ticks
 makes for one file per tick.
 
-Where it lives: on the **EpicRun's integration branch**, landing on the target
-ref when the epic publishes. This is what the current factory already does
-with `.tick/` (a closeout commits tracker state on the run branch and merges it
-through the run's PR). Target-ref history grows the way `.tick/activity/`
-already does and is pruned the same way (`ticfac gc`, by age and terminal
-state).
+**Why `.tick/` is committed, and why that does not transfer as-is.** `.tick/`
+is committed because issue state is the project's shared memory: written by
+people and agents at a few changes a day, read by everyone, alive for as long
+as the project. Committing it is how status is persisted and shared, and a
+local commit that is pushed later is fine. Run state is the opposite on every
+axis:
+
+| | `.tick/` (issues) | `.ticfac/` (runs) |
+|---|---|---|
+| Author | people and agents, any clone | one reconciler, holding the lease |
+| Churn | a few writes a day | hundreds of writes per run |
+| Lifetime | the project's | the run's; terminal state is all that matters afterwards |
+| Reader | everyone | the reconciler, and a person reading a post-mortem |
+| Durable when | eventually pushed | **pushed on origin, at once** — the writer is a sandbox that can be wiped |
+| Conflict | merge by hand | compare-and-swap; a conflict is the signal |
+
+So `.ticfac/` adopts `.tick/`'s location and boundary, and its own
+persistence policy:
+
+- **Durable means on origin.** A checkpoint that exists only in a working tree
+  or a local commit does not exist. The reconciler writes, commits, and pushes
+  as one operation, and the compare-and-swap of §4.2 is against the origin
+  ref, not the local one. This is the exact lesson of the sandbox keeper: a
+  container that dies leaves its work on origin or nowhere.
+- **Churn stays on the run branch.** During a run, every state change is a
+  commit on the **EpicRun's integration branch**, which already exists and
+  already carries the run's merged worker work. The run's full history — every
+  checkpoint, attempt, decision — is that branch's log.
+- **The target ref receives the terminal record once.** At publish, the
+  run's `.ticfac/runs/<id>/` lands on the target ref through the epic's PR in
+  its final form only: the last checkpoint, all attempts, evidence and
+  decisions — bounded files, the way a closed tick stays in `.tick/`. The
+  intermediate commits do not land on main; a squash merge collapses them by
+  construction. Before the run branch is deleted the reconciler tags it
+  (`ticfac/run-<id>`), so the full history stays reachable for a post-mortem
+  without living in the target's log. Retention of tags and of terminal run
+  directories is `ticfac gc`, by age and terminal state, the way
+  `.tick/activity/` is pruned.
+- **A run that never publishes still has its record.** The tag is placed at
+  terminal state, not at merge, so a failed or cancelled run's history is as
+  reachable as a successful one's.
 
 Rules:
 
