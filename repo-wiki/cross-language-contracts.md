@@ -2,18 +2,20 @@
 type: architecture
 source: from-chat
 covers: [contracts, cloud/factory/scripts/contracts.mjs, cloud/factory/contracts.pin.json, cloud/factory/CONTRACTS.md]
-verified_against: 5a1e1f7f
+verified_against: 91f39883
 status: active
 ---
 
 ## Compiled Truth
 
 **`contracts/` at the repo root holds every rule that more than one
-implementation has to obey.** Thirteen files at bundle `2.0.0` — nine
+implementation has to obey.** Fourteen files at bundle `2.1.0` — nine
 behavioural case tables, plus `tk-json-manifest.json` (a published API surface),
 `credential-ownership.json`, `job-protocol.json` (record schemas, including the
-bundle's one evidence record), and `ticfac-run-state.json` (a case table over an
-in-memory *model*, not over inputs — see below). Both languages read them, and a
+bundle's one evidence record), `ticfac-run-state.json` (a case table over an
+in-memory *model*, not over inputs — see below), and `lifecycle-invariants.json`
+(SPEC Appendix A's thirteen invariants as a conformance suite over a second such
+model — see [[lifecycle-invariants-suite]]). Both languages read them, and a
 one-sided edit fails a build — that is the whole point and it is proven, not
 assumed (see *Every contract is proven to bite*).
 
@@ -199,6 +201,12 @@ No silent-orphan contract was found.
   package that ships both — nothing can be true in a fixture and false on screen.
 
 ## Timeline
+- 2026-09-02 — bundle `2.1.0`: `lifecycle-invariants.json` added — SPEC Appendix
+  A's thirteen lifecycle invariants as a conformance suite, with a fake
+  reconciler/executor harness both languages implement, a named guard per rule
+  and a per-invariant negative control, plus a third cross-file check (A13's
+  fingerprint fields resolved against `job-protocol.json`'s `$defs.provenance`)
+  — tick `8jz`, see [[lifecycle-invariants-suite]]
 - 2026-09-02 — bundle `2.0.0`: the evidence record reconciled to ONE definition
   (`job-protocol.json` `ticfac.evidence.v1`, nested provenance, required `key`),
   `ticfac-run-state.json` reduced to a reference, and two new checks that look

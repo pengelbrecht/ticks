@@ -46,7 +46,11 @@ how it relates to the earlier factory-extraction project.
   the grant; `cancel` revokes first; a kill switch is a durable refusal to
   issue. A flat-rate subscription seat has no cost budget and says so.
 - **Appendix A** lists thirteen lifecycle invariants earned from live runs;
-  Phase 0 makes them a conformance suite that every executor must pass.
+  Phase 0 makes them a conformance suite that every executor must pass —
+  shipped in bundle `2.1.0` as `contracts/lifecycle-invariants.json`, run
+  against a fake harness so it exists before the reconciler does
+  ([[lifecycle-invariants-suite]]).
 
 See also: [[factory-ticks-boundary]], [[cross-language-contracts]],
-[[credential-split]], [[local-worker-durability]].
+[[credential-split]], [[local-worker-durability]],
+[[lifecycle-invariants-suite]].

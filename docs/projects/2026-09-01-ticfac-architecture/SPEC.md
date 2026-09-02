@@ -1340,7 +1340,13 @@ the reconciler plus two executors; runners are unchanged.
    live failures (Appendix A) and encode each as a conformance test that the
    reconciler and every executor must pass, before any reconciler code exists.
    run-workflow.ts is 3,500 lines because of these orderings; §9.2 preserves
-   the symbols, this preserves the reasons.
+   the symbols, this preserves the reasons. Frozen as
+   [`contracts/lifecycle-invariants.json`](../../../contracts/lifecycle-invariants.json)
+   — thirteen named tests over a fake reconciler/executor harness, with a named
+   guard per invariant and a per-invariant negative control, read from Go by
+   `internal/factory/lifecycle/` and from TypeScript by
+   `cloud/factory/test/lifecycle-invariants.test.ts`. A new **executor** re-runs
+   the suite; a new runner on an existing executor does not.
 
 **Gate:** the contract bundle passes from both repositories; no behavior has
 changed. Small and boring on purpose.

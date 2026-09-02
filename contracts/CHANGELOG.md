@@ -175,3 +175,46 @@ Consumers: `cloud/factory` moves its pin to `2.0.0`. A writer of `.ticfac/`
 records nests its provenance, adds `key`, and spells `acceptance` `required`
 or `advisory`; a reader of `job_result.evidence[]` reads `key` where it read
 `evidence_id`. SPEC §10.1 and §10.4 name the one record.
+
+## 2.1.0
+
+MINOR. One contract added by ticfac Phase 0 (epic 692), SPEC §12 Phase 0 step
+7; no existing fixture byte changed, so an unchanged consumer is still correct
+but no longer complete.
+
+- `lifecycle-invariants.json` — **SPEC Appendix A's thirteen lifecycle
+  invariants as a conformance suite**, each with the live failure that earned
+  it, the symbols it lives in today, and executable sequences against a fake
+  harness. Read from Go by `internal/factory/lifecycle` and from TypeScript by
+  `cloud/factory/test/lifecycle-invariants.test.ts`.
+
+Three things make it a contract rather than a list:
+
+- **It is executable before the code it constrains exists.** The `harness`
+  block describes a small state machine — a stop record, credentials, jobs, an
+  origin, a host step, a poll cadence, holds, claims, a budget, evidence — that
+  both readers implement independently, so the thirteen rules can be tested in
+  Phase 0 with no reconciler, no container, no git and no network. That is what
+  lets ticfac inherit the suite unchanged in Phase 1.
+- **Every invariant names a guard, and every guard is proven to bite.** Each
+  reader replays an invariant's sequences with its guard(s) turned off and
+  requires at least one of them to stop matching. This is
+  `ticfac-run-state.json`'s CAS negative control generalised to fifteen named
+  guards; a rule whose sequences pass either way is describing a series of
+  operations, not testing anything.
+- **The cross-file rule bundle 2.0.0 added is used again.** Appendix A #13's
+  four fingerprint fields are not defined here: `harness.fingerprint_fields`
+  maps Appendix A's English names onto `job-protocol.json`'s
+  `$defs.provenance`, and both readers follow the pointer — asserting each
+  field is a property of provenance AND required by it — rather than restating
+  the shape. A record two contracts describe is a record one of them must
+  define.
+
+The suite is also a claim about who has to run it: `gate` names the reconciler
+and each executor the SPEC plans, and says the invariants may not be waived by
+a profile, a deployment var or a prompt. A new EXECUTOR is what re-runs this
+suite; a new runner on an existing executor is not (§12 Phase 1 step 3).
+
+Consumers: `cloud/factory` moves its pin to `2.1.0`. Nothing existing to
+follow — but an implementation of a ticfac executor now has a defined gate, and
+`internal/factory/lifecycle` is the reference for what passing it means.

@@ -467,6 +467,13 @@ func TestGoldenExamplesValidate(t *testing.T) {
 			t.Fatalf("golden.%s: %v", record, err)
 		}
 		name := record
+		// Per iteration, exactly as TestInvalidExamplesAreRefused does it: the
+		// referenced record brings the OTHER contract's $defs, and assigning
+		// them to the loop-invariant `defs` leaked job-protocol's definitions
+		// into whichever golden example map iteration happened to visit next.
+		// That made this test fail or pass on Go's map ordering — `checkpoint`
+		// validated against defs with no `tick_state` roughly half the time.
+		validatorDefs := defs
 		s, ok := schemas[name]
 		if !ok {
 			if !referenced(c, record) {
@@ -476,9 +483,9 @@ func TestGoldenExamplesValidate(t *testing.T) {
 			// A referenced record is validated against the contract that
 			// defines it, not against a looser copy kept here.
 			name = c.References[record].SchemaID
-			s, defs = referencedSchema(t, c, record)
+			s, validatorDefs = referencedSchema(t, c, record)
 		}
-		if errs := tkcontract.Validate(s, defs, doc); len(errs) > 0 {
+		if errs := tkcontract.Validate(s, validatorDefs, doc); len(errs) > 0 {
 			t.Errorf("golden.%s does not validate against schema %q:\n  %s",
 				record, name, strings.Join(errs, "\n  "))
 		}

@@ -1,10 +1,11 @@
 {
   "$comment": "The versioned cross-language contract bundle. Read contracts/README.md for what the fixtures are and contracts/CHANGELOG.md for the rule that governs this file. `version` is pinned by exact value in cloud/factory/contracts.pin.json. Regenerate `files` and `digests` with `make contracts-bundle`; never regenerate them without bumping `version`.",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "files": [
     "collect-vocabulary.json",
     "credential-ownership.json",
     "job-protocol.json",
+    "lifecycle-invariants.json",
     "message-context.json",
     "runners-config-contract.json",
     "sandbox-image-cases.json",
@@ -20,6 +21,7 @@
     "collect-vocabulary.json": "b2094cfbeec03ea2d6df78dab40eb6cbe8b0a9c256b7fe91c10ab679759e705e",
     "credential-ownership.json": "efd9c35e54c34d347e3608131fcc9b8918f41381d7098a5d2e71fd6cd8f62126",
     "job-protocol.json": "7491a9e487e73a18cd14cc4d6c30f9ecd3a9761d918108f6ce0c47f34bda8874",
+    "lifecycle-invariants.json": "2af730ec4752167d67d90c252b18aa8d65ad158d01c8f1eb510417aa4c13e2c8",
     "message-context.json": "9cceb63c00266692fc1938d60b7c61162d22794c2a64184167635938060581d5",
     "runners-config-contract.json": "d852787a1b84389b02a1befef8ffc6ece950e0955b4094a0c591aa35f812e1da",
     "sandbox-image-cases.json": "47bf74104bb6a682c9876c25177cd5ff4c31ec6dc477dd5f1182cb6d54e5d470",
