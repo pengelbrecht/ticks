@@ -229,3 +229,140 @@ func contractFilesOnDisk(dir string) ([]string, error) {
 	sort.Strings(names)
 	return names, nil
 }
+
+// SchemaIDUse is one appearance of a `schema_id` in a contract file: either the
+// DEFINITION of that record (the object carrying the id also carries its
+// `schema`) or a REFERENCE to it (the object names the id and nothing else).
+type SchemaIDUse struct {
+	// File is the contract the appearance is in.
+	File string
+
+	// Pointer is a readable path to the object, e.g. `records.evidence`.
+	Pointer string
+
+	// Defines is true when this appearance carries the schema itself.
+	Defines bool
+}
+
+// VerifySchemaIDs asserts the rule that bundle 1.2.0 broke: **a schema_id that
+// appears in more than one contract file resolves to exactly one definition.**
+//
+// That bundle described one file — .ticfac/runs/<run-id>/evidence/<key>.json —
+// twice: `job-protocol.json` published `ticfac.evidence.v1` flat and closed,
+// `ticfac-run-state.json` carried its own `evidence_envelope` requiring a
+// nested provenance object and a key. No document satisfied both, and both
+// suites stayed green because each validated its own examples against its own
+// schema. Nothing in the bundle could see the disagreement, because nothing in
+// the bundle was looking ACROSS files.
+//
+// This looks across. An id used by two contracts must be defined by exactly
+// one of them; the others reference it and validate against what it defines.
+// An id confined to a single file is that file's business and is not checked
+// here — the rule is about the seam, not about naming.
+func VerifySchemaIDs(dir string) error {
+	names, err := contractFilesOnDisk(dir)
+	if err != nil {
+		return err
+	}
+
+	uses := map[string][]SchemaIDUse{}
+	for _, name := range names {
+		raw, err := os.ReadFile(filepath.Join(dir, name))
+		if err != nil {
+			return fmt.Errorf("%s: %w", name, err)
+		}
+		var document any
+		if err := json.Unmarshal(raw, &document); err != nil {
+			return fmt.Errorf("%s is not valid JSON: %w", name, err)
+		}
+		collectSchemaIDs(document, name, "", uses)
+	}
+
+	var problems []string
+	for id, appearances := range uses {
+		files := map[string]bool{}
+		var definitions []SchemaIDUse
+		for _, use := range appearances {
+			files[use.File] = true
+			if use.Defines {
+				definitions = append(definitions, use)
+			}
+		}
+		if len(files) < 2 {
+			continue
+		}
+
+		switch len(definitions) {
+		case 1:
+			continue
+		case 0:
+			problems = append(problems, fmt.Sprintf(
+				"%s: referenced by %s and defined nowhere — a pointer at nothing",
+				id, strings.Join(sortedKeys(files), ", ")))
+		default:
+			var where []string
+			for _, def := range definitions {
+				where = append(where, fmt.Sprintf("%s %s", def.File, def.Pointer))
+			}
+			sort.Strings(where)
+			problems = append(problems, fmt.Sprintf(
+				"%s is defined %d times: %s", id, len(definitions), strings.Join(where, ", ")))
+		}
+	}
+
+	if len(problems) > 0 {
+		sort.Strings(problems)
+		return fmt.Errorf("the contract bundle in %s has schema ids that do not resolve to one definition:\n  %s\n\n%s",
+			dir, strings.Join(problems, "\n  "),
+			"One record, one schema. Two contracts describing the same record is the drift\n"+
+				"this bundle exists to catch and cannot catch from inside either file: each\n"+
+				"suite validates its own examples against its own schema and both stay green.\n"+
+				"Define the record in ONE contract and have the other name it by schema_id.")
+	}
+
+	return nil
+}
+
+// collectSchemaIDs walks a decoded contract document and records every object
+// that carries a `schema_id`.
+func collectSchemaIDs(node any, file, pointer string, into map[string][]SchemaIDUse) {
+	switch v := node.(type) {
+	case map[string]any:
+		if id, ok := v["schema_id"].(string); ok && id != "" {
+			_, defines := v["schema"]
+			into[id] = append(into[id], SchemaIDUse{File: file, Pointer: pointer, Defines: defines})
+		}
+		for _, key := range sortedMapKeys(v) {
+			collectSchemaIDs(v[key], file, joinPointer(pointer, key), into)
+		}
+	case []any:
+		for i, item := range v {
+			collectSchemaIDs(item, file, fmt.Sprintf("%s[%d]", pointer, i), into)
+		}
+	}
+}
+
+func joinPointer(pointer, key string) string {
+	if pointer == "" {
+		return key
+	}
+	return pointer + "." + key
+}
+
+func sortedMapKeys(m map[string]any) []string {
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+func sortedKeys(m map[string]bool) []string {
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
+}

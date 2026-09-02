@@ -142,10 +142,15 @@ jobs.
 
 Two smaller things worth knowing about the file:
 
-- **The evidence record's fields are deliberately NOT pinned here.**
-  `evidence_envelope` is open past `schema_version`, `key` and `provenance`; the
-  record's own shape belongs to §10.1's evidence schema. This contract owns the
-  path, the guard and the envelope.
+- **The evidence record's fields are deliberately NOT pinned here.** Since
+  bundle 2.0.0 there is no second schema for it either: `references.evidence`
+  names `job-protocol.json`'s `ticfac.evidence.v1` by schema_id, and this
+  contract owns the path, the guard and the envelope. In 1.2.0 the two files
+  carried two incompatible shapes of the same record and both suites stayed
+  green, because nothing in the bundle validated one contract's document
+  against the other contract's rule. Two checks now do — the cross-file golden
+  tests, and the rule that a `schema_id` in more than one contract file
+  resolves to exactly one definition — each with a negative control.
 - **The `.gitignore` fragment is asserted against the real file**, with
   `git check-ignore` — ticks is a ticfac target like any other, so "the fragment
   is defined" means git actually applies it, not that a JSON file mentions it.

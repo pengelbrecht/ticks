@@ -91,14 +91,14 @@ the implementations disagreeing.
 | `collect-vocabulary.json` | the collect verdict/status vocabulary and the status-line parse cases | `internal/herd/collect/contract_test.go`, `internal/cloud/collect/contract_test.go` |
 | `tk-json-manifest.json` | the published `tk --json` command surface: every command a consumer may call, its argv, its output schema, and the contract version this build serves | `cmd/tk/cmd/tk_json_contract_test.go`, `internal/tkcontract` |
 | `credential-ownership.json` | which product owns each credential type, the `~/.ticfacrc` key set and its redacted example, and the stop/cost/security lifecycle rules | `internal/factory/credentials/contract_test.go` |
-| `job-protocol.json` | the versioned record schemas for the four-operation executor protocol (JobSpec, JobHandle, JobStatus, cancel acknowledgement, JobResult), the role-result envelope and the evidence record, with the golden documents each admits and the negative documents each must refuse | `internal/factory/jobprotocol/contract_test.go` |
-| `ticfac-run-state.json` | the `.ticfac/` layout, the persistence policy (durable means pushed on origin) and the compare-and-swap rules, with record schemas, golden and negative examples, the `.gitignore` fragment and executable CAS sequences | `internal/factory/runstate/contract_test.go`, `internal/factory/runstate/cas_fake_test.go` |
+| `job-protocol.json` | the versioned record schemas for the four-operation executor protocol (JobSpec, JobHandle, JobStatus, cancel acknowledgement, JobResult), the role-result envelope and **the bundle's one evidence record** (`ticfac.evidence.v1`, referenced by `ticfac-run-state.json`), with the golden documents each admits and the negative documents each must refuse | `internal/factory/jobprotocol/contract_test.go`, `internal/factory/jobprotocol/evidence_cross_contract_test.go` |
+| `ticfac-run-state.json` | the `.ticfac/` layout, the persistence policy (durable means pushed on origin) and the compare-and-swap rules, with record schemas, a reference to the evidence record it places but does not define, golden and negative examples, the `.gitignore` fragment and executable CAS sequences | `internal/factory/runstate/contract_test.go`, `internal/factory/runstate/cas_fake_test.go`, `internal/factory/runstate/evidence_cross_contract_test.go` |
 
 The TypeScript readers live in the factory's vitest suite (`worker-boot.test.ts`,
 `repo-config.test.ts`, `message-context.test.ts`, `tick-membership.test.ts`,
 `sweep-contract.test.ts`, `collect-vocabulary.test.ts`, `tk-json-manifest.test.ts`,
 `credential-ownership.test.ts`, `job-protocol.test.ts`,
-`ticfac-run-state.test.ts`, and their siblings).
+`ticfac-run-state.test.ts`, `evidence-record.test.ts`, and their siblings).
 They import from here by relative path — `../../../contracts/<name>.json` — and
 there is deliberately no second copy under `cloud/factory/test/fixtures/`. Two
 copies of a parity fixture is the one arrangement guaranteed to defeat it: a
@@ -196,19 +196,33 @@ raise; it lets a second reconciler dispatch the same attempt, and the run pays
 for both jobs.
 
 Two smaller things worth knowing. The evidence record's own fields are **not**
-pinned here: `evidence_envelope` is open past `schema_version`, `key` and
-`provenance`, and the record's shape is `job-protocol.json`'s
-`records.evidence`. One contract owns where an evidence file goes and how it is
-written, the other owns what is in it.
+pinned here and no longer have a second schema here either: `references.evidence`
+names `job-protocol.json`'s `records.evidence` (`ticfac.evidence.v1`) by
+schema_id, and this contract pins the path, the guard and the envelope. One
+contract owns where an evidence file goes and how it is written, the other owns
+what is in it.
 
-> **Open, as of bundle 1.2.0:** those two shapes disagree. `records.evidence`
-> is flat and closed — every provenance field is a required top-level property,
-> `additionalProperties: false` — while `evidence_envelope` requires a nested
-> `provenance` object and a `key`. No document satisfies both, and neither
-> reader notices, because each validates its own examples against its own
-> schema. The two contracts landed in the same wave from parallel ticks (q8j
-> and x1w) and were merged without reconciling this. Settling it is a change to
-> one of the two shapes, so it gets its own bundle version.
+> **Settled in bundle 2.0.0.** In 1.2.0 those were two shapes, not two halves:
+> `records.evidence` was flat and closed while this file's `evidence_envelope`
+> required a nested `provenance` object and a `key` and was open past it. No
+> document satisfied both, and neither reader noticed, because each validated
+> its own examples against its own schema. The two contracts landed in the same
+> wave from parallel ticks (q8j and x1w) and were merged without reconciling it.
+>
+> What the fix added is the part worth keeping: **nothing in the bundle was
+> looking across files.** Two checks now do, and both have negative controls.
+> Each contract's golden evidence example is validated against the OTHER
+> contract's rule (`internal/factory/jobprotocol/evidence_cross_contract_test.go`,
+> `internal/factory/runstate/evidence_cross_contract_test.go`,
+> `cloud/factory/test/evidence-record.test.ts`), and a bundle-wide rule requires
+> that **a `schema_id` appearing in more than one contract file resolves to
+> exactly one definition** (`contracts.VerifySchemaIDs`, and `verifySchemaIds`
+> in `cloud/factory/scripts/contracts.mjs`). A record two contracts describe is
+> a record one of them must define.
+>
+> The strict subset has no cross-file `$ref`, so `$defs.provenance`, `phase`,
+> `executor` and `role` are copied into this file and compared structurally by
+> the readers. A copy nothing compares is how the first divergence happened.
 
 And the `.gitignore` fragment is
 asserted against the real file with `git check-ignore` — ticks is a ticfac

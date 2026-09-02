@@ -98,26 +98,80 @@ unchanged consumer is still correct but no longer complete.
   through `git push --force-with-lease` must produce the same outcome for
   every sequence in `cas.sequences`.
 
-**Where the two meet, and where they do not yet.** Both contracts describe the
-same file: `ticfac-run-state.json` places an evidence record at
+**Where the two meet.** Both contracts describe the same file:
+`ticfac-run-state.json` places an evidence record at
 `.ticfac/runs/<run-id>/evidence/<key>.json` and pins its path, its
 compare-and-swap mode and its envelope, while `job-protocol.json`'s
 `records.evidence` pins the record's own fields. The division of labour is
 deliberate — one owns *where the file goes and how it is written*, the other
 owns *what is in it*.
 
-**The two shapes are not reconciled as of 1.2.0, and a consumer must not assume
-they are.** `records.evidence` is flat and closed: every provenance field is a
-required top-level property and `additionalProperties` is `false`.
-`evidence_envelope` requires a nested `provenance` object and a `key`. A
-document therefore cannot satisfy both — validating the run-state golden
-evidence example against `records.evidence` produces 22 violations. Neither
-suite sees this, because each validates its own examples against its own
-schema.
+**In 1.2.0 the two shapes were not reconciled, and a consumer of 1.2.0 must not
+assume they are.** `records.evidence` was flat and closed; `evidence_envelope`
+required a nested `provenance` object and a `key` and was open past them. No
+document satisfied both — validating the run-state golden evidence example
+against `records.evidence` produced 22 violations — and neither suite saw it,
+because each validated its own examples against its own schema. **2.0.0 settles
+it; read that entry before adopting either contract.**
 
-Until it is settled, treat `job-protocol.json` as authoritative for the evidence
-record's *fields* and `ticfac-run-state.json` as authoritative for its *path and
-write rule*, and do not expect one document to pass both schemas. Reconciling
-them — flatten the envelope, or nest provenance in `records.evidence`, and
-decide whether `key` is a field or only a filename — is a change to one of the
-two contracts and gets its own version.
+## 2.0.0
+
+MAJOR. One evidence record. The two shapes 1.2.0 shipped are reconciled into a
+single definition, so a document that satisfies the contract now satisfies the
+whole bundle. Every consumer that wrote or read an evidence record against
+1.2.0 is wrong until it follows.
+
+**The record.** `job-protocol.json` `records.evidence` (`ticfac.evidence.v1`)
+is the ONLY definition in the bundle. It is closed (`additionalProperties:
+false`, SPEC §10.1 bounded and redacted) and nested:
+
+- the fifteen flat provenance fields are now one `provenance` object, the
+  shared `$defs.provenance` that checkpoint, attempt, decision and evidence all
+  carry — the shape `ticfac-run-state.json` already used, because SPEC §10.4
+  says every committed file carries "the provenance fields of an evidence
+  record", and one object is the only way to say that once;
+- `key` is required: the record's identity, and the `<key>` in
+  `.ticfac/runs/<run-id>/evidence/<key>.json`;
+- `evidence_ref` (how `job_result` and `role_result` cite evidence) names that
+  same `key` — `evidence_id` is gone, so a citation resolves to the record it
+  names;
+- `acceptance` keeps its one vocabulary, `required | advisory`. The run-state
+  golden example's `"accepted"` was a *result* wearing an acceptance's name and
+  is now a negative example.
+
+**The pointer.** `ticfac-run-state.json` no longer defines the record. Its
+`schemas.evidence_envelope` is deleted and replaced by `references.evidence`,
+which names the contract, the file, the pointer and the schema_id. It still
+owns the path, the compare-and-swap mode and the envelope. Its `$defs`
+`provenance`, `phase`, `executor` and `role` are byte-identical copies of
+job-protocol's — the strict subset has no cross-file `$ref` — and the readers
+compare them structurally rather than trusting the copy.
+
+**Vocabularies closed by the shared provenance.** `phase` is now the gate
+enum (`worker | post-wave | integrated | review | closeout`), `executor` and
+`role` the job-protocol enums. The run-state golden and negative examples move
+onto them: `gate` → `post-wave`/`integrated`, `dispatch` → `worker`,
+`frontier_review` → `review` with role `review-epic`, `implement` →
+`implement-tick`. Every provenance field is required and nullable, as the
+evidence record's fields already were.
+
+**The tests that would have caught it**, and are the reason this is a version
+rather than a patch:
+
+- each contract's golden evidence example is validated against the OTHER
+  contract's rule, from both languages
+  (`internal/factory/jobprotocol/evidence_cross_contract_test.go`,
+  `internal/factory/runstate/evidence_cross_contract_test.go`,
+  `cloud/factory/test/evidence-record.test.ts`);
+- a bundle-wide rule: **a `schema_id` that appears in more than one contract
+  file resolves to exactly one definition** — `contracts.VerifySchemaIDs` (Go)
+  and `verifySchemaIds` in `cloud/factory/scripts/contracts.mjs`, each with a
+  negative control that re-creates the 1.2.0 shape and asserts a refusal;
+- the flat 1.2.0 record and the `"accepted"` acceptance are kept as negative
+  examples, so the shape that used to validate against half the bundle now
+  fails loudly.
+
+Consumers: `cloud/factory` moves its pin to `2.0.0`. A writer of `.ticfac/`
+records nests its provenance, adds `key`, and spells `acceptance` `required`
+or `advisory`; a reader of `job_result.evidence[]` reads `key` where it read
+`evidence_id`. SPEC §10.1 and §10.4 name the one record.

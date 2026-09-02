@@ -266,6 +266,88 @@ export function verifyBundle(contractsDir, pin) {
 }
 
 /**
+ * THE CROSS-CONTRACT RULE: a `schema_id` that appears in more than one contract
+ * file resolves to exactly ONE definition.
+ *
+ * Bundle 1.2.0 broke it and nothing in the bundle could see that. Two contracts
+ * described the same file — .ticfac/runs/<run-id>/evidence/<key>.json — with
+ * incompatible shapes: `job-protocol.json` published `ticfac.evidence.v1` flat
+ * and closed, `ticfac-run-state.json` carried its own open `evidence_envelope`.
+ * No document satisfied both, and both suites stayed green, because each
+ * validated its own examples against its own schema. Nobody was looking ACROSS
+ * files, so this looks across.
+ *
+ * An object that carries a `schema_id` AND a `schema` defines the record; one
+ * that carries only the id references it. An id confined to a single contract
+ * is that contract's own business — the rule is about the seam.
+ *
+ * Exported so `scripts/contracts.test.mjs` can point it at a bundle that has
+ * been broken back into the 1.2.0 shape. A gate nothing has ever seen fail is
+ * not known to be a gate.
+ */
+export function verifySchemaIds(contractsDir) {
+  const uses = new Map();
+
+  const collect = (node, file, pointer) => {
+    if (Array.isArray(node)) {
+      node.forEach((item, i) => collect(item, file, `${pointer}[${i}]`));
+      return;
+    }
+    if (node === null || typeof node !== "object") return;
+
+    const id = node.schema_id;
+    if (typeof id === "string" && id.length > 0) {
+      if (!uses.has(id)) uses.set(id, []);
+      uses.get(id).push({ file, pointer, defines: Object.hasOwn(node, "schema") });
+    }
+    for (const [key, value] of Object.entries(node)) {
+      collect(value, file, pointer === "" ? key : `${pointer}.${key}`);
+    }
+  };
+
+  for (const entry of readdirSync(contractsDir)) {
+    if (!entry.endsWith(".json") || entry === BUNDLE_FILE) continue;
+    let document;
+    try {
+      document = JSON.parse(readFileSync(join(contractsDir, entry), "utf8"));
+    } catch (err) {
+      fail(`${entry}: not valid JSON (${err.message})`);
+    }
+    collect(document, entry, "");
+  }
+
+  const problems = [];
+  for (const [id, appearances] of uses) {
+    const files = [...new Set(appearances.map((use) => use.file))].sort();
+    if (files.length < 2) continue;
+
+    const definitions = appearances.filter((use) => use.defines);
+    if (definitions.length === 1) continue;
+
+    if (definitions.length === 0) {
+      problems.push(`${id}: referenced by ${files.join(", ")} and defined nowhere — a pointer at nothing`);
+    } else {
+      const where = definitions.map((use) => `${use.file} ${use.pointer}`).sort();
+      problems.push(`${id} is defined ${definitions.length} times: ${where.join(", ")}`);
+    }
+  }
+
+  if (problems.length > 0) {
+    problems.sort();
+    fail(
+      `the contract bundle in ${contractsDir} has schema ids that do not resolve to one definition:\n` +
+        problems.map((line) => `  ${line}`).join("\n") +
+        "\n\nOne record, one schema. Two contracts describing the same record is the drift\n" +
+        "this bundle exists to catch and cannot catch from inside either file: each suite\n" +
+        "validates its own examples against its own schema and both stay green. Define the\n" +
+        "record in ONE contract and have the other name it by schema_id.",
+    );
+  }
+
+  return uses;
+}
+
+/**
  * Every contract the factory's vitest suite actually imports.
  *
  * The pin's file list is checked against THIS rather than trusted, so the list
@@ -388,6 +470,9 @@ function commandCheck() {
   // exact pin rather than a comment. See verifyBundle for why this supersedes
   // the earlier workspace-mode carve-out.
   const bundle = verifyBundle(CONTRACTS_DIR, pin);
+
+  // And the rule that spans the files rather than living inside one of them.
+  verifySchemaIds(CONTRACTS_DIR);
 
   if (pin.mode === "workspace") {
     // No pin.digests check here. Those record what the module proxy served for

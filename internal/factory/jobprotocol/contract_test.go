@@ -556,12 +556,13 @@ func TestEvidenceCarriesTheMinimalRecord(t *testing.T) {
 	if evidence == nil {
 		t.Fatal("no evidence record")
 	}
+	// The record's own fields. `key` is both the record's identity and its
+	// filename under .ticfac/runs/<run-id>/evidence/ (SPEC §10.4), which is
+	// what lets a JobResult citation resolve to the file.
 	minimal := []string{
 		"schema_version",
-		"run_id", "tick_id", "attempt",
-		"source_ref", "source_sha", "integration_ref",
-		"phase", "executor", "workspace_id", "backend",
-		"role", "profile_digest", "model", "context_manifest_digest",
+		"key",
+		"provenance",
 		"check",
 		"started_at", "finished_at", "exit_code",
 		"output",
@@ -571,6 +572,52 @@ func TestEvidenceCarriesTheMinimalRecord(t *testing.T) {
 	for _, field := range minimal {
 		if !contains(evidence.Required, field) {
 			t.Errorf("evidence must require %q (SPEC §10.1 minimal record); required = %v", field, evidence.Required)
+		}
+	}
+
+	// And the provenance half of the minimum, in the shared object every
+	// committed .ticfac/ record carries too (SPEC §10.4). One nested object
+	// rather than fifteen top-level fields is what makes that sentence a $ref
+	// instead of a second spelling.
+	if got := evidence.Properties["provenance"]; got == nil || got.Ref != "#/$defs/provenance" {
+		t.Fatalf("evidence.provenance must be a $ref to the shared definition, got %+v", got)
+	}
+	provenance := resolve(t, evidence.Properties["provenance"], defs)
+	if provenance == nil {
+		t.Fatal("$defs.provenance is missing")
+	}
+	for _, field := range []string{
+		"run_id", "tick_id", "attempt",
+		"source_ref", "source_sha", "integration_ref",
+		"phase", "executor", "workspace_id", "backend",
+		"role", "profile_digest", "model", "context_manifest_digest",
+	} {
+		if !contains(provenance.Required, field) {
+			t.Errorf("provenance must require %q (SPEC §10.1 minimal record); required = %v",
+				field, provenance.Required)
+		}
+	}
+	if provenance.AdditionalProperties == nil || *provenance.AdditionalProperties {
+		t.Error("provenance must be closed — an invented provenance field is a claim nothing validates")
+	}
+
+	// A JobResult and a RoleResult cite evidence by the record's `key`, so a
+	// citation can be resolved rather than trusted.
+	ref := resolve(t, defs["evidence_ref"], defs)
+	if ref == nil {
+		t.Fatal("$defs.evidence_ref is missing")
+	}
+	if !contains(ref.Required, "key") {
+		t.Errorf("evidence_ref must cite the evidence record's key; required = %v", ref.Required)
+	}
+	for _, holder := range []string{"job_result", "role_result"} {
+		record := resolve(t, records[holder], defs)
+		if record == nil {
+			t.Fatalf("no %s record", holder)
+		}
+		list := record.Properties["evidence"]
+		if list == nil || list.Items == nil || list.Items.Ref != "#/$defs/evidence_ref" {
+			t.Errorf("%s.evidence must be an array of evidence_ref, so the one evidence record is what it points at", holder)
 		}
 	}
 

@@ -292,25 +292,11 @@ describe("the role result stays on the vocabulary this repository already has", 
 });
 
 describe("the evidence record carries SPEC §10.1's minimum", () => {
-  it("requires every field, including the ones that are often empty", () => {
-    // A record that omits `integration_ref` and one that states it as null are
-    // different claims, and only the second is evidence.
+  it("requires its own fields, including the key that is also its filename", () => {
     const minimal = [
       "schema_version",
-      "run_id",
-      "tick_id",
-      "attempt",
-      "source_ref",
-      "source_sha",
-      "integration_ref",
-      "phase",
-      "executor",
-      "workspace_id",
-      "backend",
-      "role",
-      "profile_digest",
-      "model",
-      "context_manifest_digest",
+      "key",
+      "provenance",
       "check",
       "started_at",
       "finished_at",
@@ -322,6 +308,48 @@ describe("the evidence record carries SPEC §10.1's minimum", () => {
       "persistence_uri",
     ];
     expect(resolved("evidence").required).toEqual(expect.arrayContaining(minimal));
+  });
+
+  it("carries the provenance half in the one shared object", () => {
+    // SPEC §10.4 — "every committed file carries a schema_version and the
+    // provenance fields of an evidence record" — is a sentence about ONE
+    // object. Fifteen flat fields here and a nested object in the run-state
+    // contract is how bundle 1.2.0 ended up with two shapes of one record and
+    // no document that satisfied both.
+    expect(resolved("evidence").properties?.provenance.$ref).toBe("#/$defs/provenance");
+
+    // A record that omits `integration_ref` and one that states it as null are
+    // different claims, and only the second is evidence.
+    const provenance = def("provenance");
+    expect(provenance.required).toEqual(
+      expect.arrayContaining([
+        "run_id",
+        "tick_id",
+        "attempt",
+        "source_ref",
+        "source_sha",
+        "integration_ref",
+        "phase",
+        "executor",
+        "workspace_id",
+        "backend",
+        "role",
+        "profile_digest",
+        "model",
+        "context_manifest_digest",
+      ]),
+    );
+    expect(provenance.additionalProperties).toBe(false);
+  });
+
+  it("is cited by key, so a citation resolves to the record it names", () => {
+    const ref = def("evidence_ref");
+    expect(ref.required).toContain("key");
+    expect(Object.keys(ref.properties ?? {})).not.toContain("evidence_id");
+
+    for (const holder of ["job_result", "role_result"]) {
+      expect(resolved(holder).properties?.evidence.items?.$ref, holder).toBe("#/$defs/evidence_ref");
+    }
   });
 
   it("says terminal output is not the completion contract", () => {
