@@ -9,9 +9,10 @@ status: active
 ## Compiled Truth
 
 **`contracts/` at the repo root holds every rule that more than one
-implementation has to obey.** Twelve files at bundle `1.2.0` — nine behavioural
-case tables, plus `tk-json-manifest.json` (a published API surface),
-`credential-ownership.json`, and `ticfac-run-state.json` (a case table over an
+implementation has to obey.** Thirteen files at bundle `2.0.0` — nine
+behavioural case tables, plus `tk-json-manifest.json` (a published API surface),
+`credential-ownership.json`, `job-protocol.json` (record schemas, including the
+bundle's one evidence record), and `ticfac-run-state.json` (a case table over an
 in-memory *model*, not over inputs — see below). Both languages read them, and a
 one-sided edit fails a build — that is the whole point and it is proven, not
 assumed (see *Every contract is proven to bite*).
@@ -198,6 +199,11 @@ No silent-orphan contract was found.
   package that ships both — nothing can be true in a fixture and false on screen.
 
 ## Timeline
+- 2026-09-02 — bundle `2.0.0`: the evidence record reconciled to ONE definition
+  (`job-protocol.json` `ticfac.evidence.v1`, nested provenance, required `key`),
+  `ticfac-run-state.json` reduced to a reference, and two new checks that look
+  ACROSS contract files — the cross-file golden validation and "a `schema_id` in
+  more than one file resolves to exactly one definition" — tick `atx`
 - 2026-09-02 — `ticfac-run-state.json` added (bundle `1.2.0`): the `.ticfac/`
   layout, persistence policy and compare-and-swap rules, with the first
   model-based case table and a built-in guard-disabled negative control — tick
