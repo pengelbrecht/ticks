@@ -2,14 +2,14 @@
 type: architecture
 source: from-chat
 covers: [contracts, cloud/factory/scripts/contracts.mjs, cloud/factory/contracts.pin.json, cloud/factory/CONTRACTS.md]
-verified_against: a8594b8e
+verified_against: fa11f6d8
 status: active
 ---
 
 ## Compiled Truth
 
 **`contracts/` at the repo root holds every rule that more than one
-implementation has to obey.** Fourteen files at bundle `2.1.1` — nine
+implementation has to obey.** Fourteen files at bundle `3.0.0` — nine
 behavioural case tables, plus `tk-json-manifest.json` (a published API surface),
 `credential-ownership.json`, `job-protocol.json` (record schemas, including the
 bundle's one evidence record), `ticfac-run-state.json` (a case table over an
@@ -210,14 +210,38 @@ with the FIRST time can object.
   package that ships both — nothing can be true in a fixture and false on screen.
 
 ## Timeline
-- 2026-09-02 — bundle `2.1.1`: `version_digests` — the manifest's append-only
-  ledger of the digest each version was first cut with. It closes the bundle's
-  own last unenforced rule: "do not re-cut the digests without bumping the
-  version" was discipline until now, because a re-cut leaves the manifest
-  internally consistent again and a consumer pinned by exact value cannot see
-  it. Refused now by `make contracts-bundle`, by `contracts.Verify` and by
-  `verifyBundle`, each with a negative control. Fixture change in the same
-  version: a `$comment` sentence on `tk-json-manifest.json` — tick `dtp`
+- 2026-09-02 — bundle `3.0.0`: two ticks in one integration, cut as one
+  version because a consumer should have one number to adopt rather than two
+  it can only take together. `dtp`'s half was briefly `2.1.1` on the epic
+  branch; its `version_digests` ledger entry for `2.1.1` remains in
+  `bundle.json`, because the ledger is append-only and records what was CUT,
+  not what shipped.
+  - **`version_digests`** — the manifest's append-only ledger of the digest
+    each version was first cut with. It closes the bundle's own last
+    unenforced rule: "do not re-cut the digests without bumping the version"
+    was discipline until now, because a re-cut leaves the manifest internally
+    consistent again and a consumer pinned by exact value cannot see it.
+    Refused now by `make contracts-bundle`, by `contracts.Verify` and by
+    `verifyBundle`, each with a negative control. Fixture change alongside it:
+    a `$comment` sentence on `tk-json-manifest.json` — tick `dtp`
+  - **The epic 692 final review's contract repairs**, all one failure in
+    different files — *a fixture reading as if it asserted something nothing
+    asserts*. `credential-ownership.json`'s schema rewritten in the strict
+    subset (it was the only file using `oneOf`, `const`, `minLength`,
+    `format`, `pattern`, so both readers hand-rolled a partial walk and
+    `format: uri` meant different things in the two languages); every negative
+    example in every contract now carries `expect_error_contains` asserted by
+    both readers, and `credential-ownership.json` got its first negatives at
+    all; the second, weaker TypeScript strict-subset validator
+    (`test/schema-subset.ts`) deleted so there is ONE (`test/json-schema.ts`);
+    `tk-json-manifest.json`'s schemas parsed strictly on the TypeScript side
+    too; the lifecycle thresholds pinned to the substrate constants they name
+    (see [[lifecycle-invariants-suite]]); the negative controls made per
+    guard; A10's protected prefixes moved into the JSON; the `review-epic`
+    evidence golden made epic-level per SPEC §6.3; and the manifest's
+    `$comment` now records the SPEC §3.1 invocations it deliberately does not
+    publish, with §3.1 corrected to the manifest rather than the reverse —
+    tick `wh8`
 - 2026-09-02 — bundle `2.1.0`: `lifecycle-invariants.json` added — SPEC Appendix
   A's thirteen lifecycle invariants as a conformance suite, with a fake
   reconciler/executor harness both languages implement, a named guard per rule

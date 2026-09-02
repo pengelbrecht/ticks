@@ -3,6 +3,8 @@ import { describe, expect, it } from "vitest";
 import manifest from "../../../contracts/tk-json-manifest.json";
 import requiredTkCommands from "../required-tk-commands?raw";
 
+import { parseDefs, parseSchema, type Defs, type Schema } from "./json-schema";
+
 /**
  * The TypeScript reader for `contracts/tk-json-manifest.json`.
  *
@@ -149,6 +151,35 @@ describe("the tk --json manifest is complete enough to consume", () => {
     }
   });
 
+  it("parses every schema under the strict subset, on this side too", () => {
+    // The Go reader has parsed this file strictly since it was written
+    // (`tkcontract.Load` decodes with DisallowUnknownFields and then walks
+    // every `$defs` entry and command schema through `Schema.check`). This
+    // side used to check only that `$ref`s resolved, which left a keyword
+    // outside the subset — `pattern`, `minLength`, `oneOf` — parsing fine here
+    // and failing there, and, worse, reading on THIS host as if it constrained
+    // something no validator checks. A host that cannot run tk reimplements
+    // the manifest from these schemas; it has to be told, in its own language,
+    // exactly which keywords it is required to honour.
+    let defs: Defs;
+    expect(() => {
+      defs = parseDefs((manifest as { $defs: unknown }).$defs);
+    }, "$defs uses a keyword outside the strict subset").not.toThrow();
+    expect(Object.keys(defs!).length, "the manifest declares no $defs").toBeGreaterThan(0);
+
+    let parsed = 0;
+    for (const command of commands.filter((c) => c.output === "json")) {
+      const schema = (command as { schema?: unknown }).schema;
+      let out: Schema | undefined;
+      expect(() => {
+        out = parseSchema(schema, `command ${command.id}`);
+      }, `command ${command.id}: schema uses a keyword outside the strict subset`).not.toThrow();
+      expect(out, `command ${command.id}: schema did not parse`).toBeDefined();
+      parsed++;
+    }
+    expect(parsed, "no json command carries a schema to parse").toBeGreaterThan(0);
+  });
+
   it("has no dangling $ref", () => {
     // The half of "carries a schema" that actually bites. A $ref pointing at a
     // $def that was renamed or removed leaves the manifest structurally
@@ -208,6 +239,42 @@ describe("the tk --json manifest is complete enough to consume", () => {
         `${where}: an exit-code command must not also carry an output schema`,
       ).toBeUndefined();
     }
+  });
+
+  it("records the SPEC §3.1 invocations it deliberately does not publish", () => {
+    // SPEC §3.1 sketches a call list, and five of its invocations are not on
+    // this surface: no `sandbox` subcommand registers `--json` at all, and
+    // `tk ask --json` exists but means "read the question from stdin as JSON",
+    // so a consumer reading §3.1's list as an output-format flag blocks on an
+    // empty stdin. THIS reader is the host §3.1 is written for — it cannot run
+    // tk and reimplements the contract from the manifest — so a list it might
+    // reimplement from must say which of those lines are not real.
+    //
+    // Asserted rather than trusted: publish one of them without editing the
+    // note and the note becomes a lie. It does not ask for the flags to be
+    // implemented; that is a release decision about tk's surface.
+    for (const subcommand of ["sandbox", "ask"]) {
+      const published = commands.filter((command) => command.command.split(" ")[0] === subcommand);
+      expect(
+        published.map((command) => command.command),
+        `the manifest now publishes ${subcommand}; the §3.1 gap note in $comment is stale`,
+      ).toEqual([]);
+    }
+
+    const note = (manifest as { $comment: string }).$comment;
+    for (const phrase of [
+      "SPEC §3.1",
+      "sandbox image|setup|substrate|worker-prompt --json",
+      "tk ask <id> --json",
+      "tk graph --json",
+    ]) {
+      expect(note, `$comment does not record ${phrase} as an unpublished §3.1 invocation`).toContain(phrase);
+    }
+
+    // The correction §3.1 was given: `graph` takes the epic it is asked about.
+    const graph = commands.find((command) => command.id === "graph");
+    expect(graph, "the manifest no longer declares `graph`").toBeDefined();
+    expect(graph?.argv[1], "graph argv omits the epic id §3.1 was corrected to name").toBe("<epic-id>");
   });
 
   it("has unique ids", () => {

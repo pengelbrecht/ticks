@@ -498,6 +498,7 @@
     {
       "record": "checkpoint",
       "why": "no provenance — SPEC 10.4 requires it on every committed file, and a checkpoint that does not name the source sha it reconciled cannot be replayed",
+      "expect_error_contains": "$: missing required property \"provenance\"",
       "document": {
         "schema_version": 1,
         "run_id": "r-2f9c",
@@ -511,6 +512,7 @@
     {
       "record": "checkpoint",
       "why": "a state nobody agreed to: 'in_flight' is not in the enum, and a state meaning 'in flight' that no other reconciler can settle is the exact failure this vocabulary is closed to prevent",
+      "expect_error_contains": "$.state: in_flight is not one of the permitted values",
       "document": {
         "schema_version": 1,
         "run_id": "r-2f9c",
@@ -540,6 +542,7 @@
     {
       "record": "attempt",
       "why": "no job_handle — the marker proves a dispatch happened, and without the handle nothing can inspect, cancel or collect the job it started",
+      "expect_error_contains": "$: missing required property \"job_handle\"",
       "document": {
         "schema_version": 1,
         "attempt": 1,
@@ -566,6 +569,7 @@
     {
       "record": "attempt",
       "why": "attempt is a string — <n> in the path is a number and a record whose attempt is \"2\" cannot be compared to one whose attempt is 2",
+      "expect_error_contains": "$.attempt: expected type integer, got string",
       "document": {
         "schema_version": 1,
         "attempt": "2",
@@ -593,6 +597,7 @@
     {
       "record": "decision",
       "why": "no validated flag — an unvalidated model response landing as a decision is how a hallucinated wave gets dispatched",
+      "expect_error_contains": "$: missing required property \"validated\"",
       "document": {
         "schema_version": 1,
         "decision": 1,
@@ -623,6 +628,7 @@
       "record": "evidence",
       "validated_against": "ticfac.evidence.v1",
       "why": "provenance without integration_ref — evidence that does not name the ref it was produced against proves nothing about the ref being gated. Refused by the referenced definition (references.evidence), not by a second schema kept here.",
+      "expect_error_contains": "$.provenance: missing required property \"integration_ref\"",
       "document": {
         "schema_version": 1,
         "key": "gate-integrated-go-test",
@@ -656,6 +662,7 @@
       "record": "evidence",
       "validated_against": "ticfac.evidence.v1",
       "why": "THE DOCUMENT BUNDLE 1.2.0 SHIPPED AS THIS CONTRACT'S GOLDEN EVIDENCE EXAMPLE. It carried a bare `command` string, an `output_uri`, no `check` and an acceptance of \"accepted\", and it validated here because this contract's envelope was open past schema_version, key and provenance — while job-protocol.json's records.evidence refused it 22 ways. Kept as the negative control for the reconciliation: the open envelope is gone, and the shape that only ever validated against half the bundle is now refused by the half that defines the record.",
+      "expect_error_contains": "$: unexpected property \"command\"",
       "document": {
         "schema_version": 1,
         "key": "gate-integrated-go-test",

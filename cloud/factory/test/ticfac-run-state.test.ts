@@ -4,7 +4,7 @@ import contract from "../../../contracts/ticfac-run-state.json";
 import jobProtocol from "../../../contracts/job-protocol.json";
 
 import { FakeGit, canonical, type Content, type Step } from "./git-cas-fake";
-import { parseSchema, validate, type Schema } from "./schema-subset";
+import { parseSchema, validate, type Schema } from "./json-schema";
 
 /**
  * The TypeScript reader for `contracts/ticfac-run-state.json`.
@@ -27,8 +27,11 @@ import { parseSchema, validate, type Schema } from "./schema-subset";
  * So this side is not a weaker copy of the Go reader. It reads the contract as
  * the host that has NO GIT AND NO FILESYSTEM: the layout is a set of paths it
  * will PUT through an HTTP API, the schemas are documents it must validate
- * itself (with its own validator, written independently — a golden example
- * that only one language validates proves one language agrees with itself),
+ * itself (with `./json-schema.ts`, this repository's ONE TypeScript
+ * strict-subset validator — written independently of Go and matching its
+ * refusal text character for character, so a pinned `expect_error_contains`
+ * means the same thing to both readers; a golden example that only one
+ * language validates proves one language agrees with itself),
  * and the CAS sequences run against its own copy of the in-memory fake.
  *
  * What it deliberately does NOT assert: that this repository's `.gitignore`
@@ -67,7 +70,12 @@ const layout = contract.layout.entries as LayoutEntry[];
 const modes = contract.cas.modes as CasMode[];
 const sequences = contract.cas.sequences as unknown as Sequence[];
 const golden = contract.golden as Record<string, unknown>;
-const invalid = contract.invalid as Array<{ record: string; why: string; document: Content }>;
+const invalid = contract.invalid as Array<{
+  record: string;
+  why: string;
+  expect_error_contains: string;
+  document: Content;
+}>;
 
 /**
  * `evidence` is the one indirection in the file: a record this contract PLACES
@@ -330,16 +338,28 @@ describe("the golden examples validate here too", () => {
 describe("and the negative examples are refused", () => {
   for (const [i, bad] of invalid.entries()) {
     it(`invalid[${i}] — ${bad.why}`, () => {
-      if (referenced(bad.record)) {
-        const { schema, defs: refDefs } = referencedSchema(bad.record);
-        expect(validate(schema, refDefs, bad.document).length).toBeGreaterThan(0);
-        return;
-      }
-      const schema = schemas[bad.record];
+      const { schema, defs: usedDefs } = referenced(bad.record)
+        ? { schema: referencedSchema(bad.record).schema, defs: referencedSchema(bad.record).defs }
+        : { schema: schemas[bad.record], defs };
       expect(schema, `schema for ${bad.record}`).toBeDefined();
+
       // A schema nothing has ever seen refuse a document is not known to
       // refuse anything.
-      expect(validate(schema, defs, bad.document).length).toBeGreaterThan(0);
+      const errors = validate(schema, usedDefs, bad.document);
+      expect(errors.length, `invalid[${i}] VALIDATED — the schema does not refuse it`).toBeGreaterThan(0);
+
+      // And a negative that only proves "something failed" is satisfied by a
+      // validator that has quietly stopped checking the thing the case was
+      // written about. `./json-schema.ts` matches Go's refusal text character
+      // for character, so one pin means the same thing to both readers.
+      expect(
+        bad.expect_error_contains,
+        `invalid[${i}] does not pin the refusal it expects`,
+      ).toBeTruthy();
+      expect(
+        errors.join("\n"),
+        `invalid[${i}]: no error contains ${JSON.stringify(bad.expect_error_contains)}`,
+      ).toContain(bad.expect_error_contains);
     });
   }
 

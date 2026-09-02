@@ -149,9 +149,10 @@ type runStateContract struct {
 	Schemas map[string]json.RawMessage `json:"schemas"`
 	Golden  map[string]json.RawMessage `json:"golden"`
 	Invalid []struct {
-		Record   string         `json:"record"`
-		Why      string         `json:"why"`
-		Document map[string]any `json:"document"`
+		Record              string         `json:"record"`
+		Why                 string         `json:"why"`
+		ExpectErrorContains string         `json:"expect_error_contains"`
+		Document            map[string]any `json:"document"`
 	} `json:"invalid"`
 
 	CAS struct {
@@ -524,9 +525,23 @@ func TestInvalidExamplesAreRefused(t *testing.T) {
 		if bad.Why == "" {
 			t.Errorf("invalid[%d]: a negative example must say what it is proving", i)
 		}
-		if errs := tkcontract.Validate(s, validatorDefs, any(bad.Document)); len(errs) == 0 {
+		errs := tkcontract.Validate(s, validatorDefs, any(bad.Document))
+		if len(errs) == 0 {
 			t.Errorf("invalid[%d] (%s: %s) VALIDATED — the schema is not refusing what it claims to",
 				i, bad.Record, bad.Why)
+			continue
+		}
+		// A negative that only proves "something failed" is satisfied by a
+		// validator that has quietly stopped checking the thing the case was
+		// written about. The refusal is pinned, so a case that starts failing
+		// for a different reason goes red instead of staying green.
+		if bad.ExpectErrorContains == "" {
+			t.Errorf("invalid[%d] (%s) does not pin the refusal it expects", i, bad.Record)
+			continue
+		}
+		if !strings.Contains(strings.Join(errs, "\n"), bad.ExpectErrorContains) {
+			t.Errorf("invalid[%d] (%s): no error contains %q; got:\n  %s",
+				i, bad.Record, bad.ExpectErrorContains, strings.Join(errs, "\n  "))
 		}
 	}
 	for name := range schemas {

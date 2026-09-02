@@ -294,6 +294,53 @@ func TestManifestEntriesAllHaveAFixture(t *testing.T) {
 	}
 }
 
+// TestSpecCommandsNotPublishedAreRecordedAsAGap pins the other direction: the
+// design document sketched a call list, and five of its invocations are not on
+// this surface because the flag they name does not exist or does not mean what
+// the list implies. The gap is recorded in the manifest's own `$comment`
+// (SPEC §3.1 was corrected to the manifest, not the reverse), and this test is
+// what keeps that note from going stale — publish one of them without editing
+// the note and the note becomes a lie, so the note is asserted against the
+// manifest rather than trusted.
+//
+// It deliberately does NOT ask for the flags to be implemented. That is a
+// release decision about tk's published surface, not a fixture edit.
+func TestSpecCommandsNotPublishedAreRecordedAsAGap(t *testing.T) {
+	m := loadContractManifest(t)
+
+	// `tk ask --json` exists and means "read the question from stdin as JSON",
+	// which is why it is a gap rather than an omission: a consumer reading
+	// §3.1's list as an output-format flag blocks on an empty stdin.
+	for _, subcommand := range []string{"sandbox", "ask"} {
+		for _, c := range m.Commands {
+			if c.Path()[0] == subcommand {
+				t.Errorf("the manifest now publishes %q; §3.1's gap note in $comment is stale", c.Command)
+			}
+		}
+	}
+
+	for _, phrase := range []string{
+		"SPEC §3.1",
+		"sandbox image|setup|substrate|worker-prompt --json",
+		"tk ask <id> --json",
+		"tk graph --json",
+	} {
+		if !strings.Contains(m.Comment, phrase) {
+			t.Errorf("the manifest $comment does not record %q as an unpublished SPEC §3.1 invocation", phrase)
+		}
+	}
+
+	// The correction §3.1 was given: `graph` takes the epic it is asked about.
+	for _, c := range m.Commands {
+		if c.ID != "graph" {
+			continue
+		}
+		if len(c.Argv) < 2 || c.Argv[1] != "<epic-id>" {
+			t.Errorf("graph argv = %v; §3.1 was corrected to say the epic id is required", c.Argv)
+		}
+	}
+}
+
 // TestManifestCommandsExistInTheCLI is the first half of the acceptance
 // criterion: every command the manifest publishes is a real, reachable tk
 // command, and every one declaring JSON output actually takes --json.

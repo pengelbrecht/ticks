@@ -231,13 +231,92 @@ Consumers: `cloud/factory` moves its pin to `2.1.0`. Nothing existing to
 follow — but an implementation of a ticfac executor now has a defined gate, and
 `internal/factory/lifecycle` is the reference for what passing it means.
 
-## 2.1.1
+## 3.0.0
 
-PATCH. Comment only in the fixtures — no rule, schema, case or vocabulary
-changed, so a consumer pinned to `2.1.0` has nothing to do but move its pin.
+MAJOR. The `credential-ownership.json` schema changed shape, and one
+`job-protocol.json` golden changed values — an unchanged consumer that copied
+either is now **wrong**. Nothing outside `cloud/factory` pins the bundle yet,
+so the honest number costs nothing.
 
-- `tk-json-manifest.json` `request.$comment` now says WHERE the refusal is
-  enforced: `tk`'s root `PersistentPreRunE`, which runs for every command
+Cut by the epic 692 final review, and it carries **two ticks' worth of repairs**
+that landed in the same integration: `wh8`'s contract and reader fixes, and
+`dtp`'s comment-only manifest edit with the `version_digests` mechanism it
+brought. `dtp`'s half was briefly cut as `2.1.1` on the integration branch;
+one version supersedes both, because a consumer should have one number to adopt
+rather than two it can only take together.
+
+Most of what follows is the same failure in a different file: **a fixture that
+reads as if it asserted something, with nothing on either side actually
+asserting it.**
+
+- **`credential-ownership.json`'s schema is rewritten in the strict subset.**
+  It was the one contract using `oneOf`, `const`, `minLength`, `format` and
+  `pattern`, none of which `internal/tkcontract/schema.go` or
+  `cloud/factory/test/json-schema.ts` implements. So both readers hand-rolled a
+  partial walk over it, both silently ignored the keywords they did not carry,
+  and `format: uri` meant `url.ParseRequestURI` in Go and `new URL` in
+  TypeScript — two different claims wearing one word. The block is now
+  `type`/`enum`/`additionalProperties` only, validated by the strict validator
+  on both sides; what the subset cannot enforce (a URI, an RFC3339 instant,
+  `owner/repo`) is a `description`, which is honest about being prose.
+- **Every negative example everywhere now pins the refusal it expects.**
+  `credential-ownership.json` had no negative at all — nothing had ever watched
+  its schema refuse a document — and now ships five. `ticfac-run-state.json`'s
+  seven carried a `why` sentence and nothing else, so a case could start failing
+  for an unrelated reason and stay green. Both files now carry
+  `expect_error_contains` and both readers assert it, as `job-protocol.json`
+  already did. This is what `cloud/factory/test/json-schema.ts` matching Go's
+  refusal text character for character is *for*.
+- **One TypeScript strict-subset validator, not two.**
+  `cloud/factory/test/schema-subset.ts` was a second, weaker copy —
+  `required` checked with `in`, keyword values not type-checked, divergent error
+  text, no unknown-keyword test — and `ticfac-run-state.test.ts` was the only
+  file reading it. Deleted; that reader now uses `json-schema.ts`. Two
+  validators for one subset is the drift these contracts exist to catch,
+  reproduced inside the machinery meant to catch it.
+- **`tk-json-manifest.json`'s schemas are parsed strictly on both sides.** Go
+  has always decoded the manifest with `DisallowUnknownFields` and walked every
+  `$defs` entry through `Schema.check`; the TypeScript reader only checked that
+  `$ref`s resolved. A host that cannot run `tk` reimplements the manifest from
+  those schemas, so it has to be told in its own language which keywords it is
+  required to honour.
+- **The lifecycle thresholds are pinned to the substrate, not to each other.**
+  `wipe_threshold_ms` was `600000` — which is `WORKFLOW_STEP_TIMEOUT_MS`, the
+  Workflow step cap, not a wipe threshold. The real one is
+  `SANDBOX_SLEEP_AFTER = "20m"`. Every inequality the two readers asserted held,
+  both agreed, and the fixture described a host that does not exist. Each
+  threshold now names the constant it must equal (`harness.thresholds.substrate`);
+  the TypeScript reader IMPORTS `SANDBOX_SLEEP_AFTER`, `MAX_POLL_MS` and
+  `STEP_WORK_BUDGET_MS` and asserts equality, and the Go reader reads
+  `entrypoint.sh`'s `TICKS_KEEPER_INTERVAL` default and checks every named
+  symbol is still in its named file. `wipe_threshold_ms` is now `1200000` and
+  A4's sequence advances past it.
+- **The negative controls are per guard.** Disabling an invariant's guards
+  together cannot see a dead guard: A1 and A13 have two each, and the first
+  one's divergence satisfied the whole control. Each guard is now disabled ON
+  ITS OWN and must make at least one sequence stop matching — plus a blast-radius
+  assertion that every other invariant stays green while it is off, which turns
+  "a guard belongs to the rule it enforces" into something executable.
+- **A10's protected prefixes live in the JSON.** `.tick/` and `.ticfac/` were
+  hard-coded in both harnesses, so the fixture described a boundary it did not
+  define and the two copies could drift apart with every sequence green.
+- **`job-protocol.json`'s review-epic golden is epic-level.** It had
+  `tick_id: "abc"`, an attempt branch as `source_ref`, `integration_ref: null`
+  and `acceptance: "advisory"` — a `review-epic` record SPEC §6.3 could not have
+  produced, since review runs against the integrated EpicRun ref and is
+  required. Now `tick_id: null`, the integration ref in both ref fields, and
+  `acceptance: "required"`.
+- **`tk-json-manifest.json` records what it does not publish.** SPEC §3.1's
+  illustrative list named `tk sandbox image|setup|substrate|worker-prompt
+  --json` and `tk ask … --json`; no `sandbox` subcommand registers `--json` at
+  all, and `tk ask --json` means *read the question from stdin as JSON*, so a
+  consumer reimplementing that list would have blocked on an empty stdin. The
+  gap is in the file's `$comment` and asserted from both sides; §3.1 and
+  `contracts/README.md` were corrected to the manifest rather than the reverse.
+  No new `--json` flag was implemented — that is a release decision about tk's
+  published surface.
+- **`tk-json-manifest.json` `request.$comment` says WHERE the refusal is
+  enforced.** `tk`'s root `PersistentPreRunE`, which runs for every command
   including the git merge drivers `tk` registers. A bad `TK_JSON_CONTRACT`
   exported into a shell therefore makes `git merge` exit 11. That is by
   design — a contract this build cannot serve is refused everywhere rather
@@ -258,10 +337,20 @@ so the re-cut contradicts it and all three refuse: `contracts.Verify` (Go),
 rewrites an entry it has written. Both negative-control suites gained a case
 that performs exactly the dishonest re-cut and asserts the refusal.
 
-The ledger begins here. The bytes of `1.0.0` through `2.1.0` are not
+The ledger begins at `2.1.1`. The bytes of `1.0.0` through `2.1.0` are not
 recoverable from the manifest, so it records `2.1.1` onward and the verifiers
-check the entry for the version on disk.
+check the entry for the version on disk. **Its `2.1.1` entry stays in
+`bundle.json` although no `## 2.1.1` heading survives above**: `2.1.1` was cut
+on the epic integration branch and superseded by this version before either
+reached a release. The ledger is append-only and records what was CUT, not what
+shipped — rewriting it to tidy away a version that existed is precisely the
+edit it exists to make impossible.
 
-Consumers: `cloud/factory` moves its pin to `2.1.1`. A consumer that
-re-implements the bundle check should add the ledger check; one that only
-reads fixtures has nothing to follow.
+Consumers: `cloud/factory` moves its pin to `3.0.0`. A reader of
+`credential-ownership.json`'s `schema` drops any handling of `oneOf`, `const`,
+`minLength`, `format` and `pattern` and validates with a strict-subset
+validator; a consumer that copied the `review-epic` evidence golden re-reads it;
+anything that pinned `lifecycle-invariants.json`'s `wipe_threshold_ms` was
+pinned to the wrong number and now gets the substrate's. A consumer that
+re-implements the bundle check should add the ledger check; one that only reads
+fixtures has nothing to follow there.

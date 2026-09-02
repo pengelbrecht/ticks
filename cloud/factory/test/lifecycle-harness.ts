@@ -48,11 +48,15 @@ export type Step = {
   target?: Record<string, string>;
 };
 
+export type SubstrateSource = { file: string; symbol: string; form: string; note: string };
+
 export type Thresholds = {
   wipe_threshold_ms: number;
   max_poll_ms: number;
   push_interval_ms: number;
   step_cap_ms: number;
+  /** Which constant, in which file, each threshold above must equal. */
+  substrate: Record<string, SubstrateSource>;
 };
 
 export type FinalState = {
@@ -115,7 +119,13 @@ export class LifecycleHarness {
 
   constructor(
     private readonly thresholds: Thresholds,
-    private readonly fingerprintFields: string[]
+    private readonly fingerprintFields: string[],
+    /**
+     * A10's boundary, read from the fixture rather than hard-coded here. Two
+     * hard-coded copies of one boundary is two copies that can drift apart
+     * with both suites green.
+     */
+    private readonly protectedPrefixes: string[]
   ) {}
 
   private guarded(name: string): boolean {
@@ -307,7 +317,7 @@ export class LifecycleHarness {
       // ---- A10: the substrate enforces, and reports every attempt.
 
       case "attempt_boundary_write": {
-        const protectedPath = s.path!.startsWith(".tick/") || s.path!.startsWith(".ticfac/");
+        const protectedPath = this.protectedPrefixes.some((prefix) => s.path!.startsWith(prefix));
         if (this.guarded("substrate_enforces_boundary") && protectedPath) {
           this.boundaryReports.push(s.path!);
           return "refused_and_reported";

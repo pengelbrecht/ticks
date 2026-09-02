@@ -146,30 +146,43 @@ packages. The initial CLI surface should be declared in a checked-in
 manifest, analogous to cloud/sandbox/required-tk-commands, with the exact
 command, flags, JSON schema, and minimum tk version for each call.
 
-Typical reads include:
+That manifest now exists — `contracts/tk-json-manifest.json` — and it, not
+this list, is the surface. The reads it publishes are:
 
 ~~~text
 tk version --json
 tk show <tick-id> --json
-tk graph --json
-tk list --json
-tk ready --json
+tk list --all --json
+tk ready --all --json
+tk next --all --json
+tk deps <tick-id> --json
+tk graph <epic-id> --json
 tk status --json
-tk sandbox image --json
-tk sandbox setup --json
-tk sandbox substrate --json
-tk sandbox worker-prompt --json
 ~~~
 
-Typical controlled writes include only tracker mutations that ticfac is
-authorized to perform:
+The controlled writes are tracker mutations only:
 
 ~~~text
-tk update <tick-id> ... --json
-tk close <tick-id> ... --json
-tk note <tick-id> ... --json
-tk ask ... --json
+tk update <tick-id> --status in_progress --owner <owner> --json
+tk update <tick-id> --notes <text> --json
+tk note <tick-id> <text> --json
+tk close <tick-id> --json
+tk reopen <tick-id> --json
 ~~~
+
+Plus the two git merge drivers, whose contract is an exit code rather than
+stdout: `tk merge-file` and `tk merge-activity`.
+
+An earlier draft of this section also listed `tk sandbox
+image|setup|substrate|worker-prompt --json` and `tk ask ... --json`. **Those
+are not published, and the manifest's `$comment` records why**: no `sandbox`
+subcommand registers a `--json` flag at all (each already emits its own
+machine-readable output, so `--json` is a usage error), and `tk ask --json`
+means *read the question from stdin as JSON* rather than *print the answer as
+JSON* — a consumer reading this list as an output-format flag would block on an
+empty stdin. `tk graph` also takes the epic it is asked about. Publishing any
+of them is a flag first and a manifest entry second, in one commit; the list
+above was corrected to the manifest rather than the reverse.
 
 The final command names and schemas are a release decision, not an invitation
 for ticfac to reach into internal/. A command MUST fail closed when its
@@ -1234,7 +1247,7 @@ machinery and prose does not fail a build:
 | the layout, persistence policy, CAS rules, record schemas, golden and negative examples, the `.gitignore` fragment, and the CAS sequences | `contracts/ticfac-run-state.json` |
 | Go reader — schemas, policy, and `git check-ignore` against the real `.gitignore` | `internal/factory/runstate/contract_test.go` |
 | Go reader — the CAS sequences against an in-memory git fake | `internal/factory/runstate/cas_fake_test.go` |
-| TypeScript reader — the same sequences, the same golden examples, an independently written fake and schema validator | `cloud/factory/test/ticfac-run-state.test.ts`, `cloud/factory/test/git-cas-fake.ts`, `cloud/factory/test/schema-subset.ts` |
+| TypeScript reader — the same sequences, the same golden examples, an independently written fake and schema validator | `cloud/factory/test/ticfac-run-state.test.ts`, `cloud/factory/test/git-cas-fake.ts`, `cloud/factory/test/json-schema.ts` |
 
 The record schemas cover `checkpoint.json`, `attempts/<n>.json` and
 `decisions/<n>.json` in full. For `evidence/<key>.json` the contract pins only

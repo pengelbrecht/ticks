@@ -1024,18 +1024,18 @@
       {
         "name": "a review-role check with no process, output spilled to an artifact",
         "record": "evidence",
-        "source": "SPEC §10.1 — 'stdout/stderr or artifact URI (bounded and redacted)'",
-        "$comment": "exit_code is null because nothing ran; role/model/profile_digest are set because an LLM did. The mirror image of the gate above, and the reason each of those fields is nullable rather than optional.",
+        "source": "SPEC §10.1 — 'stdout/stderr or artifact URI (bounded and redacted)'; SPEC §6.3 — review-epic runs against the integrated EpicRun ref and is required",
+        "$comment": "exit_code is null because nothing ran; role/model/profile_digest are set because an LLM did. The mirror image of the gate above, and the reason each of those fields is nullable rather than optional. It is EPIC-level, and the three fields that say so are load-bearing: SPEC §6.3 puts review-epic at the epic boundary, running read-only against the integrated ref, so tick_id is null (it belongs to no single tick), source_ref IS the integration ref rather than an attempt branch, and acceptance is `required` — there is no implementation-role fallback for a required frontier review. An earlier cut of this example had all three the other way and was a review-epic record no §6.3 review could have produced.",
         "document": {
           "schema_version": 1,
           "key": "ev-run-42-review-692",
           "provenance": {
             "run_id": "run-42",
-            "tick_id": "abc",
+            "tick_id": null,
             "attempt": 1,
-            "source_ref": "refs/heads/ticfac/run-42/tick-abc/attempt-1",
+            "source_ref": "refs/heads/epic/692",
             "source_sha": "b204d17",
-            "integration_ref": null,
+            "integration_ref": "refs/heads/epic/692",
             "phase": "review",
             "executor": "cloudflare-computer",
             "workspace_id": "ws_01H8XM",
@@ -1057,7 +1057,7 @@
             "bytes": 18432
           },
           "result": "pass",
-          "acceptance": "advisory",
+          "acceptance": "required",
           "content_digest": "sha256:dd44ee55ff6600112233445566778899aabbccddeeff00112233445566778899",
           "persistence_uri": "r2://ticfac/runs/run-42/evidence/ev-run-42-review-692.json"
         }

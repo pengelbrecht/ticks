@@ -2,7 +2,7 @@
 type: architecture
 source: from-chat
 covers: [contracts/lifecycle-invariants.json, internal/factory/lifecycle, cloud/factory/test/lifecycle-invariants.test.ts, cloud/factory/test/lifecycle-harness.ts, docs/projects/2026-09-01-ticfac-architecture/SPEC.md]
-verified_against: a8594b8e
+verified_against: fa11f6d8
 status: active
 ---
 
@@ -69,8 +69,21 @@ majority quietly losing its cross-reference is a failure.
 
 Fifteen named guards, one or two per invariant, each individually disableable in
 the fake. Each of the thirteen tests does two things: replay its sequences, then
-run the **negative control** — with its guards off, at least one sequence must
-stop matching the contract.
+run the **negative control** — one guard at a time. With any single guard of that
+invariant off, at least one sequence must stop matching the contract, **and every
+other invariant must stay green while it is off**.
+
+The per-guard form is bundle `3.0.0`'s repair, and the reason is A1 and A13:
+they have two guards each, and disabling both together let the first one's
+divergence satisfy the whole control while the second could have stopped
+enforcing anything. The blast-radius half turns "a guard belongs to the rule it
+enforces" from a naming convention into an executable claim — a guard whose
+absence quietly changes some other invariant's outcome is a guard two rules were
+sharing.
+
+**A10's protected prefixes (`.tick/`, `.ticfac/`) live in the JSON**, not in the
+two harnesses. Hard-coded on both sides they were a boundary the fixture
+described and did not define, free to drift apart with every sequence green.
 
 That is the run-state CAS negative control generalised, and it is not
 ceremonial. These thirteen failures are all the quiet kind: a boundary that has
@@ -83,6 +96,24 @@ The op vocabulary is closed over **both** guard modes on purpose. `recorded`
 `reported_requested` and a clock's `released` are unreachable with the guards
 on — they are exactly what a *wrong* implementation produces, so they belong in
 the vocabulary a second implementation reads.
+
+### The thresholds are pinned to the substrate, not to each other
+
+`harness.thresholds` holds four numbers (wipe threshold, max poll, push
+interval, step cap) and asserts the relation Appendix A #4 is about. Bundle
+`2.1.0` shipped `wipe_threshold_ms = 600000`, which is
+`WORKFLOW_STEP_TIMEOUT_MS` — the Cloudflare Workflow step cap, not a wipe
+threshold at all. The real one is `sandbox.ts`'s `SANDBOX_SLEEP_AFTER = "20m"`.
+**Every inequality held, both readers agreed, and the fixture described a host
+that does not exist**: a relation between two numbers cannot tell you either is
+the right number.
+
+Since `3.0.0` each threshold names the constant it must equal
+(`harness.thresholds.substrate`), and the reader that can reach that constant
+asserts the equality: the TypeScript suite IMPORTS `SANDBOX_SLEEP_AFTER`,
+`MAX_POLL_MS` and `STEP_WORK_BUDGET_MS`, and the Go suite reads
+`entrypoint.sh`'s `TICKS_KEEPER_INTERVAL` default and checks every named symbol
+is still in its named file. `wipe_threshold_ms` is `1200000`.
 
 ### `gate` is part of the contract
 

@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -112,11 +114,25 @@ type invariant struct {
 	Sequences  []sequence `json:"sequences"`
 }
 
+type substrateSource struct {
+	File   string `json:"file"`
+	Symbol string `json:"symbol"`
+	Form   string `json:"form"`
+	Note   string `json:"note"`
+}
+
 type thresholds struct {
 	WipeThresholdMs int64 `json:"wipe_threshold_ms"`
 	MaxPollMs       int64 `json:"max_poll_ms"`
 	PushIntervalMs  int64 `json:"push_interval_ms"`
 	StepCapMs       int64 `json:"step_cap_ms"`
+
+	// Substrate is what keeps the four numbers above from being a third copy:
+	// each names the constant it must equal, and the reader that can reach that
+	// constant asserts the equality. TypeScript imports the three TypeScript
+	// ones; this side reads the shell default and checks every named symbol is
+	// still in its named file.
+	Substrate map[string]substrateSource `json:"substrate"`
 }
 
 type fingerprintFields struct {
@@ -147,9 +163,13 @@ type contract struct {
 	} `json:"gate"`
 
 	Harness struct {
-		Why               []string          `json:"why"`
-		State             []string          `json:"state"`
-		Thresholds        thresholds        `json:"thresholds"`
+		Why               []string   `json:"why"`
+		State             []string   `json:"state"`
+		Thresholds        thresholds `json:"thresholds"`
+		ProtectedPrefixes struct {
+			Prefixes []string `json:"prefixes"`
+			Why      []string `json:"why"`
+		} `json:"protected_prefixes"`
 		Rules             []string          `json:"rules"`
 		Ops               []opDecl          `json:"ops"`
 		Guards            []guardDecl       `json:"guards"`
@@ -524,6 +544,119 @@ func TestPollCadenceIsPinnedUnderTheWipeThreshold(t *testing.T) {
 	}
 }
 
+// The relation above is necessary and was never sufficient: bundle 2.1.0 held
+// wipe_threshold_ms = 600000 — which is WORKFLOW_STEP_TIMEOUT_MS, not the
+// substrate's wipe threshold at all — and satisfied every inequality here while
+// describing a substrate that does not exist. So each threshold now names the
+// constant it must equal, and the reader that can reach that constant asserts
+// the equality: cloud/factory/test/lifecycle-invariants.test.ts IMPORTS the
+// three TypeScript ones, and this side takes the shell default it can read and
+// checks that every named symbol is still where the fixture says it is.
+func TestThresholdsNameTheSubstrateConstantTheyPin(t *testing.T) {
+	c := load(t)
+	th := c.Harness.Thresholds
+
+	for _, name := range []string{"wipe_threshold_ms", "max_poll_ms", "push_interval_ms", "step_cap_ms"} {
+		src, ok := th.Substrate[name]
+		if !ok {
+			t.Errorf("threshold %s names no substrate constant, so nothing ties it to the host it describes", name)
+			continue
+		}
+		if src.File == "" || src.Symbol == "" || src.Form == "" || src.Note == "" {
+			t.Errorf("threshold %s: substrate source is incomplete: %+v", name, src)
+			continue
+		}
+		body, err := os.ReadFile("../../../" + src.File)
+		if err != nil {
+			t.Errorf("threshold %s names %s, which does not exist: %v", name, src.File, err)
+			continue
+		}
+		if !strings.Contains(string(body), src.Symbol) {
+			t.Errorf("threshold %s: %s no longer contains %q", name, src.File, src.Symbol)
+		}
+	}
+	if len(th.Substrate) != 4 {
+		t.Errorf("substrate maps %d thresholds; there are four", len(th.Substrate))
+	}
+
+	// The one substrate value this side can actually READ: the keeper interval
+	// is a shell default, so TypeScript cannot import it and Go can parse it.
+	keeper, err := os.ReadFile("../../../" + th.Substrate["push_interval_ms"].File)
+	if err != nil {
+		t.Fatalf("read the keeper's file: %v", err)
+	}
+	m := regexp.MustCompile(`TICKS_KEEPER_INTERVAL:-(\d+)`).FindStringSubmatch(string(keeper))
+	if m == nil {
+		t.Fatalf("%s no longer carries a ${TICKS_KEEPER_INTERVAL:-<seconds>} default", th.Substrate["push_interval_ms"].File)
+	}
+	seconds, err := strconv.ParseInt(m[1], 10, 64)
+	if err != nil {
+		t.Fatalf("keeper default %q is not a number: %v", m[1], err)
+	}
+	if got := seconds * 1000; got != th.PushIntervalMs {
+		t.Errorf("push_interval_ms = %d, but %s defaults the keeper to %ds (%dms)",
+			th.PushIntervalMs, th.Substrate["push_interval_ms"].File, seconds, got)
+	}
+}
+
+// A10's boundary lives in the fixture, not in the two harnesses. Both copies
+// used to hard-code `.tick/` and `.ticfac/`, so the file described a boundary
+// it did not define and the two implementations could drift apart with every
+// sequence still green.
+func TestProtectedPrefixesLiveInTheContract(t *testing.T) {
+	c := load(t)
+	prefixes := c.Harness.ProtectedPrefixes.Prefixes
+
+	if len(prefixes) == 0 {
+		t.Fatal("the harness declares no protected prefixes, so A10's boundary is back in the reader")
+	}
+	if len(c.Harness.ProtectedPrefixes.Why) != len(prefixes) {
+		t.Errorf("%d protected prefixes and %d reasons; each says which authority it protects",
+			len(prefixes), len(c.Harness.ProtectedPrefixes.Why))
+	}
+	for _, prefix := range prefixes {
+		if !strings.HasSuffix(prefix, "/") {
+			t.Errorf("protected prefix %q is not a directory prefix; a bare name matches a file that merely starts with it", prefix)
+		}
+	}
+
+	// And they are the boundary A10's sequence actually exercises: every path
+	// the fixture expects to be refused is under one of them, and the one it
+	// expects to be permitted is not.
+	_, a10 := byID(t, "A10")
+	refused, permitted := 0, 0
+	for _, seq := range a10.Sequences {
+		for _, s := range seq.Steps {
+			if s.Op != "attempt_boundary_write" {
+				continue
+			}
+			under := false
+			for _, prefix := range prefixes {
+				if strings.HasPrefix(s.Path, prefix) {
+					under = true
+					break
+				}
+			}
+			switch s.Expect {
+			case "refused_and_reported":
+				refused++
+				if !under {
+					t.Errorf("A10 expects %s to be refused, but it is under no declared prefix %v", s.Path, prefixes)
+				}
+			case "permitted":
+				permitted++
+				if under {
+					t.Errorf("A10 expects %s to be permitted, but it is under a declared prefix", s.Path)
+				}
+			}
+		}
+	}
+	if refused < len(prefixes) || permitted == 0 {
+		t.Errorf("A10 exercises %d refusals and %d permitted writes; each prefix needs a refusal and the boundary needs a path outside it",
+			refused, permitted)
+	}
+}
+
 // ---------------------------------------------------------- the cross-file ---
 
 // A13's fingerprint fields are NOT defined here. They are the provenance object
@@ -609,34 +742,71 @@ func runSequences(t *testing.T, c contract, inv invariant) {
 	}
 }
 
-// disablingTheGuardBreaksIt is the negative control, one per invariant. Turn
-// this invariant's guards off and at least one sequence must stop matching the
-// contract — otherwise the sequences describe a series of operations that
-// happens to end somewhere, and prove nothing about the rule.
+// disablingTheGuardBreaksIt is the negative control, run ONE GUARD AT A TIME.
+//
+// It used to turn all of an invariant's guards off together, which is a control
+// that cannot see a dead guard: A1 and A13 each have two, and with both off the
+// first one's divergence satisfies the whole test while the second could have
+// stopped enforcing anything. Disabling them one at a time makes each guard
+// separately load-bearing — turn it off, and at least one of this invariant's
+// sequences must stop matching the contract.
+//
+// Each guard also carries a BLAST RADIUS assertion: with it off, every OTHER
+// invariant still passes. That is what makes "a guard belongs to the rule it
+// enforces" (TestGuardsAndInvariantsAccountForEachOther) an executable claim
+// rather than a naming convention — a guard whose absence quietly changes some
+// other invariant's outcome is a guard two rules were sharing.
 func disablingTheGuardBreaksIt(t *testing.T, c contract, inv invariant) {
 	t.Helper()
 
-	broke := false
-	for _, seq := range inv.Sequences {
-		h := newHarness(c)
-		for _, g := range inv.Guards {
-			h.off[g] = true
-		}
-		diverged := false
-		for _, s := range seq.Steps {
-			if got := h.run(t, s); got != s.Expect {
-				diverged = true
+	for _, guard := range inv.Guards {
+		guard := guard
+		t.Run("without_"+guard, func(t *testing.T) {
+			broke := false
+			for _, seq := range inv.Sequences {
+				h := newHarness(c)
+				h.off[guard] = true
+				diverged := false
+				for _, s := range seq.Steps {
+					if got := h.run(t, s); got != s.Expect {
+						diverged = true
+					}
+				}
+				if diverged || !finalMatches(h, seq.Final) {
+					broke = true
+				}
 			}
-		}
-		if !diverged && finalMatches(h, seq.Final) {
+			if !broke {
+				t.Errorf("%s passes with %s disabled — that guard is not what its sequences are testing",
+					inv.ID, guard)
+			}
+			otherInvariantsStayGreen(t, c, inv.ID, guard)
+		})
+	}
+}
+
+// otherInvariantsStayGreen replays every invariant except `owner` with `guard`
+// turned off, and requires all of them to still conform.
+func otherInvariantsStayGreen(t *testing.T, c contract, owner, guard string) {
+	t.Helper()
+	for _, other := range c.Invariants {
+		if other.ID == owner {
 			continue
 		}
-		broke = true
-	}
-
-	if !broke {
-		t.Errorf("%s passes with %v disabled — its sequences are not testing the guard",
-			inv.ID, inv.Guards)
+		for _, seq := range other.Sequences {
+			h := newHarness(c)
+			h.off[guard] = true
+			for i, s := range seq.Steps {
+				if got := h.run(t, s); got != s.Expect {
+					t.Errorf("%s/%s step %d (%s) answers %q with %s's guard %s disabled, contract says %q — the guard is shared",
+						other.ID, seq.ID, i, s.Op, got, owner, guard, s.Expect)
+				}
+			}
+			for _, m := range finalMismatches(h, seq.Final) {
+				t.Errorf("%s/%s final state moved when %s's guard %s was disabled: %s",
+					other.ID, seq.ID, owner, guard, m)
+			}
+		}
 	}
 }
 

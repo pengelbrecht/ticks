@@ -3,6 +3,10 @@ import { describe, expect, it } from "vitest";
 import contract from "../../../contracts/lifecycle-invariants.json";
 import jobProtocol from "../../../contracts/job-protocol.json";
 
+import { MAX_POLL_MS } from "../src/run-workflow";
+import { SANDBOX_SLEEP_AFTER } from "../src/sandbox";
+import { STEP_WORK_BUDGET_MS } from "../src/workflow-limits";
+
 import { LifecycleHarness, type FinalState, type Step, type Thresholds } from "./lifecycle-harness";
 
 /**
@@ -20,8 +24,9 @@ import { LifecycleHarness, type FinalState, type Step, type Thresholds } from ".
  * the symbols it lives in today (SPEC §9.2 preserves the symbols when
  * run-workflow.ts is decomposed; this preserves the reasons). Each replays its
  * sequences against this side's own copy of the fake and then runs the
- * negative control: with the invariant's guard(s) off, at least one sequence
- * must stop matching the contract.
+ * negative control ONE GUARD AT A TIME: with any single guard of that
+ * invariant off, at least one sequence must stop matching the contract, and
+ * every OTHER invariant must still pass.
  *
  * This suite ignites nothing. It creates no Workflow, opens no binding and
  * touches no D1 — `.tick/learnings.md`: a vitest case that starts a run and
@@ -47,6 +52,21 @@ const thresholds = contract.harness.thresholds as unknown as Thresholds;
 const ops = contract.harness.ops as Array<{ op: string; does: string; outcomes: string[] }>;
 const guards = contract.harness.guards as Array<{ guard: string; enforces: string; off: string }>;
 const fingerprintFields = contract.harness.fingerprint_fields.fields.map((f) => f.provenance_field);
+const protectedPrefixes = contract.harness.protected_prefixes.prefixes as string[];
+
+/**
+ * `SANDBOX_SLEEP_AFTER` is a duration STRING (`"20m"`), because that is what
+ * the Cloudflare Sandbox binding takes. The fixture holds milliseconds, so the
+ * comparison needs the one conversion — written here, in the reader, rather
+ * than pre-computed into the fixture, which is exactly the third copy this
+ * whole assertion exists to prevent.
+ */
+function durationToMs(duration: string): number {
+  const m = /^(\d+)(ms|s|m|h)$/.exec(duration.trim());
+  if (!m) throw new Error(`cannot parse duration ${JSON.stringify(duration)}`);
+  const unit = { ms: 1, s: 1_000, m: 60_000, h: 3_600_000 }[m[2] as "ms" | "s" | "m" | "h"];
+  return Number(m[1]) * unit;
+}
 
 function byID(id: string): Invariant {
   const found = invariants.find((inv) => inv.id === id);
@@ -55,7 +75,7 @@ function byID(id: string): Invariant {
 }
 
 function harness(): LifecycleHarness {
-  return new LifecycleHarness(thresholds, fingerprintFields);
+  return new LifecycleHarness(thresholds, fingerprintFields, protectedPrefixes);
 }
 
 /** Replays every sequence of one invariant and asserts each step and the final state. */
@@ -71,27 +91,67 @@ function conforms(inv: Invariant): void {
 }
 
 /**
- * The negative control. With this invariant's guards off, at least one sequence
- * must stop matching the contract — otherwise the sequences describe a series
- * of operations that happens to end somewhere and prove nothing about the rule.
+ * The negative control, run ONE GUARD AT A TIME.
+ *
+ * It used to turn all of an invariant's guards off together, which is a control
+ * that cannot see a dead guard: A1 and A13 each have two, and with both off the
+ * first one's divergence satisfied the whole check while the second could have
+ * stopped enforcing anything. Disabling them one at a time makes each guard
+ * separately load-bearing.
+ *
+ * Each guard also carries a BLAST RADIUS assertion: with it off, every OTHER
+ * invariant still passes. That turns "a guard belongs to the rule it enforces"
+ * from a naming convention into something executable — a guard whose absence
+ * quietly changes another invariant's outcome is a guard two rules were
+ * sharing.
  */
-function guardIsLoadBearing(inv: Invariant): void {
-  let broke = false;
-  for (const seq of inv.sequences) {
-    const h = harness();
-    for (const guard of inv.guards) h.off.add(guard);
-    let diverged = false;
-    for (const step of seq.steps) {
-      if (h.run(step) !== step.expect) diverged = true;
+function eachGuardIsLoadBearing(inv: Invariant): void {
+  expect(inv.guards.length, `${inv.id} names no guard`).toBeGreaterThan(0);
+
+  for (const guard of inv.guards) {
+    let broke = false;
+    for (const seq of inv.sequences) {
+      const h = harness();
+      h.off.add(guard);
+      let diverged = false;
+      for (const step of seq.steps) {
+        if (h.run(step) !== step.expect) diverged = true;
+      }
+      if (diverged || h.mismatches(seq.final).length > 0) broke = true;
     }
-    if (diverged || h.mismatches(seq.final).length > 0) broke = true;
+    expect(
+      broke,
+      `${inv.id} passes with ${guard} disabled — that guard is not what its sequences are testing`,
+    ).toBe(true);
+
+    otherInvariantsStayGreen(inv.id, guard);
   }
-  expect(broke, `${inv.id} passes with ${inv.guards.join(", ")} disabled`).toBe(true);
+}
+
+/** Every invariant except `owner` still conforms with `guard` turned off. */
+function otherInvariantsStayGreen(owner: string, guard: string): void {
+  for (const other of invariants) {
+    if (other.id === owner) continue;
+    for (const seq of other.sequences) {
+      const h = harness();
+      h.off.add(guard);
+      seq.steps.forEach((step, i) => {
+        expect(
+          h.run(step),
+          `${other.id}/${seq.id} step ${i} (${step.op}) moved when ${owner}'s guard ${guard} was disabled — the guard is shared`,
+        ).toBe(step.expect);
+      });
+      expect(
+        h.mismatches(seq.final),
+        `${other.id}/${seq.id} final state moved when ${owner}'s guard ${guard} was disabled`,
+      ).toEqual([]);
+    }
+  }
 }
 
 function check(inv: Invariant): void {
   conforms(inv);
-  guardIsLoadBearing(inv);
+  eachGuardIsLoadBearing(inv);
 }
 
 // -------------------------------------------------------------- the shape ---
@@ -231,6 +291,61 @@ describe("the Appendix A conformance suite", () => {
     expect(thresholds.max_poll_ms * 2).toBeLessThanOrEqual(thresholds.wipe_threshold_ms);
     expect(thresholds.push_interval_ms).toBeLessThan(thresholds.max_poll_ms);
     expect(thresholds.step_cap_ms).toBeGreaterThan(0);
+  });
+
+  it("pins those numbers to the substrate constants, not to a third copy of them", () => {
+    // THE ASSERTION THIS SIDE ADDS, AND THE ONE THAT WOULD HAVE CAUGHT THE BUG.
+    // Bundle 2.1.0 shipped wipe_threshold_ms = 600000, which is
+    // WORKFLOW_STEP_TIMEOUT_MS — the Workflow step cap, not the substrate's
+    // sleep threshold. Every inequality above held, both readers agreed, and
+    // the fixture described a host that does not exist. Only importing the
+    // real constants can see that; Go cannot import TypeScript, so this is the
+    // half of the pin that lives here.
+    const from = thresholds.substrate;
+    expect(from.wipe_threshold_ms.symbol).toBe("SANDBOX_SLEEP_AFTER");
+    expect(from.max_poll_ms.symbol).toBe("MAX_POLL_MS");
+    expect(from.step_cap_ms.symbol).toBe("STEP_WORK_BUDGET_MS");
+
+    expect(
+      thresholds.wipe_threshold_ms,
+      `wipe_threshold_ms must equal SANDBOX_SLEEP_AFTER (${SANDBOX_SLEEP_AFTER})`,
+    ).toBe(durationToMs(SANDBOX_SLEEP_AFTER));
+    expect(thresholds.max_poll_ms, "max_poll_ms must equal run-workflow.ts's MAX_POLL_MS").toBe(MAX_POLL_MS);
+    expect(
+      thresholds.step_cap_ms,
+      "step_cap_ms must equal workflow-limits.ts's STEP_WORK_BUDGET_MS",
+    ).toBe(STEP_WORK_BUDGET_MS);
+  });
+
+  it("keeps A10's protected prefixes in the contract, not in the two harnesses", () => {
+    // Both harnesses used to hard-code `.tick/` and `.ticfac/`, so the fixture
+    // described a boundary it did not define: the two copies could drift apart,
+    // or away from the repository's real boundary, with every sequence green.
+    expect(protectedPrefixes.length).toBeGreaterThan(0);
+    expect(contract.harness.protected_prefixes.why).toHaveLength(protectedPrefixes.length);
+    for (const prefix of protectedPrefixes) {
+      // A bare name would also match a file that merely starts with it.
+      expect(prefix.endsWith("/"), `protected prefix ${prefix} is not a directory prefix`).toBe(true);
+    }
+
+    // And the boundary A10's sequence exercises is this one.
+    let refused = 0;
+    let permitted = 0;
+    for (const seq of byID("A10").sequences) {
+      for (const step of seq.steps) {
+        if (step.op !== "attempt_boundary_write") continue;
+        const under = protectedPrefixes.some((prefix) => step.path!.startsWith(prefix));
+        if (step.expect === "refused_and_reported") {
+          refused++;
+          expect(under, `A10 expects ${step.path} refused, but no declared prefix covers it`).toBe(true);
+        } else if (step.expect === "permitted") {
+          permitted++;
+          expect(under, `A10 expects ${step.path} permitted, but a declared prefix covers it`).toBe(false);
+        }
+      }
+    }
+    expect(refused, "each prefix needs a refusal").toBeGreaterThanOrEqual(protectedPrefixes.length);
+    expect(permitted, "the boundary needs a path outside it").toBeGreaterThan(0);
   });
 
   it("resolves A13's fingerprint fields to the evidence record's provenance", () => {
