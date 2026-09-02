@@ -1,6 +1,6 @@
 {
-  "$comment": "The versioned cross-language contract bundle. Read contracts/README.md for what the fixtures are and contracts/CHANGELOG.md for the rule that governs this file. `version` is pinned by exact value in cloud/factory/contracts.pin.json. Regenerate `files` and `digests` with `make contracts-bundle`; never regenerate them without bumping `version`.",
-  "version": "2.1.0",
+  "$comment": "The versioned cross-language contract bundle. Read contracts/README.md for what the fixtures are and contracts/CHANGELOG.md for the rule that governs this file. `version` is pinned by exact value in cloud/factory/contracts.pin.json. Regenerate `files` and `digests` with `make contracts-bundle`; never regenerate them without bumping `version`. `version_digests` is the append-only ledger that makes that rule executable: each version records a sha256 over its own `version` + `digests`, written the first time it is cut and never rewritten, so a re-cut at an unchanged version contradicts it and both verifiers refuse. It begins at 2.1.1, the version that introduced it.",
+  "version": "2.1.1",
   "files": [
     "collect-vocabulary.json",
     "credential-ownership.json",
@@ -29,8 +29,11 @@
     "sweep-policy-cases.json": "7006ba3391618fdaf249084acf799f4fa67e49e3e89ac0baf89ba838b5641d0e",
     "sweep-selection-contract.json": "3d2eafd42b93b7d6e0b1bf45379c3e4008f3757bea5e03d70d58d5f8625f05ef",
     "ticfac-run-state.json": "655ef66561cdf81dbae7d761829e65edf90d599d00bc2944b6a912f4e9f69aa0",
-    "tk-json-manifest.json": "146ee882da3d942b3dab027300152cbd70a98c9ee2e29a41ec1129ec9897518e",
+    "tk-json-manifest.json": "67e027238de54d0b0846e3c3a70d59343f1964134d39ddbaff8293134769ceb7",
     "tracker-layout.json": "6d12f0f67854e4c6de50150485c7b91e6e9087187a315e6bc919a243263857ef",
     "worker-boot-contract.json": "7326ba972f6d8b16bd5f127d644586082da0cf2a8ff78281ff411c366df7ca27"
+  },
+  "version_digests": {
+    "2.1.1": "703f8f65f590cfb14662dcaf5bc159ab53844b4fe4bee113bf14d210456312b3"
   }
 }

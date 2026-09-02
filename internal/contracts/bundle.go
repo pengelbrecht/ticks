@@ -16,9 +16,19 @@
 // repository tomorrow (docs/projects/2026-09-01-ticfac-architecture/SPEC.md
 // §3.2). A version string that can silently come to mean different bytes pins
 // nothing at all, so the manifest records a sha256 per file and Verify is what
-// keeps the recording honest: edit a fixture without regenerating the manifest
-// and the Go build goes red; regenerate it without bumping the version and the
-// changelog check goes red.
+// keeps the recording honest. Two failures, not one:
+//
+//   - edit a fixture without regenerating the manifest, and the recorded
+//     per-file digest no longer matches the bytes on disk;
+//   - regenerate the manifest WITHOUT bumping the version, and the bundle is
+//     internally consistent again — which is why the manifest also carries
+//     `version_digests`, an append-only ledger binding each version it has
+//     been cut at to a digest OVER the digests. A re-cut at an unchanged
+//     version contradicts the ledger entry that version was first cut with,
+//     and Verify refuses it.
+//
+// The second is the one a pinned consumer cannot see for itself, and it is the
+// only reason the version exists.
 //
 // Deliberately internal. The SPEC is explicit that the contract is behavioural
 // and "must not turn ticks internals into a shared library" — a downstream
@@ -55,6 +65,9 @@ var versionPattern = regexp.MustCompile(`^\d+\.\d+\.\d+$`)
 // prescribes for a fixture.
 var contractNamePattern = regexp.MustCompile(`^[a-z0-9-]+\.json$`)
 
+// digestPattern matches a lower-case hex sha256.
+var digestPattern = regexp.MustCompile(`^[0-9a-f]{64}$`)
+
 // Bundle is contracts/bundle.json.
 type Bundle struct {
 	// Version is the pinnable identity of this exact set of fixture bytes.
@@ -65,6 +78,42 @@ type Bundle struct {
 
 	// Digests maps each entry of Files to its sha256, lower-case hex.
 	Digests map[string]string `json:"digests"`
+
+	// VersionDigests is the append-only ledger: every version this bundle has
+	// been cut at, mapped to the ContentDigest of that cut. `make
+	// contracts-bundle` adds an entry the first time it cuts a version and
+	// never rewrites one, so re-cutting different bytes under a version the
+	// ledger already records is a contradiction Verify can see.
+	//
+	// It starts at the version that introduced it: the bytes of the versions
+	// cut before that are not recoverable from the manifest, so Verify checks
+	// the entry for the version ON DISK and says nothing about the rest.
+	VersionDigests map[string]string `json:"version_digests"`
+}
+
+// ContentDigest is the sha256 of what a bundle version claims to name: the
+// version string and every file's digest, in a canonical line form that
+// `cloud/factory/scripts/contracts.mjs` reproduces byte for byte on the
+// TypeScript side.
+//
+//	<version>\n
+//	<file> <sha256>\n   (one per file, sorted by name)
+func (b *Bundle) ContentDigest() string {
+	names := append([]string(nil), b.Files...)
+	sort.Strings(names)
+
+	var canonical strings.Builder
+	canonical.WriteString(b.Version)
+	canonical.WriteString("\n")
+	for _, name := range names {
+		canonical.WriteString(name)
+		canonical.WriteString(" ")
+		canonical.WriteString(b.Digests[name])
+		canonical.WriteString("\n")
+	}
+
+	sum := sha256.Sum256([]byte(canonical.String()))
+	return hex.EncodeToString(sum[:])
 }
 
 // Load reads and structurally validates the manifest in dir. It does not touch
@@ -105,6 +154,20 @@ func Load(dir string) (*Bundle, error) {
 	}
 	if !sort.StringsAreSorted(b.Files) {
 		return nil, fmt.Errorf("%s: \"files\" must be sorted so that a diff of a bundle bump is readable", path)
+	}
+
+	if len(b.VersionDigests) == 0 {
+		return nil, fmt.Errorf("%s: \"version_digests\" is empty — without the ledger a re-cut of the\n"+
+			"same version is invisible, which is the one drift a pinned consumer cannot see.\n"+
+			"Run `make contracts-bundle` to record the current version's digest.", path)
+	}
+	for version, digest := range b.VersionDigests {
+		if !versionPattern.MatchString(version) {
+			return nil, fmt.Errorf("%s: version_digests key %q is not MAJOR.MINOR.PATCH", path, version)
+		}
+		if !digestPattern.MatchString(digest) {
+			return nil, fmt.Errorf("%s: version_digests[%q] is not a lower-case sha256", path, version)
+		}
 	}
 
 	return &b, nil
@@ -183,6 +246,31 @@ func Verify(dir string) error {
 				"update \"bundleVersion\" in cloud/factory/contracts.pin.json in the SAME commit.\n"+
 				"Do NOT regenerate the digests without bumping the version — that is precisely the\n"+
 				"silent drift a pinned consumer cannot see.")
+	}
+
+	// The manifest agrees with the fixtures. The remaining question is the one
+	// the per-file digests cannot answer, because a re-cut makes them agree
+	// again: does THIS version still name the bytes it named when it was cut?
+	recorded, ok := b.VersionDigests[b.Version]
+	if !ok {
+		return fmt.Errorf("%s: version %s has no entry in \"version_digests\".\n"+
+			"Every cut version records the digest of its own digests map, so that re-cutting\n"+
+			"one at an unchanged version is visible. Run `make contracts-bundle`, which adds\n"+
+			"the entry for a version it has not cut before.", filepath.Join(dir, BundleFile), b.Version)
+	}
+	if actual := b.ContentDigest(); actual != recorded {
+		return fmt.Errorf("contract bundle %s was cut before with different bytes:\n"+
+			"  digest of this cut %s\n"+
+			"  version_digests[%s] %s\n\n%s",
+			b.Version, actual, b.Version, recorded,
+			"A fixture changed and the manifest was re-cut WITHOUT bumping \"version\". The\n"+
+				"per-file digests agree again, so nothing else can see it — and a consumer\n"+
+				"pinned to this version by exact value cannot see it at all, which is the whole\n"+
+				"reason the version exists. Bump \"version\" in contracts/bundle.json, add the\n"+
+				"contracts/CHANGELOG.md entry, re-run `make contracts-bundle` (it records the\n"+
+				"new version's digest and never rewrites an old one), and move \"bundleVersion\"\n"+
+				"in cloud/factory/contracts.pin.json in the SAME commit. If the re-cut was a\n"+
+				"mistake, revert it.")
 	}
 
 	return nil

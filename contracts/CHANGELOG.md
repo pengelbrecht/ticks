@@ -13,7 +13,8 @@ other half of that pin — the version says *which bytes*, the entry below says
 adds an entry here, in the same commit.** Both halves are enforced:
 `internal/contracts` (Go) and `cloud/factory/scripts/contracts.mjs`
 (TypeScript) each re-hash the fixtures and refuse a manifest that does not
-match, and each refuses a version with no entry here.
+match, each refuses a version with no entry here, and each refuses a manifest
+re-cut at a version `version_digests` already records (see below).
 
 Versioning is semver over *consumer obligation*, not over file size:
 
@@ -23,9 +24,13 @@ Versioning is semver over *consumer obligation*, not over file size:
 | MINOR | a contract or case was added — an unchanged consumer is still correct but no longer complete |
 | PATCH | comment, formatting or ordering only — no consumer has anything to do |
 
-Do **not** re-cut the digests without bumping the version. That is the one
-change a pinned consumer cannot see, and it is precisely what the version
-exists to make loud.
+Do **not** re-cut the digests without bumping the version — and since `2.1.1`
+you cannot. `bundle.json`'s `version_digests` records a sha256 over each
+version's own `version` + `digests` the first time that version is cut, and
+never rewrites it, so a re-cut at an unchanged version is refused by
+`make contracts-bundle`, by `contracts.Verify` (Go) and by `verifyBundle`
+(TypeScript). That was the one change a pinned consumer could not see, which is
+precisely why it is the one the version exists to make loud.
 
 ## How to cut a bump
 
@@ -33,7 +38,9 @@ exists to make loud.
    (`contracts/README.md` — a one-sided edit is what these files exist to catch).
 2. Bump `version` in `contracts/bundle.json`.
 3. Add the entry below.
-4. `make contracts-bundle` — rewrites `files` and `digests`.
+4. `make contracts-bundle` — rewrites `files` and `digests`, and records the new
+   version's entry in `version_digests`. It refuses if the version is one it
+   has already cut with different bytes.
 5. Set `bundleVersion` in `cloud/factory/contracts.pin.json` to the new version.
 
 ---
@@ -125,7 +132,7 @@ whole bundle. Every consumer that wrote or read an evidence record against
 is the ONLY definition in the bundle. It is closed (`additionalProperties:
 false`, SPEC §10.1 bounded and redacted) and nested:
 
-- the fifteen flat provenance fields are now one `provenance` object, the
+- the fourteen flat provenance fields are now one `provenance` object, the
   shared `$defs.provenance` that checkpoint, attempt, decision and evidence all
   carry — the shape `ticfac-run-state.json` already used, because SPEC §10.4
   says every committed file carries "the provenance fields of an evidence
@@ -152,8 +159,13 @@ enum (`worker | post-wave | integrated | review | closeout`), `executor` and
 `role` the job-protocol enums. The run-state golden and negative examples move
 onto them: `gate` → `post-wave`/`integrated`, `dispatch` → `worker`,
 `frontier_review` → `review` with role `review-epic`, `implement` →
-`implement-tick`. Every provenance field is required and nullable, as the
-evidence record's fields already were.
+`implement-tick`. Every provenance field is REQUIRED, and ten of the fourteen
+are also nullable — SPEC §10.1's reading, not a uniform rule. `run_id`,
+`source_ref` and `source_sha` are plain strings and `phase` is a bare `$ref`,
+because a record with no run, no source or no phase is not evidence of
+anything. The other ten are required-and-nullable, as the evidence record's
+fields already were: a record that omits `integration_ref` and one that states
+it as null are different claims, and only the second is evidence.
 
 **The tests that would have caught it**, and are the reason this is a version
 rather than a patch:
@@ -218,3 +230,38 @@ suite; a new runner on an existing executor is not (§12 Phase 1 step 3).
 Consumers: `cloud/factory` moves its pin to `2.1.0`. Nothing existing to
 follow — but an implementation of a ticfac executor now has a defined gate, and
 `internal/factory/lifecycle` is the reference for what passing it means.
+
+## 2.1.1
+
+PATCH. Comment only in the fixtures — no rule, schema, case or vocabulary
+changed, so a consumer pinned to `2.1.0` has nothing to do but move its pin.
+
+- `tk-json-manifest.json` `request.$comment` now says WHERE the refusal is
+  enforced: `tk`'s root `PersistentPreRunE`, which runs for every command
+  including the git merge drivers `tk` registers. A bad `TK_JSON_CONTRACT`
+  exported into a shell therefore makes `git merge` exit 11. That is by
+  design — a contract this build cannot serve is refused everywhere rather
+  than in the commands a caller remembered to check — but it is surprising
+  enough that the contract now says it.
+
+**The manifest gained a mechanism, and it is why this is a version rather than
+an unversioned re-cut.** `bundle.json` now carries `version_digests`: an
+append-only ledger mapping each version to a sha256 over that version's own
+`version` + `digests` map. It closes the one hole in the bundle's own rule.
+Until now, "do not re-cut the digests without bumping the version" was
+discipline — a fixture edit plus `make contracts-bundle` at an unchanged
+version left a manifest that was internally consistent again, that `Verify`
+and `verifyBundle` both accepted, and that a consumer pinned by exact value
+could not see. Now the ledger already holds what that version was cut with,
+so the re-cut contradicts it and all three refuse: `contracts.Verify` (Go),
+`verifyBundle` (TypeScript) and `make contracts-bundle` itself, which never
+rewrites an entry it has written. Both negative-control suites gained a case
+that performs exactly the dishonest re-cut and asserts the refusal.
+
+The ledger begins here. The bytes of `1.0.0` through `2.1.0` are not
+recoverable from the manifest, so it records `2.1.1` onward and the verifiers
+check the entry for the version on disk.
+
+Consumers: `cloud/factory` moves its pin to `2.1.1`. A consumer that
+re-implements the bundle check should add the ledger check; one that only
+reads fixtures has nothing to follow.

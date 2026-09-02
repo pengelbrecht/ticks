@@ -110,6 +110,47 @@ test("re-cutting the digests without bumping the version still fails the pin", (
   );
 });
 
+test("an HONEST re-cut at an unchanged version fails the version_digests ledger", () => {
+  // The hole the test above does NOT cover, and the reason `version_digests`
+  // exists. That one simulates an honest bump and leans on the exact-value
+  // pin. This one simulates the dishonest editor: edit a fixture, regenerate
+  // the manifest, and leave `version` alone. Every per-file digest agrees
+  // again, the pin still matches, the changelog still has an entry — and
+  // 2.1.1 has quietly come to mean different bytes than the 2.1.1 this
+  // package pinned. Only the ledger, written when the version was first cut
+  // and never rewritten, can object.
+  const { dir, pin } = scratchBundle();
+  const target = join(dir, "tracker-layout.json");
+  const edited = `${readFileSync(target, "utf8").trimEnd()}\n`;
+  writeFileSync(target, edited.replace(/}\s*$/, '  ,"smuggled": true}\n'));
+
+  const bundle = readBundle(dir);
+  bundle.digests["tracker-layout.json"] = createHash("sha256")
+    .update(readFileSync(target))
+    .digest("hex");
+  writeBundle(dir, bundle);
+
+  assert.throws(
+    () => verifyBundle(dir, pin),
+    /version_digests/,
+    "verifyBundle accepted a re-cut manifest at an unchanged version — the ledger is not a gate",
+  );
+});
+
+test("a bundle version with no version_digests entry fails", () => {
+  // The ledger cannot be disabled by deleting the row that indicts you.
+  const { dir, pin } = scratchBundle();
+  const bundle = readBundle(dir);
+  delete bundle.version_digests[bundle.version];
+  writeBundle(dir, bundle);
+
+  assert.throws(
+    () => verifyBundle(dir, pin),
+    /version_digests/,
+    "verifyBundle accepted a bundle whose version records no digest of its own cut",
+  );
+});
+
 test("a contract present but unlisted fails", () => {
   const { dir, pin } = scratchBundle();
   writeFileSync(join(dir, "smuggled-cases.json"), "{}\n");

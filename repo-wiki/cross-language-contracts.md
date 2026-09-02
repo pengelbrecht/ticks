@@ -2,14 +2,14 @@
 type: architecture
 source: from-chat
 covers: [contracts, cloud/factory/scripts/contracts.mjs, cloud/factory/contracts.pin.json, cloud/factory/CONTRACTS.md]
-verified_against: 91f39883
+verified_against: a8594b8e
 status: active
 ---
 
 ## Compiled Truth
 
 **`contracts/` at the repo root holds every rule that more than one
-implementation has to obey.** Fourteen files at bundle `2.1.0` — nine
+implementation has to obey.** Fourteen files at bundle `2.1.1` — nine
 behavioural case tables, plus `tk-json-manifest.json` (a published API surface),
 `credential-ownership.json`, `job-protocol.json` (record schemas, including the
 bundle's one evidence record), `ticfac-run-state.json` (a case table over an
@@ -177,6 +177,15 @@ extraction.
 
 No silent-orphan contract was found.
 
+**The bundle's own rules are proven the same way.** `internal/contracts/bundle_test.go`
+and `cloud/factory/scripts/contracts.test.mjs` each break the manifest in a
+throwaway copy — an edited fixture, an unlisted or missing one, a stale version
+pin, a version with no changelog entry, and (since `2.1.1`) a manifest re-cut at
+an unchanged version, plus a deleted `version_digests` row — and assert the
+refusal. The re-cut case is the one that used to be discipline: it leaves every
+per-file digest agreeing again, so only a record of what the version was cut
+with the FIRST time can object.
+
 ## Gotchas
 
 - **`extensions/ticks-runner` is a permanent in-repo consumer.** The collect
@@ -201,6 +210,14 @@ No silent-orphan contract was found.
   package that ships both — nothing can be true in a fixture and false on screen.
 
 ## Timeline
+- 2026-09-02 — bundle `2.1.1`: `version_digests` — the manifest's append-only
+  ledger of the digest each version was first cut with. It closes the bundle's
+  own last unenforced rule: "do not re-cut the digests without bumping the
+  version" was discipline until now, because a re-cut leaves the manifest
+  internally consistent again and a consumer pinned by exact value cannot see
+  it. Refused now by `make contracts-bundle`, by `contracts.Verify` and by
+  `verifyBundle`, each with a negative control. Fixture change in the same
+  version: a `$comment` sentence on `tk-json-manifest.json` — tick `dtp`
 - 2026-09-02 — bundle `2.1.0`: `lifecycle-invariants.json` added — SPEC Appendix
   A's thirteen lifecycle invariants as a conformance suite, with a fake
   reconciler/executor harness both languages implement, a named guard per rule
@@ -212,9 +229,22 @@ No silent-orphan contract was found.
   `ticfac-run-state.json` reduced to a reference, and two new checks that look
   ACROSS contract files — the cross-file golden validation and "a `schema_id` in
   more than one file resolves to exactly one definition" — tick `atx`
-- 2026-09-02 — `ticfac-run-state.json` added (bundle `1.2.0`): the `.ticfac/`
-  layout, persistence policy and compare-and-swap rules, with the first
-  model-based case table and a built-in guard-disabled negative control — tick
-  `x1w`
+- 2026-09-02 — bundle `1.2.0`: `ticfac-run-state.json` — the `.ticfac/` layout,
+  persistence policy and compare-and-swap rules, with the first model-based case
+  table and a built-in guard-disabled negative control — tick `x1w`
+- 2026-09-02 — bundle `1.2.0`: `job-protocol.json` — the seven record schemas of
+  the four-operation executor protocol (JobSpec, JobHandle, JobStatus, the
+  cancel acknowledgement, JobResult, the role-result envelope, the evidence
+  record), written BEFORE any executor, with the SPEC's own illustrative JobSpec
+  as a golden example and eighteen negative documents pinning the exact refusal
+  — tick `q8j`. It shipped in the same version as `ticfac-run-state.json` and
+  disagreed with it about the evidence record; `2.0.0` is that disagreement
+  settled.
+- 2026-09-02 — bundle `1.1.0`: `tk-json-manifest.json` (the published `tk --json`
+  surface — every command a consumer may call, its argv, its schema, the
+  contract version it was added in; tick `rs2`) and `credential-ownership.json`
+  (which credentials belong to ticfac and which to ticks, the `~/.ticfacrc`
+  schema, grant grades and stop rules; tick `uzq`). Both additive: no existing
+  fixture byte changed.
 - 2026-08-28 — `contracts/` established, distribution pinned, all nine proven to
   fail on drift, the runner's two readers wired in — @5a1e1f7f
