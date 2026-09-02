@@ -175,7 +175,7 @@ The final command names and schemas are a release decision, not an invitation
 for ticfac to reach into internal/. A command MUST fail closed when its
 requested JSON contract is unavailable or incompatible.
 
-One qualification, stated here so it is not discovered in Phase 2: a
+One qualification, stated here so it is not discovered in Phase 4: a
 Cloudflare Workflow or isolate cannot execute a Go binary, so on that host the
 reconciler cannot shell out to tk. The current factory already resolves this —
 it reads .tick/ records from the pushed branch through the contents API and
@@ -732,9 +732,9 @@ boundary. The following is the target mapping.
 
 | Current implementation | Target mapping | Notes |
 |---|---|---|
-| Claude runner (skills/ticks/references/claude-runner.md) | Claude-capable executor adapter and role profiles | Agent isolation, worktrees, background completion, continuation, and session handling are adapter concerns. Merge, tracker closure, and cleanup remain reconciler effects. |
-| Codex runner (skills/ticks/references/codex-runner.md) | Codex-capable executor adapter and role profiles | codex exec, worktree setup, completion/output retrieval, continuation, and review map to JobSpec/Handle/Result; they do not define the epic protocol. |
-| Pi runner (skills/ticks/references/pi-runner.md, extensions/ticks-runner/**) | Pi executor plus reconciler source material | The extension shows where execution and orchestration are fused. Extract claims/waves/gates/merge/cleanup into reconciliation commands and keep Pi JSON subprocess handling in the executor. |
+| Claude runner (skills/ticks/references/claude-runner.md) | `claude` runner on the local subprocess executor, plus role profiles | Agent isolation, worktrees, background completion, continuation, and session handling are adapter concerns. Merge, tracker closure, and cleanup remain reconciler effects. |
+| Codex runner (skills/ticks/references/codex-runner.md) | `codex` runner on the local subprocess executor, plus role profiles | codex exec, worktree setup, completion/output retrieval, continuation, and review map to JobSpec/Handle/Result; they do not define the epic protocol. |
+| Pi runner (skills/ticks/references/pi-runner.md, extensions/ticks-runner/**) | `pi` runner on the local subprocess executor, plus reconciler source material | The extension shows where execution and orchestration are fused. Extract claims/waves/gates/merge/cleanup into reconciliation commands and keep Pi JSON subprocess handling in the executor. |
 | Prime/RLM (skills/ticks/references/prime-runner.md) | Read-only/analysis executor capability | Prime's child/worktree limitations and read-only role are capabilities and profile policy. It does not become a second orchestrator. |
 | Herdr (skills/ticks/references/herdr-runner.md, internal/herd/**) | Herdr executor | Heterogeneous fleet selection, process/event relay, result collection, adoption, and remote lifecycle sit behind the four-operation executor protocol. Tracker vocabulary and question relay remain in ticks. Herdr never publishes or closes work. |
 | Current cloud RunWorkflow (cloud/factory/src/run-workflow.ts) | Cloudflare durable host + reconciler | It currently combines lease/retry/budget supervision, an orchestrator container, wave dispatch, worker lifecycle, collection, closeout, and finalization. The decomposition is specified in §9. |
@@ -1235,6 +1235,19 @@ on Workflow, Durable Object, R2, Sandbox, or Computer types.
 
 ## 12. Migration plan
 
+The plan proceeds in contained chunks, each **gated by a real run**, not by
+tests alone. Each chunk is one epic in `.tick/` whose final tick is the gate
+run, the way project w1z's A1 was. Local hosts come before the Cloudflare
+host: local is where the reconciler is validated cheaply, with a person
+watching and no meter running, and local orchestration is used daily, so
+validation there is real use. Cloud is the hardest host (no tk, wipes, step
+caps, money) and meets the reconciler only once it is proven.
+
+Two terms to keep straight. An **executor** is where a job runs and how it is
+started, inspected, cancelled, and collected. A **runner** is the harness
+inside the job — `claude`, `codex`, `pi`. Refactoring local orchestration means
+the reconciler plus two executors; runners are unchanged.
+
 ### Phase 0: freeze behavior and the three protocols
 
 1. Publish the tk --json command manifest and minimum version.
@@ -1252,27 +1265,90 @@ on Workflow, Durable Object, R2, Sandbox, or Computer types.
    run-workflow.ts is 3,500 lines because of these orderings; §9.2 preserves
    the symbols, this preserves the reasons.
 
-### Phase 1: prove the smallest local vertical slice
+**Gate:** the contract bundle passes from both repositories; no behavior has
+changed. Small and boring on purpose.
 
-1. Create ticfac with independent CI and `ticfac run-epic <id>`.
+### Phase 1: the reconciler and the local subprocess executor
+
+1. Create ticfac with independent CI and `ticfac run-epic <id>`. Separate from
+   the start: the contract bundle is what makes the release dance cheap, and a
+   separate repository is the only mechanical proof of the dependency
+   direction.
 2. Implement the tk client, Git integration command, evidence command, and the
-   restartable reconciliation loop for one epic at concurrency one.
-3. Implement one local executor through the four-operation protocol.
+   restartable reconciliation loop for one epic at concurrency one. This is the
+   deterministic lifecycle — claims, waves, gates, merge, boundary checks,
+   cleanup ordering — in code, and it now exists for local orchestration by
+   construction rather than as a later extraction.
+3. Implement the **local subprocess executor** through the four-operation
+   protocol: a worktree per attempt, the runner launched headless, RESULT as
+   the completion contract. Start is spawn; inspect is pid, worktree state,
+   and RESULT; cancel is kill; collect is read the worktree branch. `claude`,
+   `codex`, and `pi` are runner values on this one executor — the same
+   worktree-per-attempt mechanism for all three, so Appendix A is tested once.
+   (The current Pi JSON subprocess handling is this executor with one runner
+   hardcoded.)
 4. Add independently configurable implement-tick, review-epic, and
-   closeout-epic profiles; preserve the EPIC-SKELETON behavior.
+   closeout-epic profiles; preserve the EPIC-SKELETON behavior. Phase 1
+   profiles resolve to executor, runner, model, prompt and nothing else
+   (§4.5).
 5. Demonstrate restart after dispatch, after collection, and before closure
    without duplicate work or false success.
+
+The interactive session's own subagent tool is not an executor: the reconciler
+cannot drive it from outside, so that path only works if the session is the
+reconciler, which is the Markdown loop Phase 3 retires. The interactive agent
+becomes an operator — it runs `ticfac run-epic`, watches, and intervenes.
+
+**Gate:** one real epic on this repository completes through ticfac locally
+with a `claude` or `codex` runner, killed and restarted at each of the three
+points in step 5.
 
 This phase is the v1 architecture test. Do not add a general event bus,
 universal workflow abstraction, plugin system, or same-repository multi-epic
 execution to make it pass.
 
-### Phase 2: move the Cloudflare product as a compatibility host
+### Phase 2: the Herdr executor
+
+1. Implement the Herdr executor behind the same four operations; move
+   execution-oriented Herdr process/fleet helpers from internal/herd/** into
+   it. Herdr adds fleet visibility, panes, and heterogeneous runner selection
+   on top of the Phase 1 contract; it does not add lifecycle.
+2. Support a range of Herdr protocol versions from the start (a hard floor, a
+   warn version, no upper bound) — the single most recurrent local breakage.
+3. Retain tracker-domain configuration and the question relay in ticks.
+4. Move internal/factory/** and Factory command files from cmd/tk/cmd/ to the
+   ticfac CLI; do not retain hidden tk dispatch shims. Replace every ticks
+   internal Go import with tk --json, Git, or a pinned schema.
+
+**Gate:** a real ticks epic is run through `ticfac run-epic` on Herdr instead
+of the tk herd skill ritual, by the operator, for actual work. This is the
+dogfood gate and the one that proves the architecture is worth having.
+
+### Phase 3: role jobs, and retire Markdown as lifecycle implementation
+
+1. Run review-epic and closeout-epic as role jobs with validated results and
+   evidence records, locally, on both executors.
+2. Delete — not extract — the lifecycle loop from
+   extensions/ticks-runner/runner.ts, merge.ts, boundary.ts, and
+   agent-runner.md; Phase 1 already holds that behavior in code.
+3. Keep good-tick, super-tick, Definition of Ready, roadmap, role, and
+   EPIC-SKELETON authoring policy in ticks.
+4. Keep a concise tracker-facing runner contract in ticks and move concrete
+   role prompts, executor procedures, and operator guidance to ticfac.
+5. Add conformance tests proving every executor obeys the same lifecycle and
+   source/evidence boundary.
+
+**Gate:** an epic's review and closeout run as jobs with evidence records and
+no person reading runner Markdown; the ticks skill no longer contains a
+lifecycle.
+
+### Phase 4: move the Cloudflare product as a compatibility host
 
 1. Move cloud/factory/** to ticfac/cloudflare/** while preserving routes and
    D1/R2 behavior initially.
 2. Make RunWorkflow host the reconciler rather than an orchestrator coding
-   container; use one Workflow per EpicRun.
+   container; use one Workflow per EpicRun. Tracker access goes through the
+   contract-held implementation of §3.1.
 3. Introduce the repository Durable Object with one slot and one serialized
    publisher. Preserve current RunRoom lease behavior behind it.
 4. Move cloud/sandbox/** to ticfac/image/** and expose current SandboxBinding
@@ -1280,30 +1356,12 @@ execution to make it pass.
 5. Keep cloud/worker/** in ticks and verify that the ticks.sh board is absent
    from the Factory deployment.
 6. Move run/attempt/decision records from D1 into `.ticfac/` on the run
-   branch; leave D1 as a rebuildable index or remove it.
+   branch, pushed on origin at once (§10.4); leave D1 as a rebuildable index
+   or remove it.
+7. Move Factory credentials, embedding, deployment bundles, and CI.
 
-### Phase 3: move local Factory and executor adapters
-
-1. Move internal/factory/** and Factory command files from cmd/tk/cmd/ to the
-   ticfac CLI; do not retain hidden tk dispatch shims.
-2. Keep Pi JSON subprocess handling as the first complete local executor and
-   map Claude, Codex, and Prime behavior to role profiles plus adapter code.
-3. Move execution-oriented Herdr process/fleet helpers into the Herdr executor;
-   retain tracker-domain configuration and the question relay in ticks.
-4. Replace every ticks internal Go import with tk --json, Git, or a pinned
-   schema.
-5. Move Factory credentials, embedding, deployment bundles, and CI.
-
-### Phase 4: retire Markdown as lifecycle implementation
-
-1. Extract deterministic behavior from extensions/ticks-runner/runner.ts,
-   merge.ts, boundary.ts, and agent-runner.md into reconcile/Git/evidence code.
-2. Keep good-tick, super-tick, Definition of Ready, roadmap, role, and
-   EPIC-SKELETON authoring policy in ticks.
-3. Keep a concise tracker-facing runner contract in ticks and move concrete
-   role prompts, executor procedures, and operator guidance to ticfac.
-4. Add conformance tests proving every executor obeys the same lifecycle and
-   source/evidence boundary.
+**Gate:** project w1z A1 again — an epic completes unattended and merges its
+own PR — through the new reconciler, with a restart of the Workflow mid-run.
 
 ### Phase 5: introduce Cloudflare Computer
 
@@ -1315,6 +1373,9 @@ execution to make it pass.
 4. Shadow the Sandbox executor before changing defaults; retain Sandbox as
    rollback capacity until parity and preview risk are acceptable.
 
+**Gate:** the Phase 4 gate run repeated on the Computer executor, shadowed
+against Sandbox, with matching evidence.
+
 ### Phase 6: enable multi-epic composition deliberately
 
 1. Add `ticfac run <scope> --max-epics N` as a scheduler over independent
@@ -1324,6 +1385,9 @@ execution to make it pass.
    learnings-file, merge-driver, lease/status, and freshness tests pass.
 4. Serialize publication, rerun stale integrated gates, and rerun semantic
    frontier review where a changed target can invalidate it.
+
+**Gate:** two epics in the same repository complete concurrently with
+serialized publication and no stale gate.
 
 ### Phase 7: cut over and simplify ticks
 
@@ -1335,6 +1399,9 @@ execution to make it pass.
    the board.
 4. Prove the dependency direction mechanically: ticks builds without ticfac;
    ticfac passes compatibility against a pinned ticks release.
+
+**Gate:** ticks builds without ticfac; ticfac passes the contract bundle
+against a pinned ticks release.
 
 ## 13. Design principles
 
