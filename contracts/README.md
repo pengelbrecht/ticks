@@ -48,6 +48,7 @@ the implementations disagreeing.
 | `message-context.json` | the message context block the operator composes | `internal/operator/message_context_parity_test.go` |
 | `tracker-layout.json` | the tracker's on-disk record layout and field order | `internal/tick/tracker_layout_parity_test.go` |
 | `collect-vocabulary.json` | the collect verdict/status vocabulary and the status-line parse cases | `internal/herd/collect/contract_test.go`, `internal/cloud/collect/contract_test.go` |
+| `tk-json-manifest.json` | the published `tk --json` command surface: every command a consumer may call, its argv, its output schema, and the contract version this build serves | `cmd/tk/cmd/tk_json_contract_test.go`, `internal/tkcontract` |
 
 The TypeScript readers live in the factory's vitest suite (`worker-boot.test.ts`,
 `repo-config.test.ts`, `message-context.test.ts`, `tick-membership.test.ts`,
@@ -58,6 +59,47 @@ copies of a parity fixture is the one arrangement guaranteed to defeat it: a
 one-sided edit then passes both suites. `cloud/factory/CONTRACTS.md` records how
 the factory keeps reaching these files once it is extracted into its own
 repository, which is the only reason a copy will ever exist again.
+
+### The `tk --json` manifest is the odd one out
+
+`tk-json-manifest.json` is a **published API surface**, not an input → expected
+case table, and its second implementation is not TypeScript-in-this-repo — it is
+whatever consumes released `tk` behaviour. Today that is ticfac (SPEC §3.1: "tk
+--json is the only tracker API"); tomorrow it is anything else that orchestrates
+a tracker it did not compile against.
+
+Three things follow, and they are why the file looks different from its
+neighbours:
+
+1. **Its Go reader RUNS every command it lists.**
+   `cmd/tk/cmd/tk_json_contract_test.go` looks each entry up in the real command
+   tree, executes it against a fixture repository, and validates the actual
+   stdout against the schema published here. Every fixture also asserts the
+   result is *substantive* — an empty list validates against every schema in the
+   file and would prove nothing.
+2. **The binary carries it.** It is embedded (`embedded.go`) and reported by
+   `tk version --json`, so a consumer holding only an executable can ask which
+   contract it serves. A manifest read off disk at runtime could disagree with
+   the binary beside it; embedding removes that state.
+3. **A consumer can pin it, and tk fails closed.** `--json-contract <n>` (or
+   `TK_JSON_CONTRACT`) declares the contract the caller was built against. A
+   version this build cannot serve is refused **before the command runs**, with
+   exit code 11 — its own slot, so "install a different tk" is distinguishable
+   from a routing refusal (1) or a usage error (2) without parsing stderr.
+
+Schemas here keep `additionalProperties` open on purpose: within a contract
+version tk may **add** fields, and only a removal or a type change is a break.
+Removing a field, renaming one, retyping one, or dropping a command is a new
+contract number, added to `supported_contracts` alongside the old one for as
+long as consumers need it.
+
+The §3.1 qualification lives in the file's `hosts` block rather than only in the
+design doc, because it is part of the contract: a Cloudflare Workflow or isolate
+cannot execute a Go binary, so on that host the reconciler **implements this
+same contract in its own language** — and proves it with the fixtures in this
+directory, `tracker-layout.json` first among them, not by inspection. Such an
+implementation is a consumer of the contract, not a second tracker. Every host
+that can run `tk` runs `tk`.
 
 ### What is NOT a contract
 

@@ -41,6 +41,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`tk --json` is now a published contract, not an emergent one (`contracts/tk-json-manifest.json`, `internal/tkcontract`, `cmd/tk/cmd/version.go`)** —
+  SPEC §3.1 of the ticfac architecture makes `tk --json` the *only* tracker API: a
+  consumer orchestrates released `tk` behaviour and never imports `internal/`. That
+  only means something if the surface is written down and enforced, so it now is.
+  `contracts/tk-json-manifest.json` lists every command a consumer may call — the
+  reads (`version`, `show`, `list`, `ready`, `next`, `deps`, `graph`, `status`), the
+  controlled writes (claim, `update`, `note`, `close`, `reopen`) and the two git merge
+  drivers whose contract is an exit code rather than stdout — each with its argv, its
+  JSON schema, and the contract version it was added in. `tk version --json` reports
+  that contract number, the contracts this build can serve, and the minimum `tk`
+  release that serves them, so a consumer can decide compatibility from the binary
+  alone. **A caller can pin what it was built against and tk fails closed:**
+  `--json-contract <n>` (or `TK_JSON_CONTRACT`) is refused with exit **11** —
+  its own slot, because "install a different tk" is neither a retry nor a
+  command-line fix — *before* the command runs, `tk version --json` included, since
+  that call is how the mismatch is discovered. The manifest is not a document: its
+  Go reader runs all 15 published commands against a fixture repository and validates
+  the real stdout against the schema, and every fixture asserts the result is
+  substantive — an empty list validates against every schema in the file, which is how
+  `tk ready --json` first passed the suite while returning nothing. Schemas keep
+  `additionalProperties` open, so adding a field is not a break and only a removal or a
+  type change is. `tk note` gained `--json` to close the one gap in the write set: a
+  controlled write returns the record it wrote, so a consumer never follows a write
+  with a read. And the §3.1 qualification is part of the published file, not folklore —
+  a host that cannot execute a Go binary (a Cloudflare Workflow or isolate)
+  implements this same contract in its own language and proves it with the pinned
+  bundle in `contracts/`, `tracker-layout.json` first. Every host that can run `tk`
+  runs `tk`.
+
+
 - **The ticks skill is available to anyone who clones this repo (`skills/README.md`)** —
   `.claude/skills/ticks` and `.agents/skills/ticks` are now checked-in symlinks back
   to `skills/ticks/`, the source of truth, so a fresh clone has a working skill with
