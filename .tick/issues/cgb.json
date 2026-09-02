@@ -2,7 +2,7 @@
   "id": "cgb",
   "title": "Create the ticfac repository and its tracker (human)",
   "description": "Phase 1 step 1 (SPEC §12): ticfac is a separate repository from the start. Decisions only Peter can make: repository name and owner (proposal: pengelbrecht/ticfac), visibility (proposal: public, same as ticks, so the public-repo rule applies from day one), default branch (main). Then: git init with a README naming docs/projects/2026-09-01-ticfac-architecture/SPEC.md in ticks as the architecture; tk init; copy .tick/config.md Rules (public-repo rule, pnpm, PR+CI gate) and a minimal .tick/runners.toml ([orchestration] substrate auto, [roles.implement] claude sonnet, tiers as in ticks); .tick/learnings.md seeded with the Orchestration and Verification-ticks sections from ticks. Push. WHY THE TRACKER LIVES THERE: ticks is one tracker per repository and tk herd spawns worktrees of the repository it runs in, so Phase 1 code ticks must be created and run from the ticfac checkout. The partition of the remaining Phase 1 work is recorded as a note on 4ik; plan it into the ticfac tracker (with its own EPIC-SKELETON) as the first action after this tick, then run it from there.",
-  "status": "open",
+  "status": "closed",
   "priority": 1,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -11,5 +11,7 @@
   "awaiting": "work",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-02T15:14:08.512644Z",
-  "updated_at": "2026-09-02T15:14:08.512644Z"
+  "updated_at": "2026-09-02T15:18:38.743898Z",
+  "closed_at": "2026-09-02T15:18:38.743898Z",
+  "closed_reason": "Completed: pengelbrecht/ticfac created public per Peter's decision; tracker, Rules, runners.toml and learnings bootstrapped and pushed (1ad5177)"
 }
