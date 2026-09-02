@@ -16,6 +16,47 @@ Note that "cross-language" is the common case, not the requirement — two Go
 packages that re-implement the same rule have the same drift problem and belong
 here too.
 
+## The bundle: versioned, pinned, executable
+
+These files are not just a directory. They are a **bundle with a version**,
+because they have a consumer that is leaving the repository: `cloud/factory`
+today, `ticfac` tomorrow
+(`docs/projects/2026-09-01-ticfac-architecture/SPEC.md` §3.2). Three files make
+that real:
+
+| file | what it is |
+|---|---|
+| `bundle.json` | the manifest — `version`, the file list, and a sha256 per file |
+| `CHANGELOG.md` | what each version changed, and the rule that governs bumps |
+| `cloud/factory/contracts.pin.json` | the consumer's pin: `"bundleVersion"`, by exact value |
+
+The version is only worth anything if it always names the same bytes, so both
+languages re-hash the fixtures against the manifest on every build:
+
+- **Go** — `internal/contracts` (`Verify`, `VerifyChangelog`), run by the CI
+  `go` job's *Contract bundle and parity fixtures* step.
+- **TypeScript** — `cloud/factory/scripts/contracts.mjs` (`verifyBundle`), run
+  by `pnpm contracts:check` on every `pnpm test` and `pnpm typecheck`, and as
+  its own CI step.
+
+And both sides carry **negative controls** — `internal/contracts/bundle_test.go`
+and `cloud/factory/scripts/contracts.test.mjs` — that break a fixture in a
+throwaway copy and assert the check refuses it. That is the point the SPEC
+insists on: *a copied JSON file without an executable check is not a contract*,
+and a check nothing has ever seen fail is not known to be a check.
+
+### Changing a contract
+
+`contracts/CHANGELOG.md` has the full rule. In short, one commit contains all
+of: the fixture edit, every implementation of the rule, a bumped `version` in
+`bundle.json`, a `CHANGELOG.md` entry, `make contracts-bundle`, and the moved
+`bundleVersion` in `cloud/factory/contracts.pin.json`. Stop anywhere short of
+that and a build goes red naming what is missing.
+
+Do **not** re-cut the digests without bumping the version. A consumer pinned to
+`1.0.0` cannot see that `1.0.0` came to mean something else; that invisibility
+is exactly what the version exists to remove.
+
 ## Why they exist at all
 
 `.tick/learnings.md` records the bug this repository has already paid for, under
@@ -102,3 +143,7 @@ turns a real rule into a ritual. Hence a sibling directory.
 3. Add the TypeScript reader in the same commit, or the next one — a fixture
    with only one reader detects nothing.
 4. Add a row to the table above.
+5. Bump `version` in `bundle.json` (a new contract is a MINOR bump), add the
+   `CHANGELOG.md` entry, run `make contracts-bundle`, and add the file to
+   `files` — plus `bundleVersion` — in `cloud/factory/contracts.pin.json`. The
+   checks on both sides name whichever of these you skipped.

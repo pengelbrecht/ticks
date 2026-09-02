@@ -41,6 +41,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`contracts/` is now a versioned, pinned, executable bundle (`contracts/bundle.json`, `contracts/CHANGELOG.md`, `internal/contracts/`, `cloud/factory/scripts/contracts.mjs`)** —
+  the cross-language fixtures had a mechanism for *travelling* to a consumer after
+  the factory extraction, but no answer to the question a consumer actually asks:
+  **which version of the contracts is this code written against?** `contracts/` was a
+  directory, and a directory cannot be pinned. It is now a bundle with a `version`, a
+  file list and a sha256 per file, and `cloud/factory/contracts.pin.json` pins that
+  version by exact value in `bundleVersion` — the ticfac SPEC §3.2 requirement, which
+  `ref` did not discharge because `ref` names a module download, not a behavioural
+  contract. Both languages re-hash the fixtures against the manifest on every build:
+  `internal/contracts` in the CI `go` job's own named step, `verifyBundle` in
+  `pnpm contracts:check`. So a fixture edited without the bundle being re-cut fails
+  both, and a bundle re-cut without a version bump fails the pin — the one drift a
+  pinned consumer cannot see. The changelog rule is executable too: a version with no
+  `contracts/CHANGELOG.md` entry is refused, because a version nobody can read the
+  meaning of tells a consumer nothing about what adopting it costs. And because a gate
+  nothing has ever seen fail is not known to be a gate, both sides ship **negative
+  controls** — `internal/contracts/bundle_test.go` and
+  `cloud/factory/scripts/contracts.test.mjs` — that deliberately break a fixture in a
+  throwaway copy and assert the check refuses it, discharging *a copied JSON file
+  without an executable check is not a contract* in the only form that means anything.
+  Re-cut a bundle with `make contracts-bundle`; it never bumps the version for you, on
+  purpose. No fixture bytes changed and no runtime behaviour changed: bundle `1.0.0`
+  freezes the nine existing contracts exactly as they were.
+
 - **The ticks skill is available to anyone who clones this repo (`skills/README.md`)** —
   `.claude/skills/ticks` and `.agents/skills/ticks` are now checked-in symlinks back
   to `skills/ticks/`, the source of truth, so a fresh clone has a working skill with
