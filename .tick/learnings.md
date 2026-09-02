@@ -54,8 +54,10 @@ grep every state table for its READ sites — a record nothing consults is not a
 over a rolling window bounds the window, not the subject.
 
 **Problem:** Two parallel ticks each added a case to one module; a mechanical union of the conflict
-produced malformed code. **Rule:** Two additions to one file are a union in INTENT, not in text —
-hand the resolve to a worker holding the context, never stitch halves.
+produced malformed code. Later, two same-wave ticks each added a contract and each cut the bundle
+version. **Rule:** Two additions to one file are a union in INTENT, not in text — hand the resolve
+to a worker holding the context. A versioned artifact (bundle, lockfile, changelog) has ONE owner
+per wave: the last tick to touch it, or the orchestrator after the merge.
 
 ## Orchestrator gates
 
@@ -63,6 +65,15 @@ hand the resolve to a worker holding the context, never stitch halves.
 exit, so a hanging test reached final review. **Cause:** pipelines report the LAST command's status.
 **Rule:** Capture the real command's status BEFORE any filter, give hang-prone suites an explicit
 `-timeout`, and never pipe a mutating command through head/tail — re-read state to confirm it.
+
+**Problem:** `tk next <epic>` returned nothing although the graph showed ready ticks.
+**Cause:** it dispatches only ticks owned by the current tk identity; ticks created `-o <human>`
+are invisible to it, and owner is required so it cannot be cleared. **Rule:** Create agent-run
+ticks with the default owner. **Also:** `tk delete` prompts on a TTY — run tk with `</dev/null`.
+
+**Problem:** The herd guard nudged a healthy run four times about ticks in OTHER epics and
+re-armed itself on every `tk herd spawn` after a `--clear`. **Rule:** Until t62 lands, expect
+repo-wide frontier nudges on a scoped run; clear the watch after the last spawn of a wave.
 
 ## Naming and tracker hygiene
 
@@ -86,10 +97,6 @@ drift from the bundle it boots — so `go install` needs a PUSHED commit before 
 **Problem:** Auth passed 60 local tests then 503'd once deployed: PBKDF2 at 210k, over Cloudflare's
 100k cap, which local workerd does not enforce. **Rule:** A green vitest run never proves the edge
 accepts a platform-limited value. Pin each limit as a named constant and smoke the DEPLOYED endpoint.
-
-**Problem:** A deploy verified once immediately reported "the secret did not land" when it had.
-**Cause:** `wrangler secret put` creates a new Worker version; propagation takes ~10-30s. **Rule:**
-Verify a deploy with bounded retry over 503/5xx/1042, never one immediate probe.
 
 **Problem:** A caught exception was reported as "record is not valid", sending diagnosis after a
 format bug when the fault was crypto. **Rule:** Never collapse distinct failure classes into one
@@ -121,24 +128,11 @@ deployment ceilings, and raising either alone changed nothing. **Rule:** When a 
 effect, enumerate every layer that can lower it, derive the budget from what the run has LEFT, and
 REPORT the effective number — killing an agent mid-work keeps none of the work.
 
-**Problem:** 46M input tokens billed at zero cache hits. **Cause:** Workers AI prefix caching is per
-model instance and needs `x-session-affinity`. **Rule:** Affinity alone is not enough — one varying
-token invalidates the prefix, so pin the injected prompt byte-identical across calls. The gateway
-RESPONSE cache never helps an agentic loop.
-
-**Problem:** ~$50 of spend appeared in no billing page. **Cause:** billable usage lags the cycle and
-lists no Workers AI product family. **Rule:** Reconcile gateway-log cost against Neurons on the
-Workers AI dashboard, not the billing page; credits cover Workers AI and EXCLUDE AI Gateway
-(`repo-wiki/cloud-factory-billing.md`).
-
 ## Cross-language parity, parsers and formats
 
 **Problem:** A fix landed in TypeScript only; the Go half kept minting unusable records, both suites
 green because each was internally consistent. **Rule:** Any constant or format crossing the Go/TS
 boundary needs a cross-implementation golden test.
-
-**Problem:** `npx --no wrangler --version` exits 0 printing *npm's* version when wrangler is absent.
-**Rule:** A version probe must validate WHAT answered, not the exit code.
 
 **Problem:** Two ways to evade a fail-closed check. A hand-rolled TOML parser let `__proto__.command`
 set `Object.prototype` process-wide and the key then vanished from the unknown-key check; and a
@@ -146,26 +140,9 @@ migrator's looser grammar turned lines the reader had IGNORED into authorized co
 Build parsed tables with `Object.create(null)` and look keys up with `Object.hasOwn`; a migrator
 must parse with the READER's grammar and report every line it would newly AUTHORIZE.
 
-**Problem:** A config format bump hard-broke older binaries. **Rule:** A version gate cannot be
-retrofitted into a released binary — ship it a release before the format needs it.
+## Verification ticks
 
-## A verification tick's RESULT file is its deliverable — say so, or it will not be committed
-
-2026-08-28, twice in one wave (ticks `i0o`, `i61`). Both workers finished
-correctly, reverted every experimental edit, left a clean tree — and did **not**
-commit `RESULT-<id>.md`, each reasoning that a clean source tree means there is
-nothing to commit. That is right about source and wrong about the report.
-
-`tk herd collect` reads the branch. An uncommitted RESULT makes the tick report
-`no-commits`, which is **indistinguishable from a worker that did nothing**. In
-both cases the pane said `done` and the durable layer said nothing had landed.
-
-This is a task-description defect, not a worker defect. Any tick whose output is
-evidence rather than code must say in as many words: *commit
-`RESULT-<id>.md` even when no source file changed — the report is the
-deliverable.*
-
-Corollary, and the reason this was caught at all: a herdr pane reporting `done`
-means the agent is idle at a prompt, not that the task is complete. One of the
-two had spawned its own background agent and gone idle waiting for it. Only the
-durable check distinguishes "finished" from "parked".
+**Problem:** Workers finishing a verification tick left a clean tree and did NOT commit
+`RESULT-<id>.md`; `tk herd collect` reads the branch, so it reported `no-commits` — the same as
+a worker that did nothing. **Rule:** A tick whose output is evidence must say "commit
+`RESULT-<id>.md` even when no source changed". A pane saying `done` means idle at a prompt.
