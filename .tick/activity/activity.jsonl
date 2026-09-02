@@ -2349,3 +2349,4 @@
 {"ts":"2026-09-02T11:40:39.773493Z","tick":"rs2","action":"start","actor":"claude:orchestrator","epic":"692","data":{"title":"tk --json command manifest and minimum version"}}
 {"ts":"2026-09-02T11:40:39.822253Z","tick":"mrq","action":"start","actor":"claude:orchestrator","epic":"692","data":{"title":"Cloud compatibility tests: routes, D1/R2 keys, image tags, worker result semantics, cleanup ordering"}}
 {"ts":"2026-09-02T11:40:39.869843Z","tick":"uzq","action":"start","actor":"claude:orchestrator","epic":"692","data":{"title":"Credential ownership and ~/.ticfacrc: definition and migration path"}}
+{"ts":"2026-09-02T11:41:08.182845Z","tick":"t62","action":"create","actor":"claude:orchestrator","data":{"priority":2,"title":"tk frontier --check and the herd guard are repo-wide, so a scoped epic run is nudged about unrelated ticks","type":"task"}}
