@@ -9,5 +9,6 @@
   "acceptance_criteria": "tk version --json reports a contract version; a manifest file under contracts/ lists every command with its schema; a Go test asserts every manifest command exists and its --json output validates; a tk invoked with an unknown requested contract version fails closed with a distinct error.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-02T11:28:24.627419Z",
-  "updated_at": "2026-09-02T11:28:24.627419Z"
+  "updated_at": "2026-09-02T11:28:24.627419Z",
+  "owner": "noreply@anthropic.com"
 }

@@ -10,5 +10,6 @@
   "acceptance_criteria": "A doc section or file defines ownership per credential type and the ~/.ticfacrc schema; the schema is a bundle fixture with a validating example; the migration steps from current tk factory credentials are listed; the security posture (never print tokens, read-only grades) is preserved.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-02T11:28:24.726034Z",
-  "updated_at": "2026-09-02T11:29:06.182472Z"
+  "updated_at": "2026-09-02T11:29:06.182472Z",
+  "owner": "noreply@anthropic.com"
 }

@@ -10,5 +10,6 @@
   "acceptance_criteria": "A compatibility test file (or files) under cloud/factory exercises each listed surface against the current implementation and is green; each test names the SPEC section or Appendix A invariant it protects; the suite is registered in the existing factory CI job.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-02T11:28:24.701203Z",
-  "updated_at": "2026-09-02T11:34:32.715632Z"
+  "updated_at": "2026-09-02T11:34:32.715632Z",
+  "owner": "noreply@anthropic.com"
 }

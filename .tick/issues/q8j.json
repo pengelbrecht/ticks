@@ -12,5 +12,6 @@
   "acceptance_criteria": "Schemas live in the bundle with schema_version; golden examples validate and negative examples fail from both Go and TypeScript; JobSpec carries a credentials object with model and source grade; the schemas are referenced from the spec by path.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-02T11:28:24.675892Z",
-  "updated_at": "2026-09-02T11:28:24.675892Z"
+  "updated_at": "2026-09-02T11:28:24.675892Z",
+  "owner": "noreply@anthropic.com"
 }

@@ -12,5 +12,6 @@
   "acceptance_criteria": "Record schemas exist in the bundle with golden examples validating from both languages; a fixture describes the CAS sequences for dispatch and checkpoint as executable table tests against an in-memory git fake; the .gitignore fragment for .ticfac/ is defined; the spec references the fixture paths.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-02T11:28:24.750076Z",
-  "updated_at": "2026-09-02T11:28:24.750076Z"
+  "updated_at": "2026-09-02T11:28:24.750076Z",
+  "owner": "noreply@anthropic.com"
 }
