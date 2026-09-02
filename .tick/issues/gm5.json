@@ -2,7 +2,8 @@
   "id": "gm5",
   "title": "Worker report lands outside the worktree root when the worker changes directory",
   "description": "Found while cleaning up tick is0 (2026-08-20). is0 collected as `missing-result` and blocked cleanup as unexpected dirt. Its report existed and was complete — at `cloud/factory/RESULT-is0.md` rather than the worktree root, because the worker had cdd into that package and wrote the file relative to its cwd.\n\nTwo consequences, both real:\n1. collect looks only at the worktree root, so a complete report reads as no report — and the orchestrator nearly discarded a report containing a genuine unproven risk (only `content` was translated for the Workers AI route; omp also sends `store`, `stream_options` and `max_completion_tokens`, which the route evidently tolerates but which nothing has proved).\n2. cleanup refuses the worktree because the stray file is dirt it does not recognise, which is how a closed tick kept its worker alive.\n\nThe prompt template already says \"at the root of this worktree\", so this is not a missing instruction — it is an instruction that a worker following it from a subdirectory gets wrong. Prefer a mechanism over more prose: have collect look for RESULT-\u003ctick\u003e.md anywhere in the worktree and say where it found it when that is not the root, and/or have the prompt give the absolute path rather than a relative one.",
-  "status": "open",
+  "notes": "2026-09-02 13:34 - Closed 2026-09-02 as legacy (Peter: no cycles on the old world). Superseded by project hzm (ticfac). See the note on 4ik for where the new implementation solves this by design.",
+  "status": "closed",
   "priority": 2,
   "type": "bug",
   "owner": "noreply@anthropic.com",
@@ -14,5 +15,6 @@
   "acceptance_criteria": "A report written from a subdirectory is found by collect, with its location named when it is not the root; cleanup is not blocked by it; the prompt template gives an unambiguous path.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-20T13:06:31.918429Z",
-  "updated_at": "2026-08-25T12:19:44.972993Z"
+  "updated_at": "2026-09-02T11:34:32.152425Z",
+  "closed_at": "2026-09-02T11:34:32.152425Z"
 }

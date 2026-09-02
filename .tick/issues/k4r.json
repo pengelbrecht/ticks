@@ -2,7 +2,8 @@
   "id": "k4r",
   "title": "Runs orphaned by a dead supervisor sit in 'stopping' forever and clutter tk cloud status",
   "description": "Data hygiene left behind by tick 2xm's defect, not by 2xm's fix.\n\nBefore 2xm, every cloud run's supervising Workflow errored at Cloudflare's 10-minute step cap. Only the Workflow writes the run's state column, so a run whose Workflow is gone can never leave a non-terminal state. Four such rows remain:\n\n  run_9e40b9563bfb493cac1fe6625356e538  stopping\n  run_2e66e765f74c4192b2b9a24a6e8415cf  stopping\n  run_f15efdfb79a84bda9914e92a39395f3d  stopping\n  run_0573d3c74ab84d6abc1ac1a539c9933a  failed\n\nThey hold nothing — the lease moved on correctly each time and no containers survive — so this is clutter rather than a hazard. It is filed because 'tk cloud status' is the operator's first view of the factory, and four permanently-stuck rows train the reader to ignore the state column, which is the column that matters when something is genuinely wrong.\n\nRuns after 2xm reach terminal states correctly (run_b42d0eb6 reached 'stopped' with workflow 'complete'), so this is a backlog to drain, not an ongoing leak.\n\nTwo things worth doing, and the second is the durable one:\n1. Drain the existing rows — a one-off admin path, or a reaper that transitions a run whose Workflow instance is absent or errored.\n2. The general rule: a run's state should be derivable from evidence outside the writer that may have died. 'tk cloud status' could reconcile a non-terminal row against the Workflow instance API before displaying it, so a dead supervisor shows as dead rather than as running. That is the same lesson 2xm produced, applied to the read path instead of the write path.",
-  "status": "open",
+  "notes": "2026-09-02 13:34 - Closed 2026-09-02 as legacy (Peter: no cycles on the old world). Superseded by project hzm (ticfac). See the note on 4ik for where the new implementation solves this by design.",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -14,5 +15,6 @@
   "acceptance_criteria": "No run sits in a non-terminal state when its Workflow instance is absent or errored; tk cloud status shows a dead supervisor as dead. Existing stuck rows are drained.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-23T06:22:36.124333Z",
-  "updated_at": "2026-08-25T12:19:45.002579Z"
+  "updated_at": "2026-09-02T11:34:31.89952Z",
+  "closed_at": "2026-09-02T11:34:31.89952Z"
 }

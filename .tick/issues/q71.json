@@ -2,7 +2,8 @@
   "id": "q71",
   "title": "Close out Phase 5a: PR, CI gate, retro",
   "description": "Per .tick/config.md: push the epic branch, open a PR, do not complete until CI is green. No direct merge to main.\n\nRetro against g0b's acceptance, verifying the code.\n\nDO NOT PLAN PHASE 5. It is gated on a planning session with Peter about the factory's architecture, and is marked awaiting checkpoint deliberately. Report that the gate is the next step rather than planning through it. Do surface anything this epic learned that the session should know — especially the sandbox decision and the constraints behind it.",
-  "status": "open",
+  "notes": "2026-09-02 13:34 - Closed 2026-09-02 as legacy (Peter: no cycles on the old world). Superseded by project hzm (ticfac). The decoupling this project did stands and is built on by hzm Phase 1/2; the remaining move and cutover are hzm Phases 1, 4 and 7.",
+  "status": "closed",
   "priority": 1,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -14,5 +15,6 @@
   "acceptance_criteria": "A PR exists with green CI; not merged directly to main. The retro verifies the code. Phase 5 is NOT planned; the report names the architecture session as the next step and hands it whatever this epic learned.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-01T08:13:50.087832Z",
-  "updated_at": "2026-09-01T08:13:50.087832Z"
+  "updated_at": "2026-09-02T11:34:32.345476Z",
+  "closed_at": "2026-09-02T11:34:32.345476Z"
 }

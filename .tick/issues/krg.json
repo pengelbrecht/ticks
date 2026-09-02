@@ -2,7 +2,8 @@
   "id": "krg",
   "title": "Phase 6 — cut over and remove the shims",
   "description": "Release both. Document the install path for someone who wants a factory. Delete the Phase 1 shims. Answer the last open question: does 'cloud' survive as a substrate NAME in .tick/runners.toml once the implementation lives elsewhere? The vocabulary argument says yes — runners.toml already resolves cloud as a peer of harness and herdr, and ticks knows about herdr the same way today without owning it. Also decide what happens to the skills: skills/ticks/references/{agent-runner,runners-config,tk-commands}.md all describe factory and cloud surfaces, and need splitting between the ticks skill and a new factory skill.",
-  "status": "open",
+  "notes": "2026-09-02 13:34 - Closed 2026-09-02 as legacy (Peter: no cycles on the old world). Superseded by project hzm (ticfac). The decoupling this project did stands and is built on by hzm Phase 1/2; the remaining move and cutover are hzm Phases 1, 4 and 7.",
+  "status": "closed",
   "priority": 2,
   "type": "epic",
   "owner": "noreply@anthropic.com",
@@ -13,5 +14,6 @@
   "acceptance_criteria": "Both repos released and installable independently. A new user can deploy a factory following documentation that does not assume a ticks checkout. No Phase 1 shim remains. The runners.toml substrate-name decision and the skills split are both recorded.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-27T09:03:43.919821Z",
-  "updated_at": "2026-08-27T09:03:43.919821Z"
+  "updated_at": "2026-09-02T11:34:32.632908Z",
+  "closed_at": "2026-09-02T11:34:32.632908Z"
 }

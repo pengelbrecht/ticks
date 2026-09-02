@@ -2,7 +2,8 @@
   "id": "5jo",
   "title": "herd agent names collide across repos: tick-\u003cid\u003e is a global namespace",
   "description": "Observed live on 2026-08-19 with two runners sharing one herdr server: this repo running tick-wsc and tick-wge, and canonify running tick-dpk, tick-z5u, tick-9vm, tick-r6l, tick-pzx and tick-pkv.\n\nThe hazard: herdr agent names are GLOBAL and must be unique among live agents, but tick ids are only unique WITHIN a repo. They are 3 characters, so collisions across repos are likely rather than exotic — pzx already exists in BOTH canonify and this repo. It happens to be closed here, so nothing broke today. That is luck, not design.\n\nTwo failure modes, and the second is the dangerous one:\n1. tk herd spawn is rejected because the name is taken by another repo, which is confusing but loud.\n2. tk herd wait --agents tick-pzx and tk herd collect MATCH BY NAME (collect matches by prefix, specifically to tolerate respawns). With a live same-named agent in another repo, this repo can wait on, read, and draw conclusions from ANOTHER repo’s worker. That fails silently and can strand or mis-attribute a wave.\n\nFix: qualify the agent name with the repo — tick-\u003crepo\u003e-\u003cid\u003e, or tick-\u003cshort-hash\u003e-\u003cid\u003e if the 32-char name limit is tight (names must match [a-z][a-z0-9_-]{0,31}). Keep prefix matching working for respawns within one repo. Reconcile must match on the qualified name too, so a fresh orchestrator cannot adopt a foreign worker.\n\nRelated, same root cause: the run-end sweep is defined as \"zero run-created workspaces remain in the listing\", but with two runners the listing contains the other run’s workspaces. The sweep must identify its own by manifest, never by \"everything that looks like a tick worker\".",
-  "status": "open",
+  "notes": "2026-09-02 13:34 - Closed 2026-09-02 as legacy (Peter: no cycles on the old world). Superseded by project hzm (ticfac). See the note on 4ik for where the new implementation solves this by design.",
+  "status": "closed",
   "priority": 2,
   "type": "bug",
   "owner": "noreply@anthropic.com",
@@ -14,5 +15,6 @@
   "acceptance_criteria": "Two repos holding the same tick id can both run workers concurrently; wait, collect and reconcile in one repo never match the other repo’s agent; respawn prefix matching still works within a repo; the run-end workspace sweep identifies its own workspaces by manifest rather than by name shape.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T20:51:02.375807Z",
-  "updated_at": "2026-08-25T12:19:44.944586Z"
+  "updated_at": "2026-09-02T11:34:32.110187Z",
+  "closed_at": "2026-09-02T11:34:32.110187Z"
 }

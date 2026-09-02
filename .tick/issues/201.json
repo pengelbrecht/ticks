@@ -2,7 +2,8 @@
   "id": "201",
   "title": "Herd dashboard truncates the epic list instead of scrolling it",
   "description": "Found while checking whether a newly created tick had appeared (2026-08-19). It had — but its parent epic was clipped off the bottom of the dashboard, so it was invisible with no signal beyond one grey line.\n\nReproduce: open the dashboard unscoped on a repo with ~10 open epics in a pane of ~51 rows. It renders 48d, ko8, 54v, 63t, au6, d0d, fit, no-epic and then \"… 3 more lines (resize to see them)\". 1vn, hdt and szp are never shown, and any tick under them is therefore unreachable.\n\nTwo defects:\n1. NO SCROLLING. g/G are advertised in the footer as first/last, and j/k move the selection, but the epic list itself is clipped to the viewport — sending G does not change the render. Moving the pane from a split to a full tab only took the loss from 5 lines to 3. On any roadmap larger than the terminal there is no way to reach the tail.\n2. TRUNCATION IS NEARLY SILENT. One dim line is the only signal, and it reads as a cosmetic hint rather than \"you are not seeing your roadmap\". An operator checking whether work exists can conclude, wrongly, that it does not — which is exactly what happened here.\n\nFix: make the list genuinely scrollable so g/G/j/k reach every row, and keep auto-expansion of active epics from consuming the whole viewport (consider collapsing closed children of an expanded epic by default — ko8 spends ~15 rows on closed ticks). If truncation must remain possible, say what is hidden, not just how many lines.",
-  "status": "open",
+  "notes": "2026-09-02 13:34 - Closed 2026-09-02 as legacy (Peter: no cycles on the old world). Superseded by project hzm (ticfac). See the note on 4ik for where the new implementation solves this by design.",
+  "status": "closed",
   "priority": 2,
   "type": "bug",
   "owner": "noreply@anthropic.com",
@@ -14,5 +15,6 @@
   "acceptance_criteria": "On a roadmap taller than the viewport, g/G and j/k reach the last epic and every tick under it; a newly created tick under any epic is reachable without resizing; no epic is silently omitted from the render.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T20:10:57.286244Z",
-  "updated_at": "2026-08-25T12:19:44.89143Z"
+  "updated_at": "2026-09-02T11:34:32.026303Z",
+  "closed_at": "2026-09-02T11:34:32.026303Z"
 }

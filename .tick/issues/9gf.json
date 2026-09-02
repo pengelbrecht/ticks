@@ -2,7 +2,8 @@
   "id": "9gf",
   "title": "Close out tooling defects: retro",
   "description": "Retro on the tooling epic; fold learnings into .tick/learnings.md within the cap. The theme to capture: all four were found by running a real multi-repo workload, not by tests.",
-  "status": "open",
+  "notes": "2026-09-02 13:34 - Closed 2026-09-02 as legacy (Peter: no cycles on the old world). Superseded by project hzm (ticfac). See the note on 4ik for where the new implementation solves this by design.",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -13,5 +14,6 @@
   "role": "closeout",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T21:13:06.372623Z",
-  "updated_at": "2026-08-19T21:13:06.372623Z"
+  "updated_at": "2026-09-02T11:34:32.235687Z",
+  "closed_at": "2026-09-02T11:34:32.235687Z"
 }

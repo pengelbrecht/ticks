@@ -2,7 +2,8 @@
   "id": "09w",
   "title": "tk herd collect boundary check conflates tracker state with project config",
   "description": "Found live on tick sqt (2026-08-19). collect reported boundary-violation for .tick/config.md and .tick/runners.toml on a tick whose ENTIRE PURPOSE was to migrate those two files. The orchestrator had to hand-verify that no tracker state was touched before merging.\n\nThe boundary invariant is that IMPLEMENTERS NEVER MUTATE TRACKER STATE — the orchestrator owns tick status, notes and the activity log. But .tick/ holds two different kinds of thing:\n- TRACKER STATE, orchestrator-owned: .tick/issues/*.json, .tick/activity/*.jsonl, .tick/logs/\n- PROJECT CONFIG AND CONTENT, ordinary repo files a tick may legitimately change: config.md, runners.toml, learnings.md\n\nTreating the whole directory as orchestrator-owned means any tick that legitimately edits project config trips a violation, and the operator learns to wave the check through — which is exactly how a real breach gets merged one day.\n\nFix: scope the check to tracker state (.tick/issues, .tick/activity, .tick/logs) rather than all of .tick/. Config files stay reviewable through the normal diff. If a repo wants config edits flagged, make that a distinct, softer signal — a note in the report, not the same verdict as mutating tick status.\n\nCompanion gap worth considering in the same tick: collect has no notion of workspace hygiene. sqt also created a herdr workspace in the operator UI (wAT) that nothing would have caught; the orchestrator only found it because the operator saw it appear. A collect that reported run-created workspaces outside the tick manifest would close a leak the substrate currently has no policy layer for.",
-  "status": "open",
+  "notes": "2026-09-02 13:34 - Closed 2026-09-02 as legacy (Peter: no cycles on the old world). Superseded by project hzm (ticfac). See the note on 4ik for where the new implementation solves this by design.",
+  "status": "closed",
   "priority": 2,
   "type": "bug",
   "owner": "noreply@anthropic.com",
@@ -14,5 +15,6 @@
   "acceptance_criteria": "A tick that edits .tick/config.md or .tick/runners.toml and no tracker state collects as ready-to-merge; a tick that edits .tick/issues or .tick/activity still reports boundary-violation naming the files; the distinction is covered by tests.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T20:37:55.303741Z",
-  "updated_at": "2026-08-25T12:19:44.863474Z"
+  "updated_at": "2026-09-02T11:34:32.067319Z",
+  "closed_at": "2026-09-02T11:34:32.067319Z"
 }

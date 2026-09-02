@@ -2,7 +2,8 @@
   "id": "str",
   "title": "Final review of the tooling-defects diff",
   "description": "Review the four fixes together: that the boundary check still fails closed on real tracker mutations, that agent-name qualification does not break respawn prefix matching or reconcile, that the protocol policy is deliberate rather than a bumped constant, and that the dashboard change actually reaches the tail of a long roadmap.",
-  "status": "open",
+  "notes": "2026-09-02 13:34 - Closed 2026-09-02 as legacy (Peter: no cycles on the old world). Superseded by project hzm (ticfac). See the note on 4ik for where the new implementation solves this by design.",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -19,5 +20,6 @@
   "role": "review",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-19T21:13:06.346174Z",
-  "updated_at": "2026-08-20T13:22:00.663059Z"
+  "updated_at": "2026-09-02T11:34:32.193943Z",
+  "closed_at": "2026-09-02T11:34:32.193943Z"
 }
