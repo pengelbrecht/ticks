@@ -15,6 +15,7 @@
     "signal-source-cases.json",
     "sweep-policy-cases.json",
     "sweep-selection-contract.json",
+    "ticfac-run-state.json",
     "tk-json-manifest.json",
     "tracker-layout.json",
     "worker-boot-contract.json"

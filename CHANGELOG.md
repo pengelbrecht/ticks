@@ -76,6 +76,49 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   already written down is invisible drift, since each file stays consistent with
   itself.
 
+- **The `.ticfac/` run-state layout, persistence policy and compare-and-swap rules are frozen as a contract (`contracts/ticfac-run-state.json`, `internal/factory/runstate/`, `cloud/factory/test/ticfac-run-state.test.ts`)** —
+  ticfac Phase 0 step 6 (SPEC §4.2, §10.4). ticfac keeps its run state in the
+  repository it executes against, and §10.4 already said what that looks like:
+  `runs/<id>/checkpoint.json` updated under a SHA guard, `attempts/<n>.json`
+  whose *existence* is the dispatch's idempotency marker, `evidence/<key>.json`
+  and `decisions/<n>.json` created once, plus a gitignored `.index.json` and
+  `logs/`. What it could not do as prose is fail a build. Two hosts implement
+  the same compare-and-swap through different machinery — a local host with
+  `git push --force-with-lease`, a Worker through the GitHub contents API,
+  which is a compare-and-swap on the branch ref — and that is the shape this
+  repository has already paid for once: a rule fixed on one side only, with
+  both suites green because each was consistent with itself.
+
+  So the contract carries a **five-operation in-memory git fake** (shared
+  origin, per-actor views that can go stale) and seven sequences replayed
+  against it on both sides: two reconcilers racing one dispatch, a restarted
+  reconciler replaying its own create, a stale view refused and re-fetched, an
+  update from an actor that never fetched, a local commit that is not durable,
+  and a poll that learns nothing and writes nothing. Both readers carry the
+  negative control the bundle's own checks set the precedent for — disable the
+  guard and every sequence expecting a refusal must go red — because the
+  failure here is silent: a guard that has stopped guarding does not raise, it
+  lets a second reconciler dispatch the same attempt and pays for both jobs.
+
+  Also pinned: record schemas with golden and negative examples validated from
+  Go (`internal/tkcontract`) and from TypeScript (an independently written
+  validator over the same strict subset, since a golden example only one
+  language validates proves one language agrees with itself); the envelope rule
+  that every committed file carries a `schema_version` and the provenance
+  fields of an evidence record; `durable means pushed on origin`, the terminal
+  record landing on the target ref exactly once, the `ticfac/run-<id>` tag
+  placed at *terminal state* rather than at merge so a cancelled run's history
+  is as reachable as a successful one's, and `ticfac gc`; and the `.gitignore`
+  fragment, which is in this repository's own `.gitignore` and checked with
+  `git check-ignore` rather than asserted in prose. The evidence record's own
+  fields are left to `contracts/job-protocol.json`'s `records.evidence`, which
+  landed in the same bundle version — this contract owns where an evidence file
+  goes and how it is written, that one owns what is in it. Those two shapes do
+  **not** yet agree (flat and closed there, nested `provenance` plus a `key`
+  here) and nothing fails on it, because each reader validates its own examples
+  against its own schema; both contracts note the gap and reconciling it gets
+  its own bundle version. Contract bundle `1.2.0`, which adds both.
+
 - **`contracts/` is now a versioned, pinned, executable bundle (`contracts/bundle.json`, `contracts/CHANGELOG.md`, `internal/contracts/`, `cloud/factory/scripts/contracts.mjs`)** —
   the cross-language fixtures had a mechanism for *travelling* to a consumer after
   the factory extraction, but no answer to the question a consumer actually asks:
