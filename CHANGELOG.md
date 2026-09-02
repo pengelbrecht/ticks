@@ -41,6 +41,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The executor protocol's record schemas are frozen before any executor exists (`contracts/job-protocol.json`, bundle `1.2.0`, `internal/factory/jobprotocol/`, `cloud/factory/test/job-protocol.test.ts`)** —
+  ticfac SPEC §4.3 collapses WorkerProvider, Worker, Workspace and AgentRunner into
+  four operations (`start`/`inspect`/`cancel`/`collect`), and its whole value is that
+  the reconciler does not know which executor answered. Nothing enforces that: an
+  executor is free to return a JobStatus whose `terminal` flag disagrees with its
+  `state`, and a controller reading it either waits forever or disposes a live
+  workspace. So the seven records — JobSpec, JobHandle, JobStatus, the cancel
+  acknowledgement, JobResult, the role-result envelope and the evidence record — are
+  now versioned JSON Schemas in the contract bundle, each with a `schema_id` and
+  `schema_version`, **written before the code that implements them** rather than
+  extracted from it afterwards.
+
+  The schemas ship with the documents they admit and the documents they must refuse.
+  SPEC §4.3's illustrative JobSpec is a golden example, so the design document's own
+  printout cannot quietly stop validating; sixteen negative examples each pin the
+  exact refusal text, because "something failed" is also satisfied by a validator
+  that has stopped checking the thing the case was written about. Three rules that
+  were prose are now things a document can fail: a cancel acknowledgement must state
+  `credentials_revoked: true` and `order: revoke-then-stop` (a job stopped before its
+  credentials are revoked holds a live one across the gap, and a restart inside that
+  gap boots with it); a flat-rate credential must state `budget_field: null` rather
+  than omit it, so "no budget to enforce" and "budget forgotten" stop looking
+  identical; and a failed JobResult must name a `failure_class`, which is what keeps
+  `quota_exhausted` distinguishable from a broken route later, when only the record
+  survives.
+
+  Both halves read it — `internal/factory/jobprotocol` in Go and
+  `cloud/factory/test/job-protocol.test.ts` in TypeScript — through the same strict
+  JSON Schema subset, whose two implementations produce byte-identical refusal
+  messages so one fixture can assert against both. Cross-contract, the cost and stop
+  semantics are checked against `credential-ownership.json` and the role-result
+  status vocabulary against `collect-vocabulary.json`: a second spelling of a rule
+  already written down is invisible drift, since each file stays consistent with
+  itself.
+
 - **`contracts/` is now a versioned, pinned, executable bundle (`contracts/bundle.json`, `contracts/CHANGELOG.md`, `internal/contracts/`, `cloud/factory/scripts/contracts.mjs`)** —
   the cross-language fixtures had a mechanism for *travelling* to a consumer after
   the factory extraction, but no answer to the question a consumer actually asks:
