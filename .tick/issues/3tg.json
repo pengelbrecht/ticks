@@ -2,6 +2,7 @@
   "id": "3tg",
   "title": "Close out ticfac Phase 0: run epic retro, then flesh out Phase 1 into ticks",
   "description": "Run the epic-close retro against the Phase 0 acceptance item by item. Then flesh out Phase 1 (the reconciler and the local subprocess executor, in the new separate ticfac repository) into child ticks including its EPIC-SKELETON pair, per SPEC §12 Phase 1.",
+  "notes": "2026-09-02 17:12 - decision: Epic 692 acceptance has no [A\u003cn\u003e] items and no [evidence.acceptance] mapping; what is the authorized evidence? → The PR's CI run: it executes the bundle from Go and TypeScript in named steps, includes the deliberate-break step, and the full suites; closeout waits for it green per config.md Rules — Nothing outside runners.toml authorizes shell; CI is the repo's configured gate and the only executable authority for these items. Local runs of the same suites (already green) are corroboration, not authority.",
   "status": "in_progress",
   "priority": 2,
   "type": "task",
@@ -13,6 +14,6 @@
   "role": "closeout",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-02T11:28:24.82317Z",
-  "updated_at": "2026-09-02T15:11:13.782562Z",
+  "updated_at": "2026-09-02T15:12:01.755825Z",
   "started_at": "2026-09-02T15:11:13.782561Z"
 }

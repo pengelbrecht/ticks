@@ -1,0 +1,17 @@
+{
+  "id": "421",
+  "title": "Final review of ticfac Phase 1 (gate evidence from the ticfac repository)",
+  "description": "Review the Phase 1 gate evidence produced in the ticfac repository: the .ticfac/ run record and tag of the real epic run through ticfac run-epic on this repository with a claude or codex runner, killed and restarted after dispatch, after collection and before closure, plus the Appendix A conformance suite (bundle 3.0.0 lifecycle-invariants) green against the real reconciler and subprocess executor. Blocked on the human tick because the work runs in the ticfac tracker; the last Phase 1 tick there closes this one.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "cgb"
+  ],
+  "parent": "4ik",
+  "role": "review",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-02T15:14:08.537199Z",
+  "updated_at": "2026-09-02T15:14:08.537199Z"
+}
