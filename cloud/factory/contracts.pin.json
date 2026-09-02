@@ -7,12 +7,14 @@
   "proxy": "https://proxy.golang.org",
   "files": [
     "collect-vocabulary.json",
+    "credential-ownership.json",
     "message-context.json",
     "runners-config-contract.json",
     "sandbox-image-cases.json",
     "signal-source-cases.json",
     "sweep-policy-cases.json",
     "sweep-selection-contract.json",
+    "tk-json-manifest.json",
     "tracker-layout.json",
     "worker-boot-contract.json"
   ],
