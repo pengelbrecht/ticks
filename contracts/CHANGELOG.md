@@ -65,8 +65,21 @@ byte changed, so an unchanged consumer is still correct but no longer complete.
 
 ## 1.2.0
 
-MINOR. One contract added by ticfac Phase 0 (epic 692); no existing fixture
-byte changed, so an unchanged consumer is still correct but no longer complete.
+MINOR. Two contracts added by ticfac Phase 0 (epic 692), in one version because
+neither was released separately; no existing fixture byte changed, so an
+unchanged consumer is still correct but no longer complete.
+
+- `job-protocol.json` — the versioned record schemas for the four-operation
+  executor protocol (JobSpec, JobHandle, JobStatus, cancel acknowledgement,
+  JobResult), the role-result envelope, and the evidence record, with the
+  golden documents from the SPEC and the negative documents each schema must
+  refuse (tick q8j, SPEC §4.3, §4.4, §10.1).
+
+  Two things in it are cross-checked against contracts already in the bundle,
+  because a second spelling of a rule already written down is the drift this
+  directory exists to catch: the metered/flat-rate cost semantics and the
+  cancel-time stop rules must match `credential-ownership.json`, and the
+  role-result status vocabulary must match `collect-vocabulary.json`.
 
 - `ticfac-run-state.json` — the `.ticfac/` layout, the persistence policy and
   the compare-and-swap rules (tick x1w, SPEC §4.2 and §10.4). It carries the
@@ -83,7 +96,28 @@ byte changed, so an unchanged consumer is still correct but no longer complete.
   is executable rather than prose: the guard is against the **origin** ref, so
   a host reaching it through the GitHub contents API and a host reaching it
   through `git push --force-with-lease` must produce the same outcome for
-  every sequence in `cas.sequences`. The evidence record's own fields are
-  deliberately NOT pinned here — `evidence_envelope` is open past
-  `schema_version`, `key` and `provenance`, and the record's shape belongs to
-  the evidence schema of SPEC §10.1.
+  every sequence in `cas.sequences`.
+
+**Where the two meet, and where they do not yet.** Both contracts describe the
+same file: `ticfac-run-state.json` places an evidence record at
+`.ticfac/runs/<run-id>/evidence/<key>.json` and pins its path, its
+compare-and-swap mode and its envelope, while `job-protocol.json`'s
+`records.evidence` pins the record's own fields. The division of labour is
+deliberate — one owns *where the file goes and how it is written*, the other
+owns *what is in it*.
+
+**The two shapes are not reconciled as of 1.2.0, and a consumer must not assume
+they are.** `records.evidence` is flat and closed: every provenance field is a
+required top-level property and `additionalProperties` is `false`.
+`evidence_envelope` requires a nested `provenance` object and a `key`. A
+document therefore cannot satisfy both — validating the run-state golden
+evidence example against `records.evidence` produces 22 violations. Neither
+suite sees this, because each validates its own examples against its own
+schema.
+
+Until it is settled, treat `job-protocol.json` as authoritative for the evidence
+record's *fields* and `ticfac-run-state.json` as authoritative for its *path and
+write rule*, and do not expect one document to pass both schemas. Reconciling
+them — flatten the envelope, or nest provenance in `records.evidence`, and
+decide whether `key` is a field or only a filename — is a change to one of the
+two contracts and gets its own version.

@@ -91,18 +91,44 @@ the implementations disagreeing.
 | `collect-vocabulary.json` | the collect verdict/status vocabulary and the status-line parse cases | `internal/herd/collect/contract_test.go`, `internal/cloud/collect/contract_test.go` |
 | `tk-json-manifest.json` | the published `tk --json` command surface: every command a consumer may call, its argv, its output schema, and the contract version this build serves | `cmd/tk/cmd/tk_json_contract_test.go`, `internal/tkcontract` |
 | `credential-ownership.json` | which product owns each credential type, the `~/.ticfacrc` key set and its redacted example, and the stop/cost/security lifecycle rules | `internal/factory/credentials/contract_test.go` |
+| `job-protocol.json` | the versioned record schemas for the four-operation executor protocol (JobSpec, JobHandle, JobStatus, cancel acknowledgement, JobResult), the role-result envelope and the evidence record, with the golden documents each admits and the negative documents each must refuse | `internal/factory/jobprotocol/contract_test.go` |
 | `ticfac-run-state.json` | the `.ticfac/` layout, the persistence policy (durable means pushed on origin) and the compare-and-swap rules, with record schemas, golden and negative examples, the `.gitignore` fragment and executable CAS sequences | `internal/factory/runstate/contract_test.go`, `internal/factory/runstate/cas_fake_test.go` |
 
 The TypeScript readers live in the factory's vitest suite (`worker-boot.test.ts`,
 `repo-config.test.ts`, `message-context.test.ts`, `tick-membership.test.ts`,
 `sweep-contract.test.ts`, `collect-vocabulary.test.ts`, `tk-json-manifest.test.ts`,
-`credential-ownership.test.ts`, `ticfac-run-state.test.ts`, and their siblings).
+`credential-ownership.test.ts`, `job-protocol.test.ts`,
+`ticfac-run-state.test.ts`, and their siblings).
 They import from here by relative path — `../../../contracts/<name>.json` — and
 there is deliberately no second copy under `cloud/factory/test/fixtures/`. Two
 copies of a parity fixture is the one arrangement guaranteed to defeat it: a
 one-sided edit then passes both suites. `cloud/factory/CONTRACTS.md` records how
 the factory keeps reaching these files once it is extracted into its own
 repository, which is the only reason a copy will ever exist again.
+
+### `job-protocol.json` carries schemas, and is still not `schemas/`
+
+It holds JSON Schema documents, which makes it look like it belongs one
+directory over. It does not, for the reason the last section of this file
+gives: nothing is generated from it. There are no ticfac types in this
+repository to generate — the whole point of freezing these records in Phase 0
+is that they are defined *before* the code that implements them, and the code
+lands in another repository. What this file needs is not a codegen step but two
+validators that disagree loudly, which is what its readers are.
+
+Its schemas are written in the strict subset `internal/tkcontract/schema.go`
+and `cloud/factory/test/json-schema.ts` implement — `$ref` (local only),
+`type`, `required`, `properties`, `additionalProperties`, `items`, `enum`,
+`anyOf`, `description`, `$comment`. A keyword outside that set makes the
+contract fail to *parse* on both sides rather than being ignored, so a schema
+cannot read as if it constrained something no validator checks.
+
+Note also that its records are **closed** (`additionalProperties: false`),
+which is the opposite of the rule the `tk --json` manifest keeps below. That is
+deliberate and the two reasons do not conflict: tk publishes one surface many
+consumers read, so it must be able to add a field without breaking them, while
+an executor record is exchanged between two components that ship together —
+there, a field one side invents and the other ignores *is* the bug.
 
 ### The `tk --json` manifest is the odd one out
 
@@ -168,6 +194,33 @@ expects a refusal must go red.
 Because the failure is the quiet kind. A CAS that has stopped guarding does not
 raise; it lets a second reconciler dispatch the same attempt, and the run pays
 for both jobs.
+
+Two smaller things worth knowing. The evidence record's own fields are **not**
+pinned here: `evidence_envelope` is open past `schema_version`, `key` and
+`provenance`, and the record's shape is `job-protocol.json`'s
+`records.evidence`. One contract owns where an evidence file goes and how it is
+written, the other owns what is in it.
+
+> **Open, as of bundle 1.2.0:** those two shapes disagree. `records.evidence`
+> is flat and closed — every provenance field is a required top-level property,
+> `additionalProperties: false` — while `evidence_envelope` requires a nested
+> `provenance` object and a `key`. No document satisfies both, and neither
+> reader notices, because each validates its own examples against its own
+> schema. The two contracts landed in the same wave from parallel ticks (q8j
+> and x1w) and were merged without reconciling this. Settling it is a change to
+> one of the two shapes, so it gets its own bundle version.
+
+And the `.gitignore` fragment is
+asserted against the real file with `git check-ignore` — ticks is a ticfac
+target like any other, so "the fragment is defined" has to mean git applies it,
+not that a JSON file mentions it.
+
+There are also, as of this wave, **two TypeScript strict-subset validators**:
+`cloud/factory/test/json-schema.ts` (job-protocol) and
+`cloud/factory/test/schema-subset.ts` (run-state), written independently
+against the same subset of `internal/tkcontract/schema.go`. Both are left in
+place — they are test helpers rather than a contract, and unifying them is a
+call for the epic's final review, not for a merge.
 
 ### What is NOT a contract
 

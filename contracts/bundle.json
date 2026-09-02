@@ -4,6 +4,7 @@
   "files": [
     "collect-vocabulary.json",
     "credential-ownership.json",
+    "job-protocol.json",
     "message-context.json",
     "runners-config-contract.json",
     "sandbox-image-cases.json",
@@ -18,6 +19,7 @@
   "digests": {
     "collect-vocabulary.json": "b2094cfbeec03ea2d6df78dab40eb6cbe8b0a9c256b7fe91c10ab679759e705e",
     "credential-ownership.json": "efd9c35e54c34d347e3608131fcc9b8918f41381d7098a5d2e71fd6cd8f62126",
+    "job-protocol.json": "47758649481316f1a67da33b2311f7774b3224a62cc08569dfd4ee35df232fbd",
     "message-context.json": "9cceb63c00266692fc1938d60b7c61162d22794c2a64184167635938060581d5",
     "runners-config-contract.json": "d852787a1b84389b02a1befef8ffc6ece950e0955b4094a0c591aa35f812e1da",
     "sandbox-image-cases.json": "47bf74104bb6a682c9876c25177cd5ff4c31ec6dc477dd5f1182cb6d54e5d470",
