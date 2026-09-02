@@ -2,7 +2,7 @@
 type: architecture
 source: from-chat
 covers: [contracts, cloud/factory/scripts/contracts.mjs, cloud/factory/contracts.pin.json, cloud/factory/CONTRACTS.md]
-verified_against: 91f39883
+verified_against: aeb4c925
 status: active
 ---
 
