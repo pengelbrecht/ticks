@@ -416,9 +416,14 @@ export class LifecycleHarness {
    */
   mismatches(want: FinalState): string[] {
     const bad: string[] = [];
+    // Canonical, not JSON.stringify: one side of every comparison is built
+    // here and the other is decoded from the contract, so key order is an
+    // accident of two authors. Comparing raw stringify output makes a
+    // reordered contract field a failure and — worse — makes the failure look
+    // like a value mismatch. Sorting keys at every depth removes the question.
     const cmp = (label: string, got: unknown, expect: unknown) => {
-      const a = JSON.stringify(got);
-      const b = JSON.stringify(expect);
+      const a = canonical(got);
+      const b = canonical(expect);
       if (a !== b) bad.push(`${label}:\n  harness holds  ${a}\n  contract says  ${b}`);
     };
 
@@ -478,6 +483,23 @@ function sortedRecord<V>(map: Map<string, V>): Record<string, V> {
   const out: Record<string, V> = {};
   for (const key of [...map.keys()].sort()) out[key] = map.get(key)!;
   return out;
+}
+
+/**
+ * JSON with every object's keys sorted, at every depth. Array order is
+ * preserved — an ordering the harness produces is part of what a sequence
+ * asserts, an object's key order never is.
+ */
+function canonical(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonical).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    const entries = Object.keys(record)
+      .sort()
+      .map((key) => `${JSON.stringify(key)}:${canonical(record[key])}`);
+    return `{${entries.join(",")}}`;
+  }
+  return JSON.stringify(value) ?? "null";
 }
 
 function sortedObject<V>(record: Record<string, V>): Record<string, V> {

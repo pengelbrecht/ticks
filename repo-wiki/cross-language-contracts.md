@@ -177,6 +177,15 @@ extraction.
 
 No silent-orphan contract was found.
 
+**The bundle's own rules are proven the same way.** `internal/contracts/bundle_test.go`
+and `cloud/factory/scripts/contracts.test.mjs` each break the manifest in a
+throwaway copy — an edited fixture, an unlisted or missing one, a stale version
+pin, a version with no changelog entry, and (since `2.1.1`) a manifest re-cut at
+an unchanged version, plus a deleted `version_digests` row — and assert the
+refusal. The re-cut case is the one that used to be discipline: it leaves every
+per-file digest agreeing again, so only a record of what the version was cut
+with the FIRST time can object.
+
 ## Gotchas
 
 - **`extensions/ticks-runner` is a permanent in-repo consumer.** The collect
@@ -201,23 +210,38 @@ No silent-orphan contract was found.
   package that ships both — nothing can be true in a fixture and false on screen.
 
 ## Timeline
-- 2026-09-02 — bundle `3.0.0`: the epic 692 final review's contract repairs
-  (tick `wh8`), all one failure in different files — *a fixture reading as if it
-  asserted something nothing asserts*. `credential-ownership.json`'s schema
-  rewritten in the strict subset (it was the only file using `oneOf`, `const`,
-  `minLength`, `format`, `pattern`, so both readers hand-rolled a partial walk
-  and `format: uri` meant different things in the two languages); every negative
-  example in every contract now carries `expect_error_contains` asserted by both
-  readers, and `credential-ownership.json` got its first negatives at all; the
-  second, weaker TypeScript strict-subset validator (`test/schema-subset.ts`)
-  deleted so there is ONE (`test/json-schema.ts`); `tk-json-manifest.json`'s
-  schemas parsed strictly on the TypeScript side too; the lifecycle thresholds
-  pinned to the substrate constants they name (see
-  [[lifecycle-invariants-suite]]); the negative controls made per guard; A10's
-  protected prefixes moved into the JSON; the `review-epic` evidence golden made
-  epic-level per SPEC §6.3; and the manifest's `$comment` now records the SPEC
-  §3.1 invocations it deliberately does not publish, with §3.1 corrected to the
-  manifest rather than the reverse
+- 2026-09-02 — bundle `3.0.0`: two ticks in one integration, cut as one
+  version because a consumer should have one number to adopt rather than two
+  it can only take together. `dtp`'s half was briefly `2.1.1` on the epic
+  branch; its `version_digests` ledger entry for `2.1.1` remains in
+  `bundle.json`, because the ledger is append-only and records what was CUT,
+  not what shipped.
+  - **`version_digests`** — the manifest's append-only ledger of the digest
+    each version was first cut with. It closes the bundle's own last
+    unenforced rule: "do not re-cut the digests without bumping the version"
+    was discipline until now, because a re-cut leaves the manifest internally
+    consistent again and a consumer pinned by exact value cannot see it.
+    Refused now by `make contracts-bundle`, by `contracts.Verify` and by
+    `verifyBundle`, each with a negative control. Fixture change alongside it:
+    a `$comment` sentence on `tk-json-manifest.json` — tick `dtp`
+  - **The epic 692 final review's contract repairs**, all one failure in
+    different files — *a fixture reading as if it asserted something nothing
+    asserts*. `credential-ownership.json`'s schema rewritten in the strict
+    subset (it was the only file using `oneOf`, `const`, `minLength`,
+    `format`, `pattern`, so both readers hand-rolled a partial walk and
+    `format: uri` meant different things in the two languages); every negative
+    example in every contract now carries `expect_error_contains` asserted by
+    both readers, and `credential-ownership.json` got its first negatives at
+    all; the second, weaker TypeScript strict-subset validator
+    (`test/schema-subset.ts`) deleted so there is ONE (`test/json-schema.ts`);
+    `tk-json-manifest.json`'s schemas parsed strictly on the TypeScript side
+    too; the lifecycle thresholds pinned to the substrate constants they name
+    (see [[lifecycle-invariants-suite]]); the negative controls made per
+    guard; A10's protected prefixes moved into the JSON; the `review-epic`
+    evidence golden made epic-level per SPEC §6.3; and the manifest's
+    `$comment` now records the SPEC §3.1 invocations it deliberately does not
+    publish, with §3.1 corrected to the manifest rather than the reverse —
+    tick `wh8`
 - 2026-09-02 — bundle `2.1.0`: `lifecycle-invariants.json` added — SPEC Appendix
   A's thirteen lifecycle invariants as a conformance suite, with a fake
   reconciler/executor harness both languages implement, a named guard per rule
@@ -229,9 +253,22 @@ No silent-orphan contract was found.
   `ticfac-run-state.json` reduced to a reference, and two new checks that look
   ACROSS contract files — the cross-file golden validation and "a `schema_id` in
   more than one file resolves to exactly one definition" — tick `atx`
-- 2026-09-02 — `ticfac-run-state.json` added (bundle `1.2.0`): the `.ticfac/`
-  layout, persistence policy and compare-and-swap rules, with the first
-  model-based case table and a built-in guard-disabled negative control — tick
-  `x1w`
+- 2026-09-02 — bundle `1.2.0`: `ticfac-run-state.json` — the `.ticfac/` layout,
+  persistence policy and compare-and-swap rules, with the first model-based case
+  table and a built-in guard-disabled negative control — tick `x1w`
+- 2026-09-02 — bundle `1.2.0`: `job-protocol.json` — the seven record schemas of
+  the four-operation executor protocol (JobSpec, JobHandle, JobStatus, the
+  cancel acknowledgement, JobResult, the role-result envelope, the evidence
+  record), written BEFORE any executor, with the SPEC's own illustrative JobSpec
+  as a golden example and eighteen negative documents pinning the exact refusal
+  — tick `q8j`. It shipped in the same version as `ticfac-run-state.json` and
+  disagreed with it about the evidence record; `2.0.0` is that disagreement
+  settled.
+- 2026-09-02 — bundle `1.1.0`: `tk-json-manifest.json` (the published `tk --json`
+  surface — every command a consumer may call, its argv, its schema, the
+  contract version it was added in; tick `rs2`) and `credential-ownership.json`
+  (which credentials belong to ticfac and which to ticks, the `~/.ticfacrc`
+  schema, grant grades and stop rules; tick `uzq`). Both additive: no existing
+  fixture byte changed.
 - 2026-08-28 — `contracts/` established, distribution pinned, all nine proven to
   fail on drift, the runner's two readers wired in — @5a1e1f7f

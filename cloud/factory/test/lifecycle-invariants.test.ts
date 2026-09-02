@@ -192,6 +192,11 @@ describe("the Appendix A conformance suite", () => {
     });
   });
 
+  // This reader checks the cross-reference's SHAPE, not that the symbols still
+  // exist: vitest runs inside workerd, which has no filesystem to open
+  // `run-workflow.ts` with. The existence check is Go's
+  // (`internal/factory/lifecycle`, TestNamedSymbolsExistInTheFilesThatClaimThem)
+  // — one side greps, both sides read the same contract.
   it("cross-references where each invariant lives today", () => {
     let inRunWorkflow = 0;
     for (const inv of invariants) {
@@ -204,8 +209,15 @@ describe("the Appendix A conformance suite", () => {
       if (inv.today.some((s) => s.file === "cloud/factory/src/run-workflow.ts")) inRunWorkflow++;
     }
     // §12 Phase 0 step 7: run-workflow.ts is 3,500 lines BECAUSE of these
-    // orderings. Not all thirteen live there — A5's timer is in the sandbox
-    // entrypoint, A11's release in ci-remediation.ts — but most do.
+    // orderings, and today ALL thirteen name a symbol in it — several name
+    // another file as well (A5's timer is in the sandbox entrypoint, A11's
+    // release in ci-remediation.ts), which is a second site, not a substitute.
+    //
+    // The assertion is a floor rather than an equality on purpose: an
+    // invariant that genuinely lives somewhere else after the §9.2
+    // decomposition is a fact about the code, not a regression, whereas a
+    // majority that stops naming the file at all is the cross-reference
+    // rotting. The floor catches the second without failing on the first.
     expect(inRunWorkflow).toBeGreaterThanOrEqual(10);
   });
 

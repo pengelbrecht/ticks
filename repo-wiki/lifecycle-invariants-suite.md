@@ -57,9 +57,13 @@ rots into a list of names that used to exist.
 | A12 | Effective budgets are reported after clamping | `run-workflow.ts` `boundedBudget`/`effectiveRunBudget` |
 | A13 | Evidence is fingerprinted to what it evaluated | `contracts/job-protocol.json` `$defs.provenance`, `pr-review.ts` `reviewEvidence` |
 
-Ten of the thirteen name a `run-workflow.ts` symbol, which is the point of §12
-step 7's sentence about why that file is 3,500 lines. Both readers assert that
-count, so an invariant that quietly loses its cross-reference fails.
+All thirteen name a `run-workflow.ts` symbol — the table above shows each
+invariant's most characteristic site, and several name a second file as well
+(A5 the sandbox entrypoint, A10 the runner boundary, A11 `ci-remediation.ts`).
+That is the point of §12 step 7's sentence about why that file is 3,500 lines.
+Both readers assert a floor of ten rather than an equality, so an invariant
+genuinely relocated by the §9.2 decomposition is a fact about the code while a
+majority quietly losing its cross-reference is a failure.
 
 ### Every rule names a guard, and every guard is proven to bite
 

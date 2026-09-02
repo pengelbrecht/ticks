@@ -79,7 +79,7 @@ the silent no-op the requirement forbids.
 
 **Publish an npm package alongside the `schemas` codegen.** Rejected on two
 counts. It needs publishing infrastructure and a registry identity that this
-project does not have and would have to maintain, for nine JSON files. And it
+project does not have and would have to maintain, for fourteen JSON files. And it
 diverges from the precedent already in the tree: the sandbox image consumes
 ticks through the module proxy, and a second distribution channel for the same
 repository is a second thing to keep in step. Note also that `contracts/README.md`
@@ -94,13 +94,15 @@ it is a very quiet one.
 ### The bundle version, and what it is pinned by
 
 `contracts/` is a **versioned bundle**, not a directory of files. Its manifest
-`contracts/bundle.json` carries a `version`, the file list, and a sha256 per
-file; `contracts/CHANGELOG.md` says what each version changed and who has to
-follow. This package pins that version **by exact value** in
-`contracts.pin.json`:
+`contracts/bundle.json` carries a `version`, the file list, a sha256 per file,
+and `version_digests` — the append-only ledger recording the digest each
+version was first cut with, which is what makes "do not re-cut without bumping"
+a check rather than a habit. `contracts/CHANGELOG.md` says what each version
+changed and who has to follow. This package pins that version **by exact
+value** in `contracts.pin.json`:
 
 ```json
-"bundleVersion": "1.0.0"
+"bundleVersion": "2.1.1"
 ```
 
 The pin is what makes the extraction survivable. `ref` says which *ticks
@@ -148,12 +150,15 @@ is pinned there too; step 5 is not, because nothing was downloaded.
 ### Proving the check can fail
 
 `scripts/contracts.test.mjs` (run by `pnpm contracts:test`, chained into
-`pnpm test`, and its own CI step) breaks the bundle in a throwaway copy eight
-different ways and asserts `verifyBundle` refuses each one — an edited fixture,
-an unlisted fixture, a missing fixture, a stale version pin, a re-cut manifest
-without a bump, a version with no changelog entry, a disagreeing file list, and
-an absent `bundleVersion`. `internal/contracts/bundle_test.go` does the same on
-the Go side.
+`pnpm test`, and its own CI step) breaks the bundle in a throwaway copy and
+asserts `verifyBundle` refuses each break — an edited fixture, an unlisted
+fixture, a missing fixture, a stale version pin, a version with no changelog
+entry, a disagreeing file list, an absent `bundleVersion`, a manifest re-cut at
+an unchanged version, and a version whose `version_digests` entry has been
+deleted. `internal/contracts/bundle_test.go` does the same on the Go side, and
+also asserts that Go's canonical digest form agrees with the JavaScript
+generator's — two independent conventions that happen to agree today would not
+be a cross-language check.
 
 They run under plain `node --test` rather than vitest because the factory suite
 executes inside workerd, which has no filesystem to build a broken bundle in.
@@ -185,6 +190,8 @@ path through `scripts/contracts.mjs` warns and continues.**
 | a fixture edited without the bundle being re-cut | exit 1 on digest mismatch |
 | a fixture on disk that the bundle does not list | exit 1 |
 | a bundle version with no `contracts/CHANGELOG.md` entry | exit 1 |
+| the manifest re-cut at a version `version_digests` already records | exit 1, naming both digests |
+| `version_digests` has no entry for the version on disk | exit 1 |
 | `bundleVersion` absent from the pin | exit 1 |
 | archive is corrupt or uses an unexpected compression method | exit 1 |
 
@@ -206,9 +213,9 @@ turns it on. In order:
    branch name or a short sha is **not** resolvable and `sync` will 404 and say
    so.
 2. **Keep `cloud/factory` two levels below the new repository's root**, or
-   change `REPO_ROOT` in `scripts/contracts.mjs` *and* the thirteen
-   `../../../contracts/...` imports together. Keeping the position is free and
-   means no test file changes.
+   change `REPO_ROOT` in `scripts/contracts.mjs` *and* every
+   `../../../contracts/...` import in `test/` together. Keeping the position is
+   free and means no test file changes.
 3. **Edit `contracts.pin.json`:** set `"mode": "pinned"` and `"ref"` to the
    version from step 1. Leave `files` alone unless readers changed — `check`
    verifies it against the imports and will tell you if it is wrong. Leave

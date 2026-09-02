@@ -43,7 +43,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- **SPEC Appendix A's thirteen lifecycle invariants are now a conformance suite every executor must pass (`contracts/lifecycle-invariants.json` (new), bundle `2.1.0`, `internal/factory/lifecycle/` (new), `cloud/factory/test/lifecycle-invariants.test.ts` + `lifecycle-harness.ts` (new); `repo-wiki/lifecycle-invariants-suite.md`)** — Appendix A's preamble says what these are: "Each of these was paid for by a failed cloud run before it was written down. They are conformance tests, not guidance." Until now they were prose in a design document, which is the one form in which a rule that cost a live run to learn can be re-broken for free. §12 Phase 0 step 7 asks for them "before any reconciler code exists", and that ordering is the hard part — the code that will get them wrong is in another repository and has not been written. So the suite **ships with its own executor**: a fake harness modelling exactly what the thirteen rules depend on and nothing else (a stop record, credentials, jobs, an origin, a host step, a poll cadence, holds, claims, a budget, evidence), with a closed thirty-op vocabulary, implemented independently on both sides. No git, no container, no network, no clock — it runs where the reconciler does not exist, and ticfac inherits it unchanged in Phase 1. **Thirteen named tests**, `TestA1…TestA13` in Go and thirteen `it`s in vitest, each carrying the live failure that earned it (the closeout pass that read no stop record and minted a fresh credential over an operator's revocation; the wave that killed its own supervisor at minute ten; run_62c289d1's correct accounting and wrong cadence; the worker that died holding 643 uncommitted lines and settled looking finished; the escalation table with two writes and zero reads; `--max-cost 40` silently becoming $8) and the symbols the rule lives in **today** — ten of the thirteen name a `run-workflow.ts` symbol, which is §12 step 7's point about why that file is 3,500 lines: §9.2 preserves the symbols, this preserves the reasons. Both readers grep the named files, so a cross-reference that rots fails a test rather than sending the next reader somewhere the rule is not. **Every rule names a guard, and every guard is proven to bite:** fifteen named guards, one or two per invariant, each individually disableable, and each test disables them ONE AT A TIME — each guard on its own must make at least one of its invariant's sequences stop matching, and every OTHER invariant must stay green while it is off, so a guard two rules were quietly sharing fails instead of passing. (Disabling an invariant's guards together, as the first cut did, cannot see a dead guard: for A1 and A13 the first guard's divergence satisfied the whole control while the second could have stopped enforcing anything.) That is `ticfac-run-state.json`'s CAS negative control generalised, and it is not ceremony — these thirteen failures are all the quiet kind (a boundary that stopped enforcing, a poll that stopped keeping alive, a fingerprint nobody checks) and none of them raise. The op vocabulary is closed over **both** modes on purpose: `recorded`, `stuck_awaiting_claimer` and `reported_requested` are unreachable with the guards on because they are what a *wrong* implementation produces. `gate` is part of the contract — it names the reconciler and each executor the SPEC plans, says the invariants may not be waived by a profile, a deployment var or a prompt, and records that a new **executor** re-runs the suite while a new runner does not (claude, codex and pi are runners on one worktree-per-attempt executor, so Appendix A is tested once). A13's four fingerprint fields are the one thing the file does not define: it maps Appendix A's English names onto `job-protocol.json`'s `$defs.provenance` and both readers follow the pointer, asserting each field is a property of provenance *and* required by it — the bundle 2.0.0 rule applied a third time. Tests only; no behaviour changed, and it is meant not to.
+- **SPEC Appendix A's thirteen lifecycle invariants are now a conformance suite every executor must pass (`contracts/lifecycle-invariants.json` (new), bundle `2.1.0`, `internal/factory/lifecycle/` (new), `cloud/factory/test/lifecycle-invariants.test.ts` + `lifecycle-harness.ts` (new); `repo-wiki/lifecycle-invariants-suite.md`)** — Appendix A's preamble says what these are: "Each of these was paid for by a failed cloud run before it was written down. They are conformance tests, not guidance." Until now they were prose in a design document, which is the one form in which a rule that cost a live run to learn can be re-broken for free. §12 Phase 0 step 7 asks for them "before any reconciler code exists", and that ordering is the hard part — the code that will get them wrong is in another repository and has not been written. So the suite **ships with its own executor**: a fake harness modelling exactly what the thirteen rules depend on and nothing else (a stop record, credentials, jobs, an origin, a host step, a poll cadence, holds, claims, a budget, evidence), with a closed thirty-op vocabulary, implemented independently on both sides. No git, no container, no network, no clock — it runs where the reconciler does not exist, and ticfac inherits it unchanged in Phase 1. **Thirteen named tests**, `TestA1…TestA13` in Go and thirteen `it`s in vitest, each carrying the live failure that earned it (the closeout pass that read no stop record and minted a fresh credential over an operator's revocation; the wave that killed its own supervisor at minute ten; run_62c289d1's correct accounting and wrong cadence; the worker that died holding 643 uncommitted lines and settled looking finished; the escalation table with two writes and zero reads; `--max-cost 40` silently becoming $8) and the symbols the rule lives in **today** — all thirteen name a `run-workflow.ts` symbol, which is §12 step 7's point about why that file is 3,500 lines: §9.2 preserves the symbols, this preserves the reasons. The **Go** reader greps each named file and requires each named symbol to still be in it, so a cross-reference that rots fails a test rather than sending the next reader somewhere the rule is not; the vitest reader executes inside workerd, which has no filesystem, so it checks the cross-reference's shape and leaves the existence check to Go. **Every rule names a guard, and every guard is proven to bite:** fifteen named guards, one or two per invariant, each individually disableable, and each test disables them ONE AT A TIME — each guard on its own must make at least one of its invariant's sequences stop matching, and every OTHER invariant must stay green while it is off, so a guard two rules were quietly sharing fails instead of passing. (Disabling an invariant's guards together, as the first cut did, cannot see a dead guard: for A1 and A13 the first guard's divergence satisfied the whole control while the second could have stopped enforcing anything.) That is `ticfac-run-state.json`'s CAS negative control generalised, and it is not ceremony — these thirteen failures are all the quiet kind (a boundary that stopped enforcing, a poll that stopped keeping alive, a fingerprint nobody checks) and none of them raise. The op vocabulary is closed over **both** modes on purpose: `recorded`, `stuck_awaiting_claimer` and `reported_requested` are unreachable with the guards on because they are what a *wrong* implementation produces. `gate` is part of the contract — it names the reconciler and each executor the SPEC plans, says the invariants may not be waived by a profile, a deployment var or a prompt, and records that a new **executor** re-runs the suite while a new runner does not (claude, codex and pi are runners on one worktree-per-attempt executor, so Appendix A is tested once). A13's four fingerprint fields are the one thing the file does not define: it maps Appendix A's English names onto `job-protocol.json`'s `$defs.provenance` and both readers follow the pointer, asserting each field is a property of provenance *and* required by it — the bundle 2.0.0 rule applied a third time. Tests only; no behaviour changed, and it is meant not to.
 
 - **The executor protocol's record schemas are frozen before any executor exists (`contracts/job-protocol.json`, bundle `1.2.0`, `internal/factory/jobprotocol/`, `cloud/factory/test/job-protocol.test.ts`)** —
   ticfac SPEC §4.3 collapses WorkerProvider, Worker, Workspace and AgentRunner into
@@ -59,7 +59,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
   The schemas ship with the documents they admit and the documents they must refuse.
   SPEC §4.3's illustrative JobSpec is a golden example, so the design document's own
-  printout cannot quietly stop validating; sixteen negative examples each pin the
+  printout cannot quietly stop validating; eighteen negative examples each pin the
   exact refusal text, because "something failed" is also satisfied by a validator
   that has stopped checking the thing the case was written about. Three rules that
   were prose are now things a document can fail: a cancel acknowledgement must state
@@ -79,6 +79,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   status vocabulary against `collect-vocabulary.json`: a second spelling of a rule
   already written down is invisible drift, since each file stays consistent with
   itself.
+
+- **One evidence record, defined once and checked ACROSS contract files (`contracts/job-protocol.json`, `contracts/ticfac-run-state.json`, bundle `2.0.0`, `internal/factory/jobprotocol/`, `internal/factory/runstate/`, `cloud/factory/test/evidence-record.test.ts`)** —
+  bundle `1.2.0` shipped two descriptions of one file,
+  `.ticfac/runs/<run-id>/evidence/<key>.json`: `job-protocol.json`'s
+  `records.evidence` published `ticfac.evidence.v1` flat and closed, while
+  `ticfac-run-state.json` carried its own `evidence_envelope` requiring a nested
+  `provenance` object and a `key`. **No document satisfied both** — validating
+  the run-state golden example against `records.evidence` produced 22 violations
+  — and every suite was green, because each validated its own examples against
+  its own schema. Nothing in the bundle was looking *across* files, so nothing
+  in the bundle could see it. `2.0.0` is MAJOR because settling it makes every
+  1.2.0 writer wrong: the fourteen flat provenance fields become one shared
+  `$defs.provenance` object that checkpoint, attempt, decision and evidence all
+  carry; `key` is required and is the record's identity; `evidence_ref` names
+  that `key` (`evidence_id` is gone, so a citation resolves to the record it
+  names); `acceptance` keeps one vocabulary, `required | advisory`, and the
+  run-state golden example's `"accepted"` — a *result* wearing an acceptance's
+  name — becomes a negative example. `ticfac-run-state.json` stops defining the
+  record and keeps `references.evidence`: it still owns where the file goes, how
+  it is written and the envelope; `job-protocol.json` owns what is in it.
+
+  **Two new checks, both of which look across files rather than inside one**,
+  because that is the only place this class of drift is visible. Each contract's
+  golden evidence example is now validated against the OTHER contract's rule
+  from both languages (`evidence_cross_contract_test.go` in both Go packages,
+  `evidence-record.test.ts`); and a bundle-wide rule — **a `schema_id` that
+  appears in more than one contract file resolves to exactly one definition** —
+  is enforced by `contracts.VerifySchemaIDs` (Go) and `verifySchemaIds`
+  (TypeScript), each with a negative control that re-creates the 1.2.0 shape and
+  asserts the refusal. The flat record and the `"accepted"` acceptance are kept
+  as negative examples, so the shape that used to validate against half the
+  bundle now fails loudly.
 
 - **The `.ticfac/` run-state layout, persistence policy and compare-and-swap rules are frozen as a contract (`contracts/ticfac-run-state.json`, `internal/factory/runstate/`, `cloud/factory/test/ticfac-run-state.test.ts`)** —
   ticfac Phase 0 step 6 (SPEC §4.2, §10.4). ticfac keeps its run state in the
@@ -117,11 +149,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `git check-ignore` rather than asserted in prose. The evidence record's own
   fields are left to `contracts/job-protocol.json`'s `records.evidence`, which
   landed in the same bundle version — this contract owns where an evidence file
-  goes and how it is written, that one owns what is in it. Those two shapes do
-  **not** yet agree (flat and closed there, nested `provenance` plus a `key`
-  here) and nothing fails on it, because each reader validates its own examples
-  against its own schema; both contracts note the gap and reconciling it gets
-  its own bundle version. Contract bundle `1.2.0`, which adds both.
+  goes and how it is written, that one owns what is in it. Contract bundle
+  `1.2.0`, which adds both.
+
+  **The two shapes shipped in 1.2.0 disagreed, and nothing could see it** —
+  `records.evidence` was flat and closed, this contract's `evidence_envelope`
+  required a nested `provenance` object and a `key`, no document satisfied
+  both, and both suites stayed green because each validated its own examples
+  against its own schema. Bundle `2.0.0` settled it (below): there is now ONE
+  evidence record, defined by `job-protocol.json`, and this contract keeps only
+  `references.evidence` — the path, the compare-and-swap mode and the
+  envelope. A consumer of `1.2.0` must read the `2.0.0` entry in
+  `contracts/CHANGELOG.md` before writing an evidence record.
 
 - **`contracts/` is now a versioned, pinned, executable bundle (`contracts/bundle.json`, `contracts/CHANGELOG.md`, `internal/contracts/`, `cloud/factory/scripts/contracts.mjs`)** —
   the cross-language fixtures had a mechanism for *travelling* to a consumer after
@@ -134,8 +173,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   contract. Both languages re-hash the fixtures against the manifest on every build:
   `internal/contracts` in the CI `go` job's own named step, `verifyBundle` in
   `pnpm contracts:check`. So a fixture edited without the bundle being re-cut fails
-  both, and a bundle re-cut without a version bump fails the pin — the one drift a
-  pinned consumer cannot see. The changelog rule is executable too: a version with no
+  both. The harder half — a bundle **re-cut** without a version bump, which leaves
+  the manifest internally consistent again and is the one drift a pinned consumer
+  cannot see — is caught by `version_digests` (added in bundle `2.1.1`): the
+  manifest records a sha256 over each version's own `version` + `digests` the first
+  time that version is cut and never rewrites it, so the re-cut contradicts the
+  ledger and is refused by `make contracts-bundle`, by Go and by TypeScript, each
+  with a negative control that performs the dishonest re-cut. The changelog rule is executable too: a version with no
   `contracts/CHANGELOG.md` entry is refused, because a version nobody can read the
   meaning of tells a consumer nothing about what adopting it costs. And because a gate
   nothing has ever seen fail is not known to be a gate, both sides ship **negative

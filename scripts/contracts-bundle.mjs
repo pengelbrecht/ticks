@@ -7,8 +7,9 @@
  *
  * Run through `make contracts-bundle`.
  *
- * WHAT THIS DOES NOT DO: it never invents or bumps `version`. That is the one
- * field a human has to type, and keeping it out of the generator is the point.
+ * WHAT THIS DOES NOT DO: it never invents or bumps `version`, and it never
+ * rewrites a `version_digests` entry it has already written. Those are the two
+ * things a human has to do, and keeping them out of the generator is the point.
  * The bundle version is what cloud/factory pins by exact value today and what
  * ticfac will pin from another repository tomorrow, so adopting a contract
  * change has to be a visible act with a changelog entry behind it. A generator
@@ -34,6 +35,15 @@ const CHANGELOG_PATH = join(CONTRACTS_DIR, "CHANGELOG.md");
 function die(message) {
   console.error(`\ncontracts-bundle: FAILED\n\n${message}\n`);
   process.exit(1);
+}
+
+function compareVersions(a, b) {
+  const left = a.split(".").map(Number);
+  const right = b.split(".").map(Number);
+  for (let i = 0; i < 3; i++) {
+    if (left[i] !== right[i]) return left[i] - right[i];
+  }
+  return 0;
 }
 
 function contractFilesOnDisk() {
@@ -63,7 +73,47 @@ for (const name of files) {
   digests[name] = createHash("sha256").update(readFileSync(join(CONTRACTS_DIR, name))).digest("hex");
 }
 
-const next = { ...bundle, files, digests };
+// The append-only ledger that makes a re-cut visible. `digests` alone cannot
+// see one: edit a fixture, regenerate, and the manifest is internally
+// consistent again at the same version — the single drift a consumer pinned by
+// exact value has no way to detect. So every version records a digest OVER its
+// digests, written the first time that version is cut and NEVER rewritten.
+// Re-cutting different bytes under a version already in the ledger is refused
+// here and by both verifiers.
+function contentDigest(version, digestMap) {
+  const canonical = [
+    `${version}\n`,
+    ...Object.keys(digestMap)
+      .sort()
+      .map((name) => `${name} ${digestMap[name]}\n`),
+  ].join("");
+  return createHash("sha256").update(canonical).digest("hex");
+}
+
+const versionDigests = { ...(bundle.version_digests ?? {}) };
+const digest = contentDigest(bundle.version, digests);
+const recorded = versionDigests[bundle.version];
+
+if (recorded !== undefined && recorded !== digest) {
+  die(
+    `contracts/bundle.json: version ${bundle.version} was already cut with different bytes.\n` +
+      `  digest of this cut       ${digest}\n` +
+      `  version_digests[${bundle.version}]  ${recorded}\n\n` +
+      "A fixture changed. Re-cutting under the same version would make the manifest\n" +
+      "internally consistent again while the version silently came to mean something\n" +
+      "else — the one drift cloud/factory's exact-value pin cannot see. Bump `version`,\n" +
+      "add the contracts/CHANGELOG.md entry, and run this again. If the fixture edit was\n" +
+      "a mistake, revert it instead.",
+  );
+}
+versionDigests[bundle.version] = digest;
+
+const ordered = {};
+for (const version of Object.keys(versionDigests).sort(compareVersions)) {
+  ordered[version] = versionDigests[version];
+}
+
+const next = { ...bundle, files, digests, version_digests: ordered };
 const serialized = `${JSON.stringify(next, null, 2)}\n`;
 
 if (process.argv.includes("--check")) {

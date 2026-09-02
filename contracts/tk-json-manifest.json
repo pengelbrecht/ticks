@@ -6,7 +6,7 @@
   "min_tk_version": "0.32.0",
 
   "request": {
-    "$comment": "How a caller pins the contract it was built against, and what happens when this tk cannot serve it. Fail closed: tk refuses BEFORE running the command, so a consumer never parses output shaped by a contract it did not ask for.",
+    "$comment": "How a caller pins the contract it was built against, and what happens when this tk cannot serve it. Fail closed: tk refuses BEFORE running the command, so a consumer never parses output shaped by a contract it did not ask for. Enforcement lives in tk's root PersistentPreRunE, so it runs for EVERY command including the git merge drivers tk registers: a bad TK_JSON_CONTRACT exported into a shell makes `git merge` exit 11, which is by design — a contract this build cannot serve is refused everywhere rather than in the commands a caller remembered to check.",
     "flag": "--json-contract <n>",
     "env": "TK_JSON_CONTRACT",
     "placement": "The flag is persistent and must follow the subcommand (`tk show a1 --json --json-contract 1`); tk's argv dispatch reads argv[1] as the command name, so a leading global flag is an unknown command. The environment variable has no such restriction.",

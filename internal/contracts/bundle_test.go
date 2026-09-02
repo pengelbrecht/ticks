@@ -1,6 +1,9 @@
 package contracts
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -125,6 +128,106 @@ func TestVerifyRejectsAMissingFixture(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "tracker-layout.json") {
 		t.Fatalf("Verify failed but did not name the missing file: %v", err)
+	}
+}
+
+// The hole the per-file digests cannot cover, and the reason the manifest
+// carries version_digests. An editor who breaks a fixture AND re-cuts the
+// manifest leaves it internally consistent again: every recorded digest
+// matches the bytes on disk, the changelog still has an entry, and the version
+// has quietly come to mean something else. Only a record of what the version
+// was cut with the FIRST time can object, and this is the test that proves it
+// does.
+func TestVerifyRejectsARecutAtAnUnchangedVersion(t *testing.T) {
+	dir := copyBundle(t)
+	target := filepath.Join(dir, "tracker-layout.json")
+	raw, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	edited := strings.TrimRight(string(raw), "\n")
+	edited = strings.TrimSuffix(edited, "}") + `  ,"smuggled": true}` + "\n"
+	if err := os.WriteFile(target, []byte(edited), 0o644); err != nil {
+		t.Fatalf("write fixture: %v", err)
+	}
+
+	// Re-cut: recompute the fixture's digest into the manifest, leaving
+	// "version" exactly where it was. This is what `make contracts-bundle`
+	// would have written if it did not itself refuse.
+	b := readBundleFile(t, dir)
+	sum := sha256.Sum256([]byte(edited))
+	b.Digests["tracker-layout.json"] = hex.EncodeToString(sum[:])
+	writeBundleFile(t, dir, b)
+
+	err = Verify(dir)
+	if err == nil {
+		t.Fatal("Verify accepted a re-cut manifest at an unchanged version — the ledger is not a gate")
+	}
+	if !strings.Contains(err.Error(), "version_digests") {
+		t.Fatalf("Verify failed but not on the ledger: %v", err)
+	}
+}
+
+// The ledger cannot be disabled by deleting the row that indicts you: a
+// version with no recorded cut is refused rather than waved through.
+func TestVerifyRejectsAVersionWithNoLedgerEntry(t *testing.T) {
+	dir := copyBundle(t)
+	b := readBundleFile(t, dir)
+	delete(b.VersionDigests, b.Version)
+	// Keep the ledger non-empty so this exercises Verify's per-version check
+	// rather than Load's structural one.
+	b.VersionDigests["0.0.1"] = strings.Repeat("0", 64)
+	writeBundleFile(t, dir, b)
+
+	err := Verify(dir)
+	if err == nil {
+		t.Fatal("Verify accepted a bundle whose version records no digest of its own cut")
+	}
+	if !strings.Contains(err.Error(), "version_digests") {
+		t.Fatalf("Verify failed but not on the ledger: %v", err)
+	}
+}
+
+// The two languages must derive the SAME digest from the same manifest, or the
+// ledger is two independent conventions that happen to agree today. The Go
+// canonical form is asserted here against the value cut into the tree by
+// `make contracts-bundle`, which is the JavaScript implementation.
+func TestContentDigestMatchesTheGeneratorsLedgerEntry(t *testing.T) {
+	b, err := Load(bundleDir)
+	if err != nil {
+		t.Fatalf("load bundle: %v", err)
+	}
+	recorded, ok := b.VersionDigests[b.Version]
+	if !ok {
+		t.Fatalf("bundle %s has no version_digests entry", b.Version)
+	}
+	if got := b.ContentDigest(); got != recorded {
+		t.Fatalf("ContentDigest() = %s, contracts/bundle.json records %s for %s —\n"+
+			"the Go and JavaScript canonical forms have diverged", got, recorded, b.Version)
+	}
+}
+
+func readBundleFile(t *testing.T, dir string) *Bundle {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(dir, BundleFile))
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	var b Bundle
+	if err := json.Unmarshal(raw, &b); err != nil {
+		t.Fatalf("parse manifest: %v", err)
+	}
+	return &b
+}
+
+func writeBundleFile(t *testing.T, dir string, b *Bundle) {
+	t.Helper()
+	raw, err := json.MarshalIndent(b, "", "  ")
+	if err != nil {
+		t.Fatalf("encode manifest: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, BundleFile), append(raw, '\n'), 0o644); err != nil {
+		t.Fatalf("write manifest: %v", err)
 	}
 }
 

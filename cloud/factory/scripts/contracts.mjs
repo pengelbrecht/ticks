@@ -13,8 +13,8 @@
  *   module proxy.
  *
  *   The copy always lands at the CONSUMING REPOSITORY'S ROOT `contracts/`.
- *   That is why the thirteen test imports read `../../../contracts/<name>.json`
- *   in both worlds and why the extraction phase does not touch a test file.
+ *   That is why every test import reads `../../../contracts/<name>.json` in
+ *   both worlds and why the extraction phase does not touch a test file.
  *
  * Two commands, and the split between them is the whole safety argument:
  *
@@ -119,7 +119,10 @@ function readPin() {
  * intact. `checkPinMatchesImports` and `checkDigests` are about the vendoring
  * mechanism — did the copy arrive, is it the copy ticks published. This is
  * about the pin itself: **does the version this package claims to be built
- * against still name the bytes on disk?**
+ * against still name the bytes on disk — and the bytes it named when it was
+ * cut?** The second half is `version_digests`, the manifest's append-only
+ * ledger; without it a re-cut at an unchanged version is invisible to exactly
+ * the consumer the version exists for.
  *
  * It runs in BOTH modes, which reverses an earlier decision recorded in
  * CONTRACTS.md ("deliberately NO digest check" in workspace mode). The reason
@@ -262,6 +265,49 @@ export function verifyBundle(contractsDir, pin) {
     );
   }
 
+  // The manifest agrees with the fixtures on disk. That leaves the one
+  // question the per-file digests structurally cannot answer, because a
+  // re-cut makes them agree again: does this VERSION still name the bytes it
+  // named when it was cut? `version_digests` is the append-only ledger that
+  // answers it — each version mapped to a sha256 over its own `version` +
+  // `digests`, written once by `make contracts-bundle` and never rewritten.
+  // Re-cut a fixture without bumping the version and the digest of the cut
+  // contradicts the ledger entry, here and in Go (contracts.Verify).
+  //
+  // The canonical form is reproduced byte for byte on the Go side
+  // (`(*Bundle).ContentDigest`): `<version>\n` then `<file> <sha256>\n` per
+  // file, sorted by name.
+  const ledger = bundle.version_digests ?? {};
+  const recorded = ledger[bundle.version];
+  if (typeof recorded !== "string" || !/^[0-9a-f]{64}$/.test(recorded)) {
+    fail(
+      `${bundlePath}: version ${bundle.version} has no "version_digests" entry.\n` +
+        "Every cut version records the digest of its own digests map, so that re-cutting\n" +
+        "one at an unchanged version is visible to a consumer pinned by exact value.\n" +
+        "Run `make contracts-bundle` in the ticks repository — it adds the entry for a\n" +
+        "version it has not cut before, and never rewrites one it has.",
+    );
+  }
+  const canonical =
+    `${bundle.version}\n` +
+    [...listed]
+      .sort()
+      .map((name) => `${name} ${digests[name]}\n`)
+      .join("");
+  const cut = sha256(Buffer.from(canonical, "utf8"));
+  if (cut !== recorded) {
+    fail(
+      `contract bundle ${bundle.version} was cut before with different bytes:\n` +
+        `  digest of this cut       ${cut}\n` +
+        `  version_digests[${bundle.version}]  ${recorded}\n\n` +
+        'A fixture changed and the manifest was re-cut WITHOUT bumping "version". The\n' +
+        "per-file digests agree again, so nothing else can see it — and this package,\n" +
+        "which pins the version by exact value, could not see it at all. That is the one\n" +
+        "drift the version exists to make loud. In the ticks repository: bump `version`,\n" +
+        "add the contracts/CHANGELOG.md entry, re-run `make contracts-bundle`, and move\n" +
+        '"bundleVersion" here in the same commit. If the re-cut was a mistake, revert it.',
+    );
+  }
   return bundle;
 }
 

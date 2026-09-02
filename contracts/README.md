@@ -1,10 +1,16 @@
 # Cross-language contracts
 
 The JSON files in this directory are **case tables and pinned surfaces that more
-than one language reads**. Every one of them describes a format that `ticks`
-owns — `.tick/runners.toml`, the tracker's on-disk layout, the sandbox worker
-boot handshake, the message context the operator composes — and that at least one other
-implementation — usually the factory Worker's TypeScript — has to parse too.
+than one language reads**, each owned by whichever product defines the format.
+Most describe something `ticks` owns — `.tick/runners.toml`, the tracker's
+on-disk layout, the sandbox worker boot handshake, the message context the
+operator composes. Three are ticfac's: `job-protocol.json`,
+`ticfac-run-state.json` and `lifecycle-invariants.json` pin the executor
+protocol, the `.ticfac/` layout and SPEC Appendix A, and they live here because
+`ticks` is where both readers are today, not because `ticks` owns them — they
+travel to ticfac with the bundle. Either way the rule is the same: at least one
+other implementation — usually the factory Worker's TypeScript — has to parse
+the same file.
 
 Go reads these files from its parity tests. The factory Worker's vitest suite
 reads the same files. That is the whole point: **every implementation of a rule
@@ -26,7 +32,7 @@ that real:
 
 | file | what it is |
 |---|---|
-| `bundle.json` | the manifest — `version`, the file list, and a sha256 per file |
+| `bundle.json` | the manifest — `version`, the file list, a sha256 per file, and `version_digests` |
 | `CHANGELOG.md` | what each version changed, and the rule that governs bumps |
 | `cloud/factory/contracts.pin.json` | the consumer's pin: `"bundleVersion"`, by exact value |
 
@@ -53,9 +59,23 @@ of: the fixture edit, every implementation of the rule, a bumped `version` in
 `bundleVersion` in `cloud/factory/contracts.pin.json`. Stop anywhere short of
 that and a build goes red naming what is missing.
 
-Do **not** re-cut the digests without bumping the version. A consumer pinned to
-`1.0.0` cannot see that `1.0.0` came to mean something else; that invisibility
-is exactly what the version exists to remove.
+Do **not** re-cut the digests without bumping the version, and you cannot: a
+consumer pinned to `2.1.1` cannot see that `2.1.1` came to mean something else,
+so the manifest does the seeing for it. `version_digests` maps each version to
+a sha256 over that version's own `version` + `digests` — written the first time
+that version is cut and never rewritten — so a re-cut at an unchanged version
+contradicts the ledger and is refused three times over:
+
+- `make contracts-bundle` refuses to write it, naming the bump it wants;
+- `contracts.Verify` (Go) refuses the manifest;
+- `verifyBundle` (`cloud/factory/scripts/contracts.mjs`) refuses it too, from
+  the consumer's side, which is the side that could not otherwise tell.
+
+Both negative-control suites carry the dishonest re-cut — edit a fixture,
+regenerate the digests, leave `version` alone — and assert the refusal. The
+ledger begins at `2.1.1`, the version that introduced it; the bytes of earlier
+versions are not recoverable from the manifest, so the check is on the version
+on disk.
 
 ## Why they exist at all
 
@@ -295,9 +315,14 @@ its neighbours:
    is tested once).
 
 Each invariant also carries `earned_from` — the live failure — and `today`, the
-file-and-symbol list of where the rule lives now, which both readers CHECK by
-grepping the named file. §9.2 preserves run-workflow.ts's symbols when it is
-decomposed; this preserves the reasons, and a cross-reference nobody verifies
+file-and-symbol list of where the rule lives now. **The Go reader is the one
+that greps**: `internal/factory/lifecycle` opens each named file and requires
+each named symbol to still be in it. The vitest reader cannot — it executes
+inside workerd, which has no filesystem — so it checks the cross-reference's
+shape (every invariant names a site, every site names symbols and a note) and
+leaves the existence check to Go. One side greps, both sides read the same
+file, and that is enough: §9.2 preserves run-workflow.ts's symbols when it is
+decomposed, this preserves the reasons, and a cross-reference nobody verifies
 rots into a list of names that used to exist.
 
 Appendix A #13's four fingerprint fields are the one thing the file does not

@@ -2,7 +2,7 @@
   "id": "jrj",
   "title": "ticfac Phase 2: the Herdr executor",
   "description": "SPEC §12 Phase 2. Herdr executor behind the same four operations; move execution-oriented Herdr process/fleet helpers out of internal/herd/**; support a range of Herdr protocol versions (hard floor, warn version, no upper bound); retain tracker-domain configuration and the question relay in ticks; move internal/factory/** and Factory commands to the ticfac CLI without hidden tk dispatch shims; replace every ticks internal Go import with tk --json, Git or a pinned schema.",
-  "notes": "2026-09-02 13:29 - Overlap: 'replace every ticks internal Go import' was largely done by a4n Phase 5a (g0b; closeout q71 still open). This phase verifies and finishes it rather than redoing it.",
+  "notes": "2026-09-02 13:29 - Overlap: 'replace every ticks internal Go import' was largely done by a4n Phase 5a (g0b; closeout q71 still open). This phase verifies and finishes it rather than redoing it.\n2026-09-02 16:52 - REQUIRED GATE TESTS (Peter, 2026-09-02): two recurring failures of the current tk herd orchestration must be conformance tests of the Herdr executor, not guidance.\n(a) Finished-worker detection. The orchestrator repeatedly failed to notice settled workers. Tests: inspect() reports completed from DURABLE evidence (commits beyond base + RESULT on the branch), never from pane lifecycle state; a worker that settles while no wait is open is detected by the next inspect (no lost-event race); a worker that goes idle with work parked in harness background tasks is reported settled-but-incomplete, not done; a wait that was killed and re-issued sees the already-settled worker immediately; an agent herdr no longer lists is reported exited and then settled from durable evidence (Appendix A #5, #8). Include a live test against a real herdr (like scripts/verify-herd-helper.sh) plus the fake-harness sequences.\n(b) Orphaned worker workspaces. Runs left worker workspaces/worktrees behind. Tests: cleanup after a completed job leaves ZERO run-created workspaces in herdr workspace list (including the implicitly opened source-checkout workspace); a crashed orchestrator's next reconcile lists every workspace it created and classifies each (live/dead-resumable/dead-with-work/stale) with none unaccounted; workspace removal order (linked worktrees before the checkout workspace) is enforced; a refused cleanup (blocked/unmerged) is reported, never silently skipped; focus is restored to the pre-run workspace. Identity for both: (repo key, run id, tick, attempt), never agent name alone (cf. legacy 5jo).",
   "status": "open",
   "priority": 2,
   "type": "epic",
@@ -14,5 +14,5 @@
   "acceptance_criteria": "Gate: the operator runs a real ticks epic for actual work through ticfac run-epic on Herdr instead of the tk herd skill ritual, and it completes.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-02T11:28:24.479386Z",
-  "updated_at": "2026-09-02T11:29:06.204421Z"
+  "updated_at": "2026-09-02T14:52:55.645471Z"
 }
