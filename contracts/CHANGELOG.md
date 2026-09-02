@@ -62,3 +62,20 @@ byte changed, so an unchanged consumer is still correct but no longer complete.
 - `credential-ownership.json` — which credentials belong to ticfac and which to
   ticks, the `~/.ticfacrc` schema, grant grades and stop rules (tick uzq,
   SPEC §3.3).
+
+## 1.2.0
+
+MINOR. One contract added by ticfac Phase 0 (epic 692); no existing fixture
+byte changed, so an unchanged consumer is still correct but no longer complete.
+
+- `job-protocol.json` — the versioned record schemas for the four-operation
+  executor protocol (JobSpec, JobHandle, JobStatus, cancel acknowledgement,
+  JobResult), the role-result envelope, and the evidence record, with the
+  golden documents from the SPEC and the negative documents each schema must
+  refuse (tick q8j, SPEC §4.3, §4.4, §10.1).
+
+  Two things in it are cross-checked against contracts already in the bundle,
+  because a second spelling of a rule already written down is the drift this
+  directory exists to catch: the metered/flat-rate cost semantics and the
+  cancel-time stop rules must match `credential-ownership.json`, and the
+  role-result status vocabulary must match `collect-vocabulary.json`.

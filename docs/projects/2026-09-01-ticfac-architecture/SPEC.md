@@ -342,6 +342,16 @@ opaque, re-addressable identity. JobStatus reports lifecycle observations and
 a cursor. JobResult reports terminal facts, source refs, structured role
 output, and artifact/evidence references. All schemas are versioned.
 
+The schemas themselves live in the contract bundle, at
+[`contracts/job-protocol.json`](../../../contracts/job-protocol.json) —
+JobSpec, JobHandle, JobStatus, the cancel acknowledgement, JobResult, the
+role-result envelope (§4.4) and the evidence record (§10.1), each with a
+`schema_id` and `schema_version`. The illustration below is a golden example
+in that file, so it validates or a build fails; the negative examples beside it
+are the documents each schema must refuse. Both readers —
+`internal/factory/jobprotocol` and `cloud/factory/test/job-protocol.test.ts` —
+run them.
+
 An illustrative JobSpec is deliberately substrate-neutral:
 
 ~~~json
@@ -1071,6 +1081,12 @@ result / acceptance status
 content digest and persistence URI
 ~~~
 
+The schema for this record is
+[`contracts/job-protocol.json`](../../../contracts/job-protocol.json)
+(`records.evidence`). Every field above is required there, nullable where it
+can be genuinely absent: a record that omits `integration_ref` and one that
+states it as null are different claims, and only the second is evidence.
+
 Terminal output is useful diagnostic material, but it is not a completion
 contract. This preserves the current worker-collect.ts rule that durable Git
 refs and RESULT-<tick-id>.md reports drive collection.
@@ -1266,7 +1282,10 @@ the reconciler plus two executors; runners are unchanged.
 1. Publish the tk --json command manifest and minimum version.
 2. Pin the cross-language contract bundle and run it from both repositories.
 3. Define JobSpec, JobHandle, JobStatus, JobResult, role-result, and evidence
-   schemas before moving code.
+   schemas before moving code —
+   [`contracts/job-protocol.json`](../../../contracts/job-protocol.json), read
+   from Go by `internal/factory/jobprotocol` and from TypeScript by
+   `cloud/factory/test/job-protocol.test.ts`.
 4. Record current cloud routes, D1/R2 keys, image tags, worker result semantics,
    and cleanup ordering as compatibility tests.
 5. Define credential ownership and `~/.ticfacrc` migration (see
