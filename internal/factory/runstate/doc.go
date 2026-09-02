@@ -10,4 +10,13 @@
 // runs the same compare-and-swap sequences against its own copy of the same
 // in-memory git fake. Two implementations of one rule is the whole point —
 // see contracts/README.md.
+//
+// One record in that contract is PLACED but not DEFINED here: evidence. The
+// contract's references.evidence names contracts/job-protocol.json's
+// ticfac.evidence.v1, and evidence_cross_contract_test.go follows the pointer
+// rather than trusting it — it validates this contract's golden and negative
+// evidence documents against that definition, and checks that the golden
+// documents on the other side satisfy this contract's envelope. Bundle 1.2.0
+// defined the record twice, in incompatible shapes, and both suites stayed
+// green because neither ever looked across the seam.
 package runstate

@@ -1070,22 +1070,33 @@ An evidence record should minimally contain:
 
 ~~~text
 schema_version
-run_id / tick_id / attempt
-source_ref / source_sha / integration_ref
-phase / executor / workspace_id / backend
-role / profile_digest / model / context_manifest_digest
-command or check identifier
+key                              names the record, and is its filename (§10.4)
+provenance:
+  run_id / tick_id / attempt
+  source_ref / source_sha / integration_ref
+  phase / executor / workspace_id / backend
+  role / profile_digest / model / context_manifest_digest
+check identifier (id, kind, command)
 started_at / finished_at / exit_code
 stdout/stderr or artifact URI (bounded and redacted)
-result / acceptance status
+result / acceptance (required | advisory)
 content digest and persistence URI
 ~~~
 
-The schema for this record is
+**There is exactly one schema for this record in the bundle:**
 [`contracts/job-protocol.json`](../../../contracts/job-protocol.json)
-(`records.evidence`). Every field above is required there, nullable where it
-can be genuinely absent: a record that omits `integration_ref` and one that
-states it as null are different claims, and only the second is evidence.
+`records.evidence`, published as `ticfac.evidence.v1`. Every field above is
+required there, nullable where it can be genuinely absent: a record that omits
+`integration_ref` and one that states it as null are different claims, and only
+the second is evidence.
+
+The provenance fields are one nested object, `$defs.provenance`, because §10.4
+requires every committed `.ticfac/` file to carry them — a checkpoint, an
+attempt and a decision carry the same object, not a similar one.
+`contracts/ticfac-run-state.json` places the file and pins how it is written
+(§10.4) and *references* this schema by its `schema_id` rather than describing
+the record a second time; bundle 2.0.0 is the version that settled that, after
+1.2.0 shipped two shapes no single document could satisfy.
 
 Terminal output is useful diagnostic material, but it is not a completion
 contract. This preserves the current worker-collect.ts rule that durable Git
@@ -1228,7 +1239,20 @@ machinery and prose does not fail a build:
 The record schemas cover `checkpoint.json`, `attempts/<n>.json` and
 `decisions/<n>.json` in full. For `evidence/<key>.json` the contract pins only
 the path, the compare-and-swap mode and the envelope every committed file
-carries; the evidence record's own fields belong to §10.1's schema.
+carries; the record itself is §10.1's `ticfac.evidence.v1`, which
+`contracts/ticfac-run-state.json` names in `references.evidence` and does not
+redefine. `<key>` in the path is the record's own `key` field, so a filename, a
+citation in a JobResult and the record all name the same thing.
+
+The envelope's provenance is that same `$defs.provenance` object, copied into
+this contract so its local `$ref`s resolve — the schema subset both readers
+implement has no cross-file `$ref`. The copy is compared structurally by the
+readers rather than trusted: bundle 1.2.0 had two spellings of this record,
+each contract validated only its own examples, and both suites stayed green
+while no document could satisfy both. Two rules now cross that seam and are
+executable — each contract's golden evidence example is validated against the
+other contract's rule, and a `schema_id` appearing in more than one contract
+file must resolve to exactly one definition.
 
 The costs are known and bounded. Write cadence at roughly ten checkpoints per
 hour is negligible. A Worker pays GitHub API rate limits for these commits as

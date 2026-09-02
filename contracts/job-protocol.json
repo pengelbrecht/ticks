@@ -132,7 +132,8 @@
     },
     "evidence": {
       "schema_id": "ticfac.evidence.v1",
-      "description": "A bounded, reproducible record that a configured command or review check ran against a named source ref and produced a result (SPEC §10.1). Every field in the minimal record is REQUIRED, nullable where it can be genuinely absent: a record that omits integration_ref and one that states it as null are different claims, and only the second is evidence.",
+      "description": "A bounded, reproducible record that a configured command or review check ran against a named source ref and produced a result (SPEC §10.1). THE ONLY definition of the record in the bundle: contracts/ticfac-run-state.json places the file and pins how it is written, and references this schema_id rather than restating the shape. Its provenance fields are the shared $defs.provenance object every committed .ticfac/ record carries (SPEC §10.4). Every field is REQUIRED, nullable where it can be genuinely absent: a record that omits integration_ref and one that states it as null are different claims, and only the second is evidence.",
+      "referenced_by": ["contracts/ticfac-run-state.json"],
       "schema": { "$ref": "#/$defs/evidence" }
     }
   },
@@ -484,10 +485,11 @@
     },
     "evidence_ref": {
       "type": "object",
-      "required": ["evidence_id", "persistence_uri", "content_digest"],
+      "$comment": "How a JobResult and a RoleResult cite evidence: by the `key` of a ticfac.evidence.v1 record, which is also its filename under .ticfac/runs/<run-id>/evidence/. One identifier, so a citation can be resolved to the record it names instead of being trusted.",
+      "required": ["key", "persistence_uri", "content_digest"],
       "additionalProperties": false,
       "properties": {
-        "evidence_id": { "type": "string" },
+        "key": { "type": "string", "description": "The `key` of the evidence record (ticfac.evidence.v1) this reference resolves to." },
         "persistence_uri": { "type": "string" },
         "content_digest": { "$ref": "#/$defs/digest" }
       }
@@ -588,7 +590,7 @@
     "phase": {
       "type": "string",
       "enum": ["worker", "post-wave", "integrated", "review", "closeout"],
-      "$comment": "The gate vocabulary the current implementation already runs (SPEC §6.1 Gates: 'configured worker/post-wave/integrated/review commands'), plus closeout. Naming the phase is what makes an evidence record reproducible: the same command against the same ref at a different phase answers a different question."
+      "$comment": "The gate vocabulary the current implementation already runs (SPEC §6.1 Gates: 'configured worker/post-wave/integrated/review commands'), plus closeout. Naming the phase is what makes a record reproducible: the same command against the same ref at a different phase answers a different question. Reached through $defs.provenance, so a checkpoint, an attempt, a decision and an evidence record all name their phase from this one closed vocabulary."
     },
     "check": {
       "type": "object",
@@ -636,10 +638,10 @@
         "bytes": { "type": "integer" }
       }
     },
-    "evidence": {
+    "provenance": {
       "type": "object",
+      "description": "Where a record came from: which run, which refs, which phase, and what produced it — SPEC §10.1's provenance fields. This is the ONE definition of them in the bundle. The evidence record below carries it, and so does every committed .ticfac/ record (contracts/ticfac-run-state.json, SPEC §10.4: 'every committed file carries a schema_version and the provenance fields of an evidence record'). Every field is REQUIRED, nullable where it can be genuinely absent: a record that omits integration_ref and one that states it as null are different claims, and only the second is evidence.",
       "required": [
-        "schema_version",
         "run_id",
         "tick_id",
         "attempt",
@@ -653,7 +655,45 @@
         "role",
         "profile_digest",
         "model",
-        "context_manifest_digest",
+        "context_manifest_digest"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "run_id": { "type": "string" },
+        "tick_id": { "type": ["string", "null"], "description": "Null for epic-level or run-level records." },
+        "attempt": { "type": ["integer", "null"], "description": "Null for a record that belongs to no single dispatch — a run checkpoint, say." },
+        "source_ref": { "type": "string" },
+        "source_sha": { "type": "string" },
+        "integration_ref": {
+          "type": ["string", "null"],
+          "description": "Null before integration. Required-and-null rather than omitted, because 'this ran before integration' and 'nobody recorded where it ran' are different claims."
+        },
+        "phase": { "$ref": "#/$defs/phase" },
+        "executor": {
+          "anyOf": [{ "$ref": "#/$defs/executor" }, { "type": "null" }],
+          "description": "Null for a record no executor produced — a reconciler-side decision, say."
+        },
+        "workspace_id": { "type": ["string", "null"] },
+        "backend": {
+          "type": ["string", "null"],
+          "description": "The concrete backend, e.g. container-shell. Backend names do not cross the JobSpec seam; a record names them AFTER the fact, which is how a run is explained without the reconciler ever choosing one."
+        },
+        "role": {
+          "anyOf": [{ "$ref": "#/$defs/role" }, { "type": "null" }],
+          "description": "Null for a deterministic check with no LLM behind it — a test command is evidence too."
+        },
+        "profile_digest": { "type": ["string", "null"] },
+        "model": { "type": ["string", "null"] },
+        "context_manifest_digest": { "type": ["string", "null"] }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "$comment": "THE ONE EVIDENCE RECORD. contracts/ticfac-run-state.json owns where this file goes (.ticfac/runs/<run-id>/evidence/<key>.json) and how it is written (create-if-absent against origin); it references this schema by schema_id rather than describing the record a second time. Bundle 1.2.0 shipped two incompatible shapes of it and neither reader noticed, because each validated its own examples — hence the cross-file readers that now validate both contracts' golden evidence examples against this definition.",
+      "required": [
+        "schema_version",
+        "key",
+        "provenance",
         "check",
         "started_at",
         "finished_at",
@@ -667,29 +707,11 @@
       "additionalProperties": false,
       "properties": {
         "schema_version": { "type": "integer", "enum": [1] },
-        "run_id": { "type": "string" },
-        "tick_id": { "type": ["string", "null"], "description": "Null for epic-level evidence." },
-        "attempt": { "type": "integer" },
-        "source_ref": { "type": "string" },
-        "source_sha": { "type": "string" },
-        "integration_ref": {
-          "type": ["string", "null"],
-          "description": "Null before integration. Required-and-null rather than omitted, because 'this ran before integration' and 'nobody recorded where it ran' are different claims."
+        "key": {
+          "type": "string",
+          "description": "The record's identity within its run, and its filename: .ticfac/runs/<run-id>/evidence/<key>.json (SPEC §10.4). A JobResult or a RoleResult cites evidence by this key — see evidence_ref."
         },
-        "phase": { "$ref": "#/$defs/phase" },
-        "executor": { "$ref": "#/$defs/executor" },
-        "workspace_id": { "type": ["string", "null"] },
-        "backend": {
-          "type": ["string", "null"],
-          "description": "The concrete backend, e.g. container-shell. Backend names do not cross the JobSpec seam; evidence records them AFTER the fact, which is how a run is explained without the reconciler ever choosing one."
-        },
-        "role": {
-          "anyOf": [{ "$ref": "#/$defs/role" }, { "type": "null" }],
-          "description": "Null for a deterministic check with no LLM behind it — a test command is evidence too."
-        },
-        "profile_digest": { "type": ["string", "null"] },
-        "model": { "type": ["string", "null"] },
-        "context_manifest_digest": { "type": ["string", "null"] },
+        "provenance": { "$ref": "#/$defs/provenance" },
         "check": { "$ref": "#/$defs/check" },
         "started_at": { "$ref": "#/$defs/timestamp" },
         "finished_at": { "$ref": "#/$defs/timestamp" },
@@ -892,7 +914,7 @@
             "result": { "files_changed": 5, "tests_added": ["internal/factory/jobprotocol/contract_test.go"] },
             "evidence": [
               {
-                "evidence_id": "ev-run-42-abc-gate",
+                "key": "ev-run-42-abc-gate",
                 "persistence_uri": "r2://ticfac/runs/run-42/evidence/ev-run-42-abc-gate.json",
                 "content_digest": "sha256:5c1d0e77aa2b41c9f0a6b8d3e274915f8c0b6a4d3e2f1908c7b6a5d4e3f21098"
               }
@@ -908,7 +930,7 @@
           ],
           "evidence": [
             {
-              "evidence_id": "ev-run-42-abc-gate",
+              "key": "ev-run-42-abc-gate",
               "persistence_uri": "r2://ticfac/runs/run-42/evidence/ev-run-42-abc-gate.json",
               "content_digest": "sha256:5c1d0e77aa2b41c9f0a6b8d3e274915f8c0b6a4d3e2f1908c7b6a5d4e3f21098"
             }
@@ -964,20 +986,23 @@
         "source": "SPEC §10.1 — the minimal evidence record",
         "document": {
           "schema_version": 1,
-          "run_id": "run-42",
-          "tick_id": null,
-          "attempt": 1,
-          "source_ref": "refs/heads/ticfac/run-42/epic-692/integration",
-          "source_sha": "b204d17",
-          "integration_ref": "refs/heads/ticfac/run-42/epic-692/integration",
-          "phase": "integrated",
-          "executor": "cloudflare-computer",
-          "workspace_id": "ws_01H8XK",
-          "backend": "container-shell",
-          "role": null,
-          "profile_digest": null,
-          "model": null,
-          "context_manifest_digest": null,
+          "key": "ev-run-42-abc-gate",
+          "provenance": {
+            "run_id": "run-42",
+            "tick_id": null,
+            "attempt": 1,
+            "source_ref": "refs/heads/ticfac/run-42/epic-692/integration",
+            "source_sha": "b204d17",
+            "integration_ref": "refs/heads/ticfac/run-42/epic-692/integration",
+            "phase": "integrated",
+            "executor": "cloudflare-computer",
+            "workspace_id": "ws_01H8XK",
+            "backend": "container-shell",
+            "role": null,
+            "profile_digest": null,
+            "model": null,
+            "context_manifest_digest": null
+          },
           "check": { "id": "go-test", "kind": "command", "command": ["go", "test", "./..."] },
           "started_at": "2026-09-02T10:11:00Z",
           "finished_at": "2026-09-02T10:14:37Z",
@@ -1003,20 +1028,23 @@
         "$comment": "exit_code is null because nothing ran; role/model/profile_digest are set because an LLM did. The mirror image of the gate above, and the reason each of those fields is nullable rather than optional.",
         "document": {
           "schema_version": 1,
-          "run_id": "run-42",
-          "tick_id": "abc",
-          "attempt": 1,
-          "source_ref": "refs/heads/ticfac/run-42/tick-abc/attempt-1",
-          "source_sha": "b204d17",
-          "integration_ref": null,
-          "phase": "review",
-          "executor": "cloudflare-computer",
-          "workspace_id": "ws_01H8XM",
-          "backend": "worker-javascript",
-          "role": "review-epic",
-          "profile_digest": "sha256:aa11bb22cc33dd44ee55ff6600112233445566778899aabbccddeeff00112233",
-          "model": "claude-opus-5",
-          "context_manifest_digest": "sha256:bb22cc33dd44ee55ff6600112233445566778899aabbccddeeff001122334455",
+          "key": "ev-run-42-review-692",
+          "provenance": {
+            "run_id": "run-42",
+            "tick_id": "abc",
+            "attempt": 1,
+            "source_ref": "refs/heads/ticfac/run-42/tick-abc/attempt-1",
+            "source_sha": "b204d17",
+            "integration_ref": null,
+            "phase": "review",
+            "executor": "cloudflare-computer",
+            "workspace_id": "ws_01H8XM",
+            "backend": "worker-javascript",
+            "role": "review-epic",
+            "profile_digest": "sha256:aa11bb22cc33dd44ee55ff6600112233445566778899aabbccddeeff00112233",
+            "model": "claude-opus-5",
+            "context_manifest_digest": "sha256:bb22cc33dd44ee55ff6600112233445566778899aabbccddeeff001122334455"
+          },
           "check": { "id": "review-epic-692", "kind": "review" },
           "started_at": "2026-09-02T10:20:00Z",
           "finished_at": "2026-09-02T10:23:19Z",
@@ -1294,22 +1322,25 @@
         "name": "evidence that does not say which commit it ran against",
         "record": "evidence",
         "why": "Evidence is 'a record that a check ran AGAINST A NAMED SOURCE REF' (SPEC §10.1). Without the sha it is a record that a check ran, which proves nothing about the tree anyone is about to merge.",
-        "expect_error_contains": "missing required property \"source_sha\"",
+        "expect_error_contains": "$.provenance: missing required property \"source_sha\"",
         "document": {
           "schema_version": 1,
-          "run_id": "run-42",
-          "tick_id": null,
-          "attempt": 1,
-          "source_ref": "refs/heads/ticfac/run-42/epic-692/integration",
-          "integration_ref": null,
-          "phase": "integrated",
-          "executor": "cloudflare-computer",
-          "workspace_id": "ws_01H8XK",
-          "backend": "container-shell",
-          "role": null,
-          "profile_digest": null,
-          "model": null,
-          "context_manifest_digest": null,
+          "key": "ev-run-42-abc-gate",
+          "provenance": {
+            "run_id": "run-42",
+            "tick_id": null,
+            "attempt": 1,
+            "source_ref": "refs/heads/ticfac/run-42/epic-692/integration",
+            "integration_ref": null,
+            "phase": "integrated",
+            "executor": "cloudflare-computer",
+            "workspace_id": "ws_01H8XK",
+            "backend": "container-shell",
+            "role": null,
+            "profile_digest": null,
+            "model": null,
+            "context_manifest_digest": null
+          },
           "check": { "id": "go-test", "kind": "command", "command": ["go", "test", "./..."] },
           "started_at": "2026-09-02T10:11:00Z",
           "finished_at": "2026-09-02T10:14:37Z",
@@ -1328,20 +1359,23 @@
         "expect_error_contains": "$.output: value matches none of the anyOf alternatives",
         "document": {
           "schema_version": 1,
-          "run_id": "run-42",
-          "tick_id": null,
-          "attempt": 1,
-          "source_ref": "refs/heads/ticfac/run-42/epic-692/integration",
-          "source_sha": "b204d17",
-          "integration_ref": null,
-          "phase": "integrated",
-          "executor": "cloudflare-computer",
-          "workspace_id": "ws_01H8XK",
-          "backend": "container-shell",
-          "role": null,
-          "profile_digest": null,
-          "model": null,
-          "context_manifest_digest": null,
+          "key": "ev-run-42-abc-gate",
+          "provenance": {
+            "run_id": "run-42",
+            "tick_id": null,
+            "attempt": 1,
+            "source_ref": "refs/heads/ticfac/run-42/epic-692/integration",
+            "source_sha": "b204d17",
+            "integration_ref": null,
+            "phase": "integrated",
+            "executor": "cloudflare-computer",
+            "workspace_id": "ws_01H8XK",
+            "backend": "container-shell",
+            "role": null,
+            "profile_digest": null,
+            "model": null,
+            "context_manifest_digest": null
+          },
           "check": { "id": "go-test", "kind": "command", "command": ["go", "test", "./..."] },
           "started_at": "2026-09-02T10:11:00Z",
           "finished_at": "2026-09-02T10:14:37Z",
@@ -1357,19 +1391,54 @@
         "name": "evidence at a phase nobody gates on",
         "record": "evidence",
         "why": "The phase is what makes a record reproducible — the same command against the same ref at a different phase answers a different question. An unknown phase silently joins no gate and blocks no closure.",
-        "expect_error_contains": "$.phase: smoke is not one of the permitted values",
+        "expect_error_contains": "$.provenance.phase: smoke is not one of the permitted values",
+        "document": {
+          "schema_version": 1,
+          "key": "ev-run-42-abc-smoke",
+          "provenance": {
+            "run_id": "run-42",
+            "tick_id": "abc",
+            "attempt": 1,
+            "source_ref": "refs/heads/ticfac/run-42/tick-abc/attempt-1",
+            "source_sha": "b204d17",
+            "integration_ref": null,
+            "phase": "smoke",
+            "executor": "local-subprocess",
+            "workspace_id": null,
+            "backend": null,
+            "role": null,
+            "profile_digest": null,
+            "model": null,
+            "context_manifest_digest": null
+          },
+          "check": { "id": "go-test", "kind": "command", "command": ["go", "test", "./..."] },
+          "started_at": "2026-09-02T10:11:00Z",
+          "finished_at": "2026-09-02T10:14:37Z",
+          "exit_code": 0,
+          "output": { "mode": "inline", "stdout": "ok\n", "stderr": "", "truncated": false, "redacted": true, "max_bytes": 65536 },
+          "result": "pass",
+          "acceptance": "required",
+          "content_digest": "sha256:5c1d0e77aa2b41c9f0a6b8d3e274915f8c0b6a4d3e2f1908c7b6a5d4e3f21098",
+          "persistence_uri": "r2://ticfac/runs/run-42/evidence/ev-run-42-abc-gate.json"
+        }
+      },
+      {
+        "name": "the flat evidence record bundle 1.2.0 shipped",
+        "record": "evidence",
+        "why": "THE REGRESSION CONTROL FOR THIS RECONCILIATION. In bundle 1.2.0 this document validated here while the run-state contract required a nested provenance object and a key, so no document could satisfy both and neither suite could see it — each validated its own examples against its own schema. Provenance is now one nested object, and the flat spelling is refused rather than accepted alongside it.",
+        "expect_error_contains": "$: unexpected property \"run_id\"",
         "document": {
           "schema_version": 1,
           "run_id": "run-42",
-          "tick_id": "abc",
+          "tick_id": null,
           "attempt": 1,
-          "source_ref": "refs/heads/ticfac/run-42/tick-abc/attempt-1",
+          "source_ref": "refs/heads/ticfac/run-42/epic-692/integration",
           "source_sha": "b204d17",
-          "integration_ref": null,
-          "phase": "smoke",
-          "executor": "local-subprocess",
-          "workspace_id": null,
-          "backend": null,
+          "integration_ref": "refs/heads/ticfac/run-42/epic-692/integration",
+          "phase": "integrated",
+          "executor": "cloudflare-computer",
+          "workspace_id": "ws_01H8XK",
+          "backend": "container-shell",
           "role": null,
           "profile_digest": null,
           "model": null,
@@ -1381,6 +1450,41 @@
           "output": { "mode": "inline", "stdout": "ok\n", "stderr": "", "truncated": false, "redacted": true, "max_bytes": 65536 },
           "result": "pass",
           "acceptance": "required",
+          "content_digest": "sha256:5c1d0e77aa2b41c9f0a6b8d3e274915f8c0b6a4d3e2f1908c7b6a5d4e3f21098",
+          "persistence_uri": "r2://ticfac/runs/run-42/evidence/ev-run-42-abc-gate.json"
+        }
+      },
+      {
+        "name": "evidence accepted under a vocabulary this contract does not publish",
+        "record": "evidence",
+        "why": "The other half of the same reconciliation: the run-state golden example said acceptance was \"accepted\", which is a RESULT dressed as an acceptance. Acceptance says whether the record gates closure (required) or merely informs it (advisory); whether it passed is `result`. Two vocabularies for one field is how a gate stops gating without anything failing.",
+        "expect_error_contains": "$.acceptance: accepted is not one of the permitted values",
+        "document": {
+          "schema_version": 1,
+          "key": "ev-run-42-abc-gate",
+          "provenance": {
+            "run_id": "run-42",
+            "tick_id": null,
+            "attempt": 1,
+            "source_ref": "refs/heads/ticfac/run-42/epic-692/integration",
+            "source_sha": "b204d17",
+            "integration_ref": "refs/heads/ticfac/run-42/epic-692/integration",
+            "phase": "integrated",
+            "executor": "cloudflare-computer",
+            "workspace_id": "ws_01H8XK",
+            "backend": "container-shell",
+            "role": null,
+            "profile_digest": null,
+            "model": null,
+            "context_manifest_digest": null
+          },
+          "check": { "id": "go-test", "kind": "command", "command": ["go", "test", "./..."] },
+          "started_at": "2026-09-02T10:11:00Z",
+          "finished_at": "2026-09-02T10:14:37Z",
+          "exit_code": 0,
+          "output": { "mode": "inline", "stdout": "ok\n", "stderr": "", "truncated": false, "redacted": true, "max_bytes": 65536 },
+          "result": "pass",
+          "acceptance": "accepted",
           "content_digest": "sha256:5c1d0e77aa2b41c9f0a6b8d3e274915f8c0b6a4d3e2f1908c7b6a5d4e3f21098",
           "persistence_uri": "r2://ticfac/runs/run-42/evidence/ev-run-42-abc-gate.json"
         }

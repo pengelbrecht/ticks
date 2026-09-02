@@ -9,9 +9,10 @@ status: active
 ## Compiled Truth
 
 **`contracts/` at the repo root holds every rule that more than one
-implementation has to obey.** Twelve files at bundle `1.2.0` — nine behavioural
-case tables, plus `tk-json-manifest.json` (a published API surface),
-`credential-ownership.json`, and `ticfac-run-state.json` (a case table over an
+implementation has to obey.** Thirteen files at bundle `2.0.0` — nine
+behavioural case tables, plus `tk-json-manifest.json` (a published API surface),
+`credential-ownership.json`, `job-protocol.json` (record schemas, including the
+bundle's one evidence record), and `ticfac-run-state.json` (a case table over an
 in-memory *model*, not over inputs — see below). Both languages read them, and a
 one-sided edit fails a build — that is the whole point and it is proven, not
 assumed (see *Every contract is proven to bite*).
@@ -142,10 +143,15 @@ jobs.
 
 Two smaller things worth knowing about the file:
 
-- **The evidence record's fields are deliberately NOT pinned here.**
-  `evidence_envelope` is open past `schema_version`, `key` and `provenance`; the
-  record's own shape belongs to §10.1's evidence schema. This contract owns the
-  path, the guard and the envelope.
+- **The evidence record's fields are deliberately NOT pinned here.** Since
+  bundle 2.0.0 there is no second schema for it either: `references.evidence`
+  names `job-protocol.json`'s `ticfac.evidence.v1` by schema_id, and this
+  contract owns the path, the guard and the envelope. In 1.2.0 the two files
+  carried two incompatible shapes of the same record and both suites stayed
+  green, because nothing in the bundle validated one contract's document
+  against the other contract's rule. Two checks now do — the cross-file golden
+  tests, and the rule that a `schema_id` in more than one contract file
+  resolves to exactly one definition — each with a negative control.
 - **The `.gitignore` fragment is asserted against the real file**, with
   `git check-ignore` — ticks is a ticfac target like any other, so "the fragment
   is defined" means git actually applies it, not that a JSON file mentions it.
@@ -193,6 +199,11 @@ No silent-orphan contract was found.
   package that ships both — nothing can be true in a fixture and false on screen.
 
 ## Timeline
+- 2026-09-02 — bundle `2.0.0`: the evidence record reconciled to ONE definition
+  (`job-protocol.json` `ticfac.evidence.v1`, nested provenance, required `key`),
+  `ticfac-run-state.json` reduced to a reference, and two new checks that look
+  ACROSS contract files — the cross-file golden validation and "a `schema_id` in
+  more than one file resolves to exactly one definition" — tick `atx`
 - 2026-09-02 — `ticfac-run-state.json` added (bundle `1.2.0`): the `.ticfac/`
   layout, persistence policy and compare-and-swap rules, with the first
   model-based case table and a built-in guard-disabled negative control — tick

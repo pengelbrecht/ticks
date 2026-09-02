@@ -60,10 +60,12 @@
       {
         "path": ".ticfac/runs/<run-id>/evidence/<key>.json",
         "record": "evidence",
+        "record_defined_in": "job-protocol.json",
+        "schema_id": "ticfac.evidence.v1",
         "committed": true,
         "cardinality": "one per evidence key",
         "cas": "create_if_absent",
-        "name_is": "<key> names the evidence, and is stable for the same check on the same source ref",
+        "name_is": "<key> is the record's own `key` field, and names the evidence: stable for the same check on the same source ref",
         "written_on": "a configured command or check producing a result",
         "why": "Evidence is a bounded, redacted record of something that already happened (SPEC 10.1). A record that can be overwritten is not evidence."
       },
@@ -177,31 +179,96 @@
 
   "envelope": {
     "why": "SPEC 10.4: every committed file carries a schema_version and the provenance fields of an evidence record. That is what makes one loose JSON file readable years later by something that did not write it.",
-    "required_on_every_committed_record": ["schema_version", "provenance"]
+    "required_on_every_committed_record": ["schema_version", "provenance"],
+    "provenance_is": "the $defs.provenance object of contracts/job-protocol.json, copied here field for field so the local $refs resolve. It is the SAME object, not a compatible one: the cross-file readers compare the two definitions structurally, because two spellings of one shape is what bundle 1.2.0 shipped."
+  },
+
+  "references": {
+    "evidence": {
+      "record": "evidence",
+      "why": "A record this contract PLACES but does not DEFINE. Bundle 1.2.0 defined the evidence record twice — flat and closed there, nested and open here — and no document could satisfy both; neither suite saw it, because each validated its own examples against its own schema. There is now one definition, and this is the pointer to it.",
+      "schema_id": "ticfac.evidence.v1",
+      "contract": "ticfac.job-protocol",
+      "file": "job-protocol.json",
+      "pointer": "#/records/evidence",
+      "division_of_labour": "This contract owns WHERE the file goes (.ticfac/runs/<run-id>/evidence/<key>.json), HOW it is written (create-if-absent against origin) and that it carries the envelope; job-protocol.json owns WHAT IS IN IT. The golden and invalid examples below are validated against that definition, from both readers.",
+      "key_is": "the <key> in the path is the record's own `key` field, so a filename and a citation in a JobResult name the same thing"
+    }
   },
 
   "$defs": {
     "provenance": {
       "type": "object",
-      "description": "The provenance fields of an evidence record (SPEC 10.1), carried by every committed .ticfac/ record.",
-      "required": ["run_id", "source_ref", "source_sha", "integration_ref", "phase"],
+      "description": "Where a record came from: which run, which refs, which phase, and what produced it — SPEC §10.1's provenance fields. This is the ONE definition of them in the bundle. The evidence record below carries it, and so does every committed .ticfac/ record (contracts/ticfac-run-state.json, SPEC §10.4: 'every committed file carries a schema_version and the provenance fields of an evidence record'). Every field is REQUIRED, nullable where it can be genuinely absent: a record that omits integration_ref and one that states it as null are different claims, and only the second is evidence.",
+      "required": [
+        "run_id",
+        "tick_id",
+        "attempt",
+        "source_ref",
+        "source_sha",
+        "integration_ref",
+        "phase",
+        "executor",
+        "workspace_id",
+        "backend",
+        "role",
+        "profile_digest",
+        "model",
+        "context_manifest_digest"
+      ],
       "additionalProperties": false,
       "properties": {
         "run_id": { "type": "string" },
-        "tick_id": { "type": "string" },
-        "attempt": { "type": "integer" },
+        "tick_id": { "type": ["string", "null"], "description": "Null for epic-level or run-level records." },
+        "attempt": { "type": ["integer", "null"], "description": "Null for a record that belongs to no single dispatch — a run checkpoint, say." },
         "source_ref": { "type": "string" },
         "source_sha": { "type": "string" },
-        "integration_ref": { "type": "string" },
-        "phase": { "type": "string" },
-        "executor": { "type": "string" },
-        "workspace_id": { "type": "string" },
-        "backend": { "type": "string" },
-        "role": { "type": "string" },
-        "profile_digest": { "type": "string" },
-        "model": { "type": "string" },
-        "context_manifest_digest": { "type": "string" }
+        "integration_ref": {
+          "type": ["string", "null"],
+          "description": "Null before integration. Required-and-null rather than omitted, because 'this ran before integration' and 'nobody recorded where it ran' are different claims."
+        },
+        "phase": { "$ref": "#/$defs/phase" },
+        "executor": {
+          "anyOf": [{ "$ref": "#/$defs/executor" }, { "type": "null" }],
+          "description": "Null for a record no executor produced — a reconciler-side decision, say."
+        },
+        "workspace_id": { "type": ["string", "null"] },
+        "backend": {
+          "type": ["string", "null"],
+          "description": "The concrete backend, e.g. container-shell. Backend names do not cross the JobSpec seam; a record names them AFTER the fact, which is how a run is explained without the reconciler ever choosing one."
+        },
+        "role": {
+          "anyOf": [{ "$ref": "#/$defs/role" }, { "type": "null" }],
+          "description": "Null for a deterministic check with no LLM behind it — a test command is evidence too."
+        },
+        "profile_digest": { "type": ["string", "null"] },
+        "model": { "type": ["string", "null"] },
+        "context_manifest_digest": { "type": ["string", "null"] }
       }
+    },
+    "phase": {
+      "type": "string",
+      "enum": ["worker", "post-wave", "integrated", "review", "closeout"],
+      "$comment": "The gate vocabulary the current implementation already runs (SPEC §6.1 Gates: 'configured worker/post-wave/integrated/review commands'), plus closeout. Naming the phase is what makes a record reproducible: the same command against the same ref at a different phase answers a different question. Reached through $defs.provenance, so a checkpoint, an attempt, a decision and an evidence record all name their phase from this one closed vocabulary."
+    },
+    "executor": {
+      "type": "string",
+      "enum": ["local-subprocess", "herdr", "cloudflare-sandbox", "cloudflare-computer"],
+      "$comment": "SPEC §4.3 initial executors. An executor NAME crosses this seam; a concrete backend name does not — that is the difference between `cloudflare-computer` here and `container-shell` in an evidence record, which explains a run after the fact."
+    },
+    "role": {
+      "type": "string",
+      "enum": [
+        "plan-epic",
+        "implement-tick",
+        "review-epic",
+        "triage-failure",
+        "plan-repair",
+        "resolve-conflict",
+        "closeout-epic",
+        "evaluate-goal"
+      ],
+      "description": "SPEC §4.4. There is no universal Decision Agent: every LLM call is a bounded job with a role-specific contract, so the role is a closed vocabulary rather than free text."
     },
     "tick_state": {
       "type": "object",
@@ -294,17 +361,6 @@
         "answered_at": { "type": "string" },
         "provenance": { "$ref": "#/$defs/provenance" }
       }
-    },
-    "evidence_envelope": {
-      "$comment": "The ENVELOPE of .ticfac/runs/<run-id>/evidence/<key>.json, not the record. The evidence record's own fields are owned by the evidence schema (SPEC 10.1); this contract pins only the path, the CAS mode, and the two fields SPEC 10.4 requires of every committed file. additionalProperties is therefore open on purpose — a stricter evidence schema validating the same document is the intended arrangement.",
-      "type": "object",
-      "required": ["schema_version", "key", "provenance"],
-      "additionalProperties": true,
-      "properties": {
-        "schema_version": { "type": "integer" },
-        "key": { "type": "string" },
-        "provenance": { "$ref": "#/$defs/provenance" }
-      }
     }
   },
 
@@ -325,10 +381,19 @@
       ],
       "provenance": {
         "run_id": "r-2f9c",
+        "tick_id": null,
+        "attempt": null,
         "source_ref": "refs/heads/main",
         "source_sha": "acb08b9493dd8647918efbebac27079c64339946",
         "integration_ref": "refs/heads/epic/692",
-        "phase": "gate"
+        "phase": "post-wave",
+        "executor": null,
+        "workspace_id": null,
+        "backend": null,
+        "role": null,
+        "profile_digest": null,
+        "model": null,
+        "context_manifest_digest": null
       }
     },
     "attempt": {
@@ -348,11 +413,11 @@
         "source_ref": "refs/heads/epic/692",
         "source_sha": "8ce085870a1d4e1f9c2b6a0d7e4f3c1b5a908d62",
         "integration_ref": "refs/heads/epic/692",
-        "phase": "dispatch",
+        "phase": "worker",
         "executor": "local-subprocess",
         "workspace_id": "wt-mrq-2",
         "backend": "subprocess",
-        "role": "implement",
+        "role": "implement-tick",
         "profile_digest": "sha256:3f1c0a",
         "model": "claude-opus-5",
         "context_manifest_digest": "sha256:9b22de"
@@ -361,7 +426,7 @@
     "decision": {
       "schema_version": 1,
       "decision": 1,
-      "role": "frontier_review",
+      "role": "review-epic",
       "request": {
         "question": "wave 1 is green; is the frontier ready for wave 2?",
         "epic_id": "692",
@@ -377,11 +442,16 @@
       "answered_at": "2026-09-02T10:15:44Z",
       "provenance": {
         "run_id": "r-2f9c",
+        "tick_id": null,
+        "attempt": null,
         "source_ref": "refs/heads/epic/692",
         "source_sha": "acb08b9493dd8647918efbebac27079c64339946",
         "integration_ref": "refs/heads/epic/692",
-        "phase": "frontier_review",
-        "role": "frontier_review",
+        "phase": "review",
+        "executor": null,
+        "workspace_id": null,
+        "backend": null,
+        "role": "review-epic",
         "profile_digest": "sha256:3f1c0a",
         "model": "claude-opus-5",
         "context_manifest_digest": "sha256:71aa04"
@@ -390,24 +460,37 @@
     "evidence": {
       "schema_version": 1,
       "key": "gate-integrated-go-test",
-      "command": "go test ./...",
-      "started_at": "2026-09-02T10:16:00Z",
-      "finished_at": "2026-09-02T10:19:12Z",
-      "exit_code": 0,
-      "result": "pass",
-      "acceptance": "accepted",
-      "output_uri": "ticfac://runs/r-2f9c/logs/gate-integrated-go-test.txt",
-      "content_digest": "sha256:c41e7b",
       "provenance": {
         "run_id": "r-2f9c",
+        "tick_id": null,
+        "attempt": null,
         "source_ref": "refs/heads/epic/692",
         "source_sha": "acb08b9493dd8647918efbebac27079c64339946",
         "integration_ref": "refs/heads/epic/692",
-        "phase": "gate",
+        "phase": "integrated",
         "executor": "local-subprocess",
         "workspace_id": "wt-gate-1",
-        "backend": "subprocess"
-      }
+        "backend": "subprocess",
+        "role": null,
+        "profile_digest": null,
+        "model": null,
+        "context_manifest_digest": null
+      },
+      "check": { "id": "gate-integrated-go-test", "kind": "command", "command": ["go", "test", "./..."] },
+      "started_at": "2026-09-02T10:16:00Z",
+      "finished_at": "2026-09-02T10:19:12Z",
+      "exit_code": 0,
+      "output": {
+        "mode": "artifact",
+        "uri": "ticfac://runs/r-2f9c/logs/gate-integrated-go-test.txt",
+        "content_digest": "sha256:c41e7b",
+        "redacted": true,
+        "bytes": 4096
+      },
+      "result": "pass",
+      "acceptance": "required",
+      "content_digest": "sha256:c41e7b",
+      "persistence_uri": "ticfac://runs/r-2f9c/evidence/gate-integrated-go-test.json"
     }
   },
 
@@ -438,10 +521,19 @@
         "updated_at": "2026-09-02T09:01:00Z",
         "provenance": {
           "run_id": "r-2f9c",
+          "tick_id": null,
+          "attempt": null,
           "source_ref": "refs/heads/main",
           "source_sha": "acb08b94",
           "integration_ref": "refs/heads/epic/692",
-          "phase": "dispatch"
+          "phase": "worker",
+          "executor": null,
+          "workspace_id": null,
+          "backend": null,
+          "role": null,
+          "profile_digest": null,
+          "model": null,
+          "context_manifest_digest": null
         }
       }
     },
@@ -455,10 +547,19 @@
         "dispatched_at": "2026-09-02T09:41:02Z",
         "provenance": {
           "run_id": "r-2f9c",
+          "tick_id": "mrq",
+          "attempt": 1,
           "source_ref": "refs/heads/epic/692",
           "source_sha": "8ce08587",
           "integration_ref": "refs/heads/epic/692",
-          "phase": "dispatch"
+          "phase": "worker",
+          "executor": "local-subprocess",
+          "workspace_id": "wt-mrq-1",
+          "backend": "subprocess",
+          "role": "implement-tick",
+          "profile_digest": null,
+          "model": null,
+          "context_manifest_digest": null
         }
       }
     },
@@ -473,10 +574,19 @@
         "job_handle": { "executor": "local-subprocess" },
         "provenance": {
           "run_id": "r-2f9c",
+          "tick_id": "mrq",
+          "attempt": 1,
           "source_ref": "refs/heads/epic/692",
           "source_sha": "8ce08587",
           "integration_ref": "refs/heads/epic/692",
-          "phase": "dispatch"
+          "phase": "worker",
+          "executor": "local-subprocess",
+          "workspace_id": "wt-mrq-1",
+          "backend": "subprocess",
+          "role": "implement-tick",
+          "profile_digest": null,
+          "model": null,
+          "context_manifest_digest": null
         }
       }
     },
@@ -493,25 +603,79 @@
         "answered_at": "2026-09-02T10:15:44Z",
         "provenance": {
           "run_id": "r-2f9c",
+          "tick_id": null,
+          "attempt": null,
           "source_ref": "refs/heads/epic/692",
           "source_sha": "acb08b94",
           "integration_ref": "refs/heads/epic/692",
-          "phase": "frontier_review"
+          "phase": "review",
+          "executor": null,
+          "workspace_id": null,
+          "backend": null,
+          "role": "review-epic",
+          "profile_digest": null,
+          "model": null,
+          "context_manifest_digest": null
         }
       }
     },
     {
-      "record": "evidence_envelope",
-      "why": "provenance without integration_ref — evidence that does not name the ref it was produced against proves nothing about the ref being gated",
+      "record": "evidence",
+      "validated_against": "ticfac.evidence.v1",
+      "why": "provenance without integration_ref — evidence that does not name the ref it was produced against proves nothing about the ref being gated. Refused by the referenced definition (references.evidence), not by a second schema kept here.",
       "document": {
         "schema_version": 1,
         "key": "gate-integrated-go-test",
+        "provenance": {
+          "run_id": "r-2f9c",
+          "tick_id": null,
+          "attempt": null,
+          "source_ref": "refs/heads/epic/692",
+          "source_sha": "acb08b94",
+          "phase": "integrated",
+          "executor": "local-subprocess",
+          "workspace_id": "wt-gate-1",
+          "backend": "subprocess",
+          "role": null,
+          "profile_digest": null,
+          "model": null,
+          "context_manifest_digest": null
+        },
+        "check": { "id": "gate-integrated-go-test", "kind": "command", "command": ["go", "test", "./..."] },
+        "started_at": "2026-09-02T10:16:00Z",
+        "finished_at": "2026-09-02T10:19:12Z",
         "exit_code": 0,
+        "output": { "mode": "inline", "stdout": "ok\n", "stderr": "", "truncated": false, "redacted": true, "max_bytes": 65536 },
+        "result": "pass",
+        "acceptance": "required",
+        "content_digest": "sha256:c41e7b",
+        "persistence_uri": "ticfac://runs/r-2f9c/evidence/gate-integrated-go-test.json"
+      }
+    },
+    {
+      "record": "evidence",
+      "validated_against": "ticfac.evidence.v1",
+      "why": "THE DOCUMENT BUNDLE 1.2.0 SHIPPED AS THIS CONTRACT'S GOLDEN EVIDENCE EXAMPLE. It carried a bare `command` string, an `output_uri`, no `check` and an acceptance of \"accepted\", and it validated here because this contract's envelope was open past schema_version, key and provenance — while job-protocol.json's records.evidence refused it 22 ways. Kept as the negative control for the reconciliation: the open envelope is gone, and the shape that only ever validated against half the bundle is now refused by the half that defines the record.",
+      "document": {
+        "schema_version": 1,
+        "key": "gate-integrated-go-test",
+        "command": "go test ./...",
+        "started_at": "2026-09-02T10:16:00Z",
+        "finished_at": "2026-09-02T10:19:12Z",
+        "exit_code": 0,
+        "result": "pass",
+        "acceptance": "accepted",
+        "output_uri": "ticfac://runs/r-2f9c/logs/gate-integrated-go-test.txt",
+        "content_digest": "sha256:c41e7b",
         "provenance": {
           "run_id": "r-2f9c",
           "source_ref": "refs/heads/epic/692",
-          "source_sha": "acb08b94",
-          "phase": "gate"
+          "source_sha": "acb08b9493dd8647918efbebac27079c64339946",
+          "integration_ref": "refs/heads/epic/692",
+          "phase": "gate",
+          "executor": "local-subprocess",
+          "workspace_id": "wt-gate-1",
+          "backend": "subprocess"
         }
       }
     }

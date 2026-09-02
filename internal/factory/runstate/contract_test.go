@@ -131,7 +131,19 @@ type runStateContract struct {
 
 	Envelope struct {
 		RequiredOnEveryCommittedRecord []string `json:"required_on_every_committed_record"`
+		ProvenanceIs                   string   `json:"provenance_is"`
 	} `json:"envelope"`
+
+	References map[string]struct {
+		Record           string `json:"record"`
+		Why              string `json:"why"`
+		SchemaID         string `json:"schema_id"`
+		Contract         string `json:"contract"`
+		File             string `json:"file"`
+		Pointer          string `json:"pointer"`
+		DivisionOfLabour string `json:"division_of_labour"`
+		KeyIs            string `json:"key_is"`
+	} `json:"references"`
 
 	Defs    map[string]json.RawMessage `json:"$defs"`
 	Schemas map[string]json.RawMessage `json:"schemas"`
@@ -172,15 +184,15 @@ func load(t *testing.T) runStateContract {
 	return c
 }
 
-// The record name a layout entry uses, mapped to the schema that validates it.
-// `evidence` is the one indirection: this contract owns only the ENVELOPE of an
-// evidence file (SPEC §10.4's "schema_version and the provenance fields"), and
-// the record's own fields belong to the evidence schema of SPEC §10.1.
-func schemaNameFor(record string) string {
-	if record == "evidence" {
-		return "evidence_envelope"
-	}
-	return record
+// referenced reports whether a record is PLACED by this contract but DEFINED by
+// another one, named in `references`. `evidence` is the only such record: this
+// contract owns where the file goes and how it is written, and
+// contracts/job-protocol.json owns what is in it (SPEC §10.1). Bundle 1.2.0
+// kept a second, looser schema here as well; two definitions of one record is
+// what that cost, so there is now a pointer and no schema.
+func referenced(c runStateContract, record string) bool {
+	_, ok := c.References[record]
+	return ok
 }
 
 func TestContractIdentifiesItself(t *testing.T) {
@@ -319,8 +331,13 @@ func TestEveryRecordHasASchemaAndAGoldenExample(t *testing.T) {
 		if !e.Committed {
 			continue
 		}
-		if _, ok := c.Schemas[schemaNameFor(e.Record)]; !ok {
-			t.Errorf("record %q has no schema", e.Record)
+		_, hasSchema := c.Schemas[e.Record]
+		if !hasSchema && !referenced(c, e.Record) {
+			t.Errorf("record %q has neither a schema here nor a reference to the contract that defines it", e.Record)
+		}
+		if hasSchema && referenced(c, e.Record) {
+			t.Errorf("record %q is both defined here and referenced elsewhere — "+
+				"two definitions of one record is what bundle 1.2.0 shipped", e.Record)
 		}
 		if _, ok := c.Golden[e.Record]; !ok {
 			t.Errorf("record %q has no golden example", e.Record)
@@ -330,12 +347,32 @@ func TestEveryRecordHasASchemaAndAGoldenExample(t *testing.T) {
 	for name := range c.Schemas {
 		found := false
 		for _, e := range c.Layout.Entries {
-			if e.Committed && schemaNameFor(e.Record) == name {
+			if e.Committed && e.Record == name {
 				found = true
 			}
 		}
 		if !found {
 			t.Errorf("schema %q validates no record the layout places", name)
+		}
+	}
+
+	// A reference names a record this contract places, and says where the
+	// record is defined. A pointer at nothing is worse than no pointer.
+	for name, ref := range c.References {
+		placed := false
+		for _, e := range c.Layout.Entries {
+			if e.Committed && e.Record == name {
+				placed = true
+			}
+		}
+		if !placed {
+			t.Errorf("references.%s points at a record this contract does not place", name)
+		}
+		if ref.SchemaID == "" || ref.File == "" || ref.Pointer == "" || ref.Contract == "" {
+			t.Errorf("references.%s must name the contract, the file, the schema_id and the pointer", name)
+		}
+		if ref.Why == "" || ref.DivisionOfLabour == "" {
+			t.Errorf("references.%s must say what each contract owns", name)
 		}
 	}
 }
@@ -429,11 +466,17 @@ func TestGoldenExamplesValidate(t *testing.T) {
 		if err := json.Unmarshal(raw, &doc); err != nil {
 			t.Fatalf("golden.%s: %v", record, err)
 		}
-		name := schemaNameFor(record)
+		name := record
 		s, ok := schemas[name]
 		if !ok {
-			t.Errorf("golden.%s has no schema %q", record, name)
-			continue
+			if !referenced(c, record) {
+				t.Errorf("golden.%s has no schema %q", record, name)
+				continue
+			}
+			// A referenced record is validated against the contract that
+			// defines it, not against a looser copy kept here.
+			name = c.References[record].SchemaID
+			s, defs = referencedSchema(t, c, record)
 		}
 		if errs := tkcontract.Validate(s, defs, doc); len(errs) > 0 {
 			t.Errorf("golden.%s does not validate against schema %q:\n  %s",
@@ -454,24 +497,27 @@ func TestInvalidExamplesAreRefused(t *testing.T) {
 	c := load(t)
 	defs, schemas := parseSchemas(t, c)
 
-	if len(c.Invalid) < len(c.Schemas) {
-		t.Errorf("%d negative examples for %d schemas — every schema needs at least one",
-			len(c.Invalid), len(c.Schemas))
+	if len(c.Invalid) < len(c.Schemas)+len(c.References) {
+		t.Errorf("%d negative examples for %d schemas and %d referenced record(s) — each needs at least one",
+			len(c.Invalid), len(c.Schemas), len(c.References))
 	}
 
 	covered := map[string]bool{}
 	for i, bad := range c.Invalid {
-		name := schemaNameFor(bad.Record)
-		s, ok := schemas[name]
+		s, ok := schemas[bad.Record]
+		validatorDefs := defs
 		if !ok {
-			t.Errorf("invalid[%d]: no schema %q", i, name)
-			continue
+			if !referenced(c, bad.Record) {
+				t.Errorf("invalid[%d]: no schema %q", i, bad.Record)
+				continue
+			}
+			s, validatorDefs = referencedSchema(t, c, bad.Record)
 		}
-		covered[name] = true
+		covered[bad.Record] = true
 		if bad.Why == "" {
 			t.Errorf("invalid[%d]: a negative example must say what it is proving", i)
 		}
-		if errs := tkcontract.Validate(s, defs, any(bad.Document)); len(errs) == 0 {
+		if errs := tkcontract.Validate(s, validatorDefs, any(bad.Document)); len(errs) == 0 {
 			t.Errorf("invalid[%d] (%s: %s) VALIDATED — the schema is not refusing what it claims to",
 				i, bad.Record, bad.Why)
 		}
@@ -479,6 +525,14 @@ func TestInvalidExamplesAreRefused(t *testing.T) {
 	for name := range schemas {
 		if !covered[name] {
 			t.Errorf("schema %q has no negative example", name)
+		}
+	}
+	// A referenced record needs one too. The refusal this contract claims for
+	// a file it commits is made by another contract's schema, and an unproven
+	// claim about someone else's schema is the drift of bundle 1.2.0 exactly.
+	for name := range c.References {
+		if !covered[name] {
+			t.Errorf("referenced record %q has no negative example", name)
 		}
 	}
 }

@@ -10,6 +10,14 @@
 // cloud/factory/test/job-protocol.test.ts. A schema, a golden example or a
 // refusal changed on one side only fails the other.
 //
+// It is also where the bundle's ONE evidence record lives (SPEC §10.1,
+// ticfac.evidence.v1). contracts/ticfac-run-state.json places the file and
+// pins how it is written, and references this schema by id;
+// evidence_cross_contract_test.go validates that contract's golden and
+// negative evidence documents against this definition, and compares the
+// $defs both files carry. Bundle 1.2.0 shipped two shapes of the record, one
+// per contract, and no test looked across the two files.
+//
 // The schemas themselves are validated with internal/tkcontract's strict JSON
 // Schema subset: a keyword that subset cannot enforce makes the contract fail
 // to parse rather than being quietly ignored, which is the difference between a

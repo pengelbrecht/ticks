@@ -24,7 +24,7 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { after, test } from "node:test";
 
-import { verifyBundle } from "./contracts.mjs";
+import { verifyBundle, verifySchemaIds } from "./contracts.mjs";
 
 const FACTORY_DIR = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const REPO_ROOT = resolve(FACTORY_DIR, "..", "..");
@@ -147,4 +147,60 @@ test("a missing bundleVersion in the pin fails", () => {
   assert.ok(bundleVersion, "the pin should carry a bundleVersion to remove");
 
   assert.throws(() => verifyBundle(dir, withoutVersion), /bundleVersion/);
+});
+
+// ---------------------------------------------------------------------------
+// The cross-contract rule: a schema_id in more than one file has exactly one
+// definition. Bundle 1.2.0 shipped two definitions of ticfac.evidence.v1 and
+// neither suite could see it, because each validated its own examples against
+// its own schema.
+// ---------------------------------------------------------------------------
+
+test("the bundle in the tree resolves every shared schema_id to one definition", () => {
+  const { dir } = scratchBundle();
+  const uses = verifySchemaIds(dir);
+
+  // The check must not be passing because nothing crosses a file boundary any
+  // more. The evidence record is the one that does.
+  const evidence = uses.get("ticfac.evidence.v1") ?? [];
+  const files = new Set(evidence.map((use) => use.file));
+  assert.ok(
+    files.size >= 2,
+    "ticfac.evidence.v1 appears in one contract — job-protocol.json defines it and " +
+      "ticfac-run-state.json places the file, so a single file means one side stopped naming it",
+  );
+  assert.equal(
+    evidence.filter((use) => use.defines).length,
+    1,
+    "ticfac.evidence.v1 must be defined exactly once",
+  );
+});
+
+test("a second definition of a shared schema_id fails — the 1.2.0 shape", () => {
+  const { dir } = scratchBundle();
+  const path = join(dir, "ticfac-run-state.json");
+  const runState = JSON.parse(readFileSync(path, "utf8"));
+
+  // Put the deleted evidence_envelope back, under the same schema_id.
+  runState.schemas.evidence_envelope = {
+    schema_id: "ticfac.evidence.v1",
+    schema: { type: "object", required: ["schema_version", "key", "provenance"], additionalProperties: true },
+  };
+  writeFileSync(path, `${JSON.stringify(runState, null, 2)}\n`);
+
+  assert.throws(
+    () => verifySchemaIds(dir),
+    /ticfac\.evidence\.v1 is defined 2 times/,
+    "verifySchemaIds accepted two definitions of one record — exactly what bundle 1.2.0 shipped",
+  );
+});
+
+test("a schema_id two contracts name and neither defines fails", () => {
+  const dir = mkdtempSync(join(tmpdir(), "contracts-schema-ids-"));
+  scratch.push(dir);
+  for (const name of ["a-contract.json", "b-contract.json"]) {
+    writeFileSync(join(dir, name), JSON.stringify({ records: { thing: { schema_id: "ticfac.thing.v1" } } }));
+  }
+
+  assert.throws(() => verifySchemaIds(dir), /defined nowhere/);
 });
