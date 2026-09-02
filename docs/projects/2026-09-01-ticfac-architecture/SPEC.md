@@ -1,6 +1,6 @@
 # ticfac architecture
 
-> **Status:** proposed architecture, revised 2026-09-02
+> **Status:** proposed architecture, revised 2026-09-02 (b: run state lives in the repository under `.ticfac/`; see §4.1, §10.4)
 > **Scope:** extraction of Factory and execution orchestration from the pengelbrecht/ticks repository into a new ticfac repository.
 > **This change:** documentation only. It does not move or modify implementation code.
 
@@ -175,6 +175,18 @@ The final command names and schemas are a release decision, not an invitation
 for ticfac to reach into internal/. A command MUST fail closed when its
 requested JSON contract is unavailable or incompatible.
 
+One qualification, stated here so it is not discovered in Phase 4: a
+Cloudflare Workflow or isolate cannot execute a Go binary, so on that host the
+reconciler cannot shell out to tk. The current factory already resolves this —
+it reads .tick/ records from the pushed branch through the contents API and
+writes create-only tracker commits the same way, held to tk's behaviour by the
+tracker-layout parity fixture. That is the model: **tk --json defines the
+tracker contract; a host that cannot run tk implements the same contract in
+its own language and proves it with the pinned fixtures of §3.2.** Such an
+implementation is a consumer of the contract, not a second tracker — it
+performs only the reads and controlled writes listed above, and a fixture
+break fails its build. Every host that can run tk runs tk.
+
 ### 3.2 Pinned contracts
 
 The current cross-language fixtures under contracts/ exist because Go and
@@ -215,19 +227,31 @@ are useful responsibilities, but making every noun a framework abstraction
 would recreate an agent platform inside ticfac. The target instead has three
 durable authorities and three narrow protocols.
 
-### 4.1 Three durable authorities
+### 4.1 Two durable authorities, one observation source
 
 1. **ticks:** work identity, graph, readiness, roles, acceptance, claims, and
    tracker lifecycle through tk --json.
 2. **Git:** source identity, isolated implementation refs, integration refs,
-   publication order, and recoverable code history.
-3. **Execution substrate:** live job handles and workspace materialization.
-   These are observations unless their durable facts have been persisted in a
-   JobResult or artifact store.
+   publication order, recoverable code history — **and ticfac's own run
+   state**, committed as files under `.ticfac/` (§4.2, §10.4).
 
-No fourth event-sourced domain model should duplicate all three. ticfac stores
-only the run IDs, idempotency keys, job handles, decisions, evidence references,
-budgets, and checkpoints needed to reconcile them.
+The **execution substrate** is not an authority. Live job handles, processes,
+cursors, and workspace materialization are observations; they carry no truth
+that has not been persisted to Git or the tracker.
+
+There is no separate run database. ticks already draws this line: tracker
+state is committed, `.tick/logs/` is a gitignored cache, and `.index.json` is a
+rebuildable index. ticfac applies the same rule with the same layout.
+Everything the reconciler needs to resume — run and attempt records,
+decisions, idempotency markers, checkpoints, evidence references, budgets —
+lives in the repository. What does not live there is either exhaust (logs) or
+a derived index (§8.6), and neither is consulted to decide what is true.
+
+This is the ticks principle applied to execution: **everything authoritative
+lives in the repo.** A laptop and a Cloudflare host reconciling the same run
+read and write the same files, which is what makes §8.2's portability claim
+true rather than aspirational, and what lets a dead controller's last
+checkpoint be read by anyone with a clone.
 
 ### 4.2 The reconciler
 
@@ -258,6 +282,25 @@ repair, dispatch idempotency, fan-in, configured gates, integration,
 publication, closure ordering, cancellation, budgets, and cleanup. A green
 deterministic gate followed by ready work advances without asking an LLM for
 permission.
+
+Two mechanics make the loop safe to restart, and both are Git primitives:
+
+- **A checkpoint is a commit.** The reconciler commits
+  `.ticfac/runs/<run-id>/checkpoint.json` on the EpicRun's integration branch
+  when state changes — a decision, a dispatch, a collected result — never per
+  observation. Recovery is a fetch; audit is `git log -- .ticfac/runs/<run-id>/`.
+- **An effect is guarded by a compare-and-swap.** Creating a file fails if it
+  already exists; updating one requires its current SHA. Dispatching attempt N
+  creates `.ticfac/runs/<run-id>/attempts/<n>.json`, and a second reconciler
+  racing for the same attempt is refused by the repository, not by a lock it
+  might have lost. This is the primitive the signal funnel already relies on
+  (the contents API is a compare-and-swap on the branch ref); a Worker reaches
+  it through the GitHub contents API and a local host through
+  `git push --force-with-lease`.
+
+"Idempotent effects" therefore has a definition rather than an aspiration: an
+effect is idempotent when the compare-and-swap that precedes it proves it has
+not already happened.
 
 ### 4.3 The executor protocol
 
@@ -296,7 +339,7 @@ An illustrative JobSpec is deliberately substrate-neutral:
   "source": {
     "repository": "git@example/repo.git",
     "base_sha": "<sha>",
-    "write_ref": "refs/ticfac/run-42/tick-abc/attempt-1"
+    "write_ref": "refs/heads/ticfac/run-42/tick-abc/attempt-1"
   },
   "capabilities": {
     "persistence": "durable",
@@ -306,9 +349,22 @@ An illustrative JobSpec is deliberately substrate-neutral:
   "inputs": [{"kind": "tick", "id": "abc"}],
   "output_schema": "ticfac.job-result.implement-tick.v1",
   "artifact_prefix": "runs/run-42/jobs/tick-abc/attempt-1/",
+  "credentials": {"model": "issued-by-host", "source": "read-only"},
   "limits": {"wall_seconds": 3600, "max_cost_usd": 10}
 }
 ~~~
+
+Credentials are part of the protocol, not an adapter detail. The host issues
+every credential a job holds — model access, and source access at a declared
+grade — and records the grant in the attempt record. `cancel` MUST revoke
+those credentials before requesting a stop, and a cancelled handle can never
+obtain a fresh one: a kill switch is a durable refusal to issue, checked before
+every boot, not a revocation a restart can undo. Cost is a property of the
+credential, not of the job. A metered credential carries a cost budget
+enforced from gateway telemetry; a flat-rate credential (a subscription seat
+behind a broker) has no per-request cost to bound and says so — wall-clock and
+cancellation still apply, and quota exhaustion is reported as its own failure
+class, never as a broken route.
 
 The Cloudflare executor translates those capabilities to Computer Workspace
 and backend choices. A local or future host translates the same request to its
@@ -394,6 +450,12 @@ profiles:
 
 Names and file format are illustrative; the required behavior is resolution,
 policy validation, versioning, and provenance.
+
+This section describes the end state, not Phase 1. Phase 1 resolves a role to
+exactly four things — executor, runner, model, prompt — and records them.
+Every other field above earns its place when a real run needs it; the schema
+is versioned so that is cheap. Building the full profile machinery before a
+run has demanded it is the platform §4 says not to build.
 
 Prompt/context assembly is layered and deterministic:
 
@@ -670,9 +732,9 @@ boundary. The following is the target mapping.
 
 | Current implementation | Target mapping | Notes |
 |---|---|---|
-| Claude runner (skills/ticks/references/claude-runner.md) | Claude-capable executor adapter and role profiles | Agent isolation, worktrees, background completion, continuation, and session handling are adapter concerns. Merge, tracker closure, and cleanup remain reconciler effects. |
-| Codex runner (skills/ticks/references/codex-runner.md) | Codex-capable executor adapter and role profiles | codex exec, worktree setup, completion/output retrieval, continuation, and review map to JobSpec/Handle/Result; they do not define the epic protocol. |
-| Pi runner (skills/ticks/references/pi-runner.md, extensions/ticks-runner/**) | Pi executor plus reconciler source material | The extension shows where execution and orchestration are fused. Extract claims/waves/gates/merge/cleanup into reconciliation commands and keep Pi JSON subprocess handling in the executor. |
+| Claude runner (skills/ticks/references/claude-runner.md) | `claude` runner on the local subprocess executor, plus role profiles | Agent isolation, worktrees, background completion, continuation, and session handling are adapter concerns. Merge, tracker closure, and cleanup remain reconciler effects. |
+| Codex runner (skills/ticks/references/codex-runner.md) | `codex` runner on the local subprocess executor, plus role profiles | codex exec, worktree setup, completion/output retrieval, continuation, and review map to JobSpec/Handle/Result; they do not define the epic protocol. |
+| Pi runner (skills/ticks/references/pi-runner.md, extensions/ticks-runner/**) | `pi` runner on the local subprocess executor, plus reconciler source material | The extension shows where execution and orchestration are fused. Extract claims/waves/gates/merge/cleanup into reconciliation commands and keep Pi JSON subprocess handling in the executor. |
 | Prime/RLM (skills/ticks/references/prime-runner.md) | Read-only/analysis executor capability | Prime's child/worktree limitations and read-only role are capabilities and profile policy. It does not become a second orchestrator. |
 | Herdr (skills/ticks/references/herdr-runner.md, internal/herd/**) | Herdr executor | Heterogeneous fleet selection, process/event relay, result collection, adoption, and remote lifecycle sit behind the four-operation executor protocol. Tracker vocabulary and question relay remain in ticks. Herdr never publishes or closes work. |
 | Current cloud RunWorkflow (cloud/factory/src/run-workflow.ts) | Cloudflare durable host + reconciler | It currently combines lease/retry/budget supervision, an orchestrator container, wave dispatch, worker lifecycle, collection, closeout, and finalization. The decomposition is specified in §9. |
@@ -706,10 +768,10 @@ implementation is intentionally Cloudflare-native:
 ~~~text
 Cloudflare Worker        API, webhooks, schedules, campaign admission
 Cloudflare Workflow      one durable workflow per EpicRun
-Durable Object           repository semaphore and serialized publisher
+Durable Object           repository semaphore and serialized publisher (a lock, not a store)
 Cloudflare Computer      primary cloud executor
-R2                       large logs, reports, patches, and evidence
-Git + tk                 durable source and work state
+R2                       large logs and transcripts (exhaust, never authority)
+Git + tk                 durable source, work state, and run state (.ticfac/)
 ~~~
 
 ticfac MUST NOT invent a lowest-common-denominator workflow, lease, storage, or
@@ -815,6 +877,11 @@ There is no implicit promotion in the current explicit-backend API. The
 phase/capability policy and its tests are therefore a Cloudflare-executor
 responsibility.
 
+Sections 8.3–8.5 are design ahead of a preview API and are Phase 5 material.
+Nothing in Phases 0–4 depends on them, and they should be re-read against the
+Computer API that actually ships before any of it is implemented (§8.7).
+Principle 12 applies to this document as much as to the code.
+
 ### 8.6 Durable source versus derived execution state
 
 The executor must make restart behavior legible by separating durable facts from
@@ -824,11 +891,12 @@ reconstructable materialization.
 
 - Git remote refs, worker branches, commits, merge commits, and source SHAs;
 - .tick/ tracker state, claims, statuses, and notes through tk;
-- Durable Object Workspace files/state and synchronization metadata;
-- D1 run/attempt/event records;
-- R2 manifests, reports, logs selected as evidence, and verification artifacts;
-- Decision Requests/Responses and the evidence references they used;
-- executor/backend selection, capability decision, and terminal lifecycle facts.
+- ticfac run state under `.ticfac/` (§10.4): run and attempt records, decision
+  requests/responses with the evidence references they used, executor/backend
+  selection and capability decisions, terminal lifecycle facts, checkpoints;
+- bounded, redacted evidence records committed beside the run state;
+- Durable Object Workspace files/state and synchronization metadata, for as
+  long as a job is live.
 
 **Derived local/executor state:**
 
@@ -837,6 +905,15 @@ reconstructable materialization.
 - a local worktree path or container filesystem cache;
 - package/build caches and preview processes;
 - an in-memory controller object or an unpersisted dashboard view.
+
+**Indexes and exhaust (never authority):**
+
+- D1, if used at all, holds a rebuildable index over `.ticfac/` for dashboards
+  and cost queries — the role `.index.json` plays for ticks. Losing it costs a
+  rebuild, never a fact.
+- R2 holds large streaming logs and transcripts. They are diagnostic material
+  (§10.1); the reconciler never consults them to decide state.
+- The repository Durable Object holds a lock, not truth (§9.1).
 
 Before disposal, the executor MUST push or persist any source/evidence that the
 reconciler relies on. After restart, the reconciler MUST be able to reconstruct
@@ -894,12 +971,21 @@ Workflow per EpicRun
 Computer Workspace + role job/container(s)
               │
               ▼
-       Git branches + reports + evidence
+   Git: branches, reports, evidence, .ticfac/ run state
 ~~~
+
+The Durable Object is a coordination lock, not a store: it grants epic slots
+and serialises publication, and every fact it acts on is read from `.ticfac/`
+and tk. If it is lost, the safe outcome is that nobody holds the lock until
+reconciliation re-derives who should — the lease that lapsed in the current
+implementation failed exactly this safe way.
 
 Deep coding happens in jobs. The orchestrator therefore needs no orchestrator
 container. It can start a role job from an isolate/service boundary, persist
 the JobResult, and continue reconciliation from a durable Workflow checkpoint.
+Tracker reads and controlled writes from the Workflow go through the
+contract-held implementation of §3.1; nothing here needs a container in order
+to talk to the tracker.
 A temporary orchestrator container is justified only if a
 specific control-plane operation requires a capability unavailable to the
 controller; it is not the default execution model.
@@ -1017,6 +1103,94 @@ materialization. The executor MUST record:
 Disposal is allowed only after the reconciler has either persisted required
 source/evidence or recorded an explicit recovery/escalation outcome.
 
+### 10.4 Run state in the repository
+
+ticfac keeps its run state in the repository it executes against, under a dot
+directory that mirrors `.tick/` in layout and in its boundary rules — but
+**not** in its persistence policy, because run state and issue state have
+opposite requirements (see below):
+
+~~~text
+.ticfac/
+  runs/<run-id>/
+    checkpoint.json            one commit per state change, pushed at once; audit = log of the run branch
+    attempts/<n>.json          created once per dispatch — existence is the idempotency marker
+    evidence/<key>.json        bounded, redacted evidence records (§10.1)
+    decisions/<n>.json         role-job requests and validated responses, with provenance
+  .index.json                  gitignored, rebuildable (D1 is the hosted equivalent)
+  logs/                        gitignored exhaust
+~~~
+
+Every committed file carries a `schema_version` and the provenance fields of
+an evidence record. One file per record, so concurrent EpicRuns writing
+different `runs/<id>/` directories merge cleanly — the same argument ticks
+makes for one file per tick.
+
+**Why `.tick/` is committed, and why that does not transfer as-is.** `.tick/`
+is committed because issue state is the project's shared memory: written by
+people and agents at a few changes a day, read by everyone, alive for as long
+as the project. Committing it is how status is persisted and shared, and a
+local commit that is pushed later is fine. Run state is the opposite on every
+axis:
+
+| | `.tick/` (issues) | `.ticfac/` (runs) |
+|---|---|---|
+| Author | people and agents, any clone | one reconciler, holding the lease |
+| Churn | a few writes a day | hundreds of writes per run |
+| Lifetime | the project's | the run's; terminal state is all that matters afterwards |
+| Reader | everyone | the reconciler, and a person reading a post-mortem |
+| Durable when | eventually pushed | **pushed on origin, at once** — the writer is a sandbox that can be wiped |
+| Conflict | merge by hand | compare-and-swap; a conflict is the signal |
+
+So `.ticfac/` adopts `.tick/`'s location and boundary, and its own
+persistence policy:
+
+- **Durable means on origin.** A checkpoint that exists only in a working tree
+  or a local commit does not exist. The reconciler writes, commits, and pushes
+  as one operation, and the compare-and-swap of §4.2 is against the origin
+  ref, not the local one. This is the exact lesson of the sandbox keeper: a
+  container that dies leaves its work on origin or nowhere.
+- **Churn stays on the run branch.** During a run, every state change is a
+  commit on the **EpicRun's integration branch**, which already exists and
+  already carries the run's merged worker work. The run's full history — every
+  checkpoint, attempt, decision — is that branch's log.
+- **The target ref receives the terminal record once.** At publish, the
+  run's `.ticfac/runs/<id>/` lands on the target ref through the epic's PR in
+  its final form only: the last checkpoint, all attempts, evidence and
+  decisions — bounded files, the way a closed tick stays in `.tick/`. The
+  intermediate commits do not land on main; a squash merge collapses them by
+  construction. Before the run branch is deleted the reconciler tags it
+  (`ticfac/run-<id>`), so the full history stays reachable for a post-mortem
+  without living in the target's log. Retention of tags and of terminal run
+  directories is `ticfac gc`, by age and terminal state, the way
+  `.tick/activity/` is pruned.
+- **A run that never publishes still has its record.** The tag is placed at
+  terminal state, not at merge, so a failed or cancelled run's history is as
+  reachable as a successful one's.
+
+Rules:
+
+- **Only the reconciler writes `.ticfac/`; workers never do.** This is the
+  `.tick/` boundary rule mirrored, and it is enforced the same way. ticks never
+  reads `.ticfac/`, so the one-way dependency holds.
+- **It is run state, not configuration.** Profiles stay in the ticfac
+  repository (§11) and run configuration stays in `.tick/runners.toml` (§2.1).
+  `.ticfac/` must not become a second configuration surface.
+- **Checkpoint on state change, not on observation.** A poll that learns
+  nothing writes nothing.
+- **Every effect is preceded by the compare-and-swap that proves it has not
+  happened** (§4.2).
+- A deployment MAY point `.ticfac/` at a sibling repository for operators who
+  do not want execution history in the project's own history; the default is
+  the project repository, because the coordination key is already
+  repository + target ref.
+
+The costs are known and bounded. Write cadence at roughly ten checkpoints per
+hour is negligible. A Worker pays GitHub API rate limits for these commits as
+it already does for `.tick/`; batch where possible and flush bulk evidence from
+a container. A compare-and-swap conflict between two reconcilers is the desired
+outcome, not an error to retry blindly.
+
 ## 11. Initial ticfac repository layout
 
 The repository should expose the narrow protocols in its directory structure,
@@ -1029,7 +1203,7 @@ ticfac/
 ├── core/
 │   ├── reconcile/                 # pure next-effect rules + checkpoint types
 │   ├── ticks/                     # tk --json client
-│   ├── git/                       # integration, freshness, serialized publish
+│   ├── git/                       # integration, freshness, serialized publish, .ticfac/ run state
 │   ├── jobs/                      # four-operation executor protocol
 │   ├── roles/                     # role contracts, profiles, context assembly
 │   └── evidence/                  # verification and artifact records
@@ -1043,7 +1217,7 @@ ticfac/
 │   ├── workflows/epic-run/        # Workflow host for one EpicRun
 │   ├── durable/repository/        # N-slot semaphore + serialized publisher
 │   ├── artifacts/                 # R2 indexing/storage
-│   ├── migrations/                # D1 only where queryable records are needed
+│   ├── migrations/                # D1 index only; never run-state authority (§8.6)
 │   └── tests/
 ├── profiles/                      # versioned factory/role defaults
 ├── schemas/                       # tk pin + Job*/role/evidence contracts
@@ -1061,6 +1235,19 @@ on Workflow, Durable Object, R2, Sandbox, or Computer types.
 
 ## 12. Migration plan
 
+The plan proceeds in contained chunks, each **gated by a real run**, not by
+tests alone. Each chunk is one epic in `.tick/` whose final tick is the gate
+run, the way project w1z's A1 was. Local hosts come before the Cloudflare
+host: local is where the reconciler is validated cheaply, with a person
+watching and no meter running, and local orchestration is used daily, so
+validation there is real use. Cloud is the hardest host (no tk, wipes, step
+caps, money) and meets the reconciler only once it is proven.
+
+Two terms to keep straight. An **executor** is where a job runs and how it is
+started, inspected, cancelled, and collected. A **runner** is the harness
+inside the job — `claude`, `codex`, `pi`. Refactoring local orchestration means
+the reconciler plus two executors; runners are unchanged.
+
 ### Phase 0: freeze behavior and the three protocols
 
 1. Publish the tk --json command manifest and minimum version.
@@ -1070,57 +1257,111 @@ on Workflow, Durable Object, R2, Sandbox, or Computer types.
 4. Record current cloud routes, D1/R2 keys, image tags, worker result semantics,
    and cleanup ordering as compatibility tests.
 5. Define credential ownership and ~/.ticfacrc migration.
+6. Define the `.ticfac/` layout, checkpoint, and compare-and-swap rules
+   (§10.4) alongside the schemas; run state never lands in D1 as authority.
+7. Inventory the lifecycle invariants the current implementation earned from
+   live failures (Appendix A) and encode each as a conformance test that the
+   reconciler and every executor must pass, before any reconciler code exists.
+   run-workflow.ts is 3,500 lines because of these orderings; §9.2 preserves
+   the symbols, this preserves the reasons.
 
-### Phase 1: prove the smallest local vertical slice
+**Gate:** the contract bundle passes from both repositories; no behavior has
+changed. Small and boring on purpose.
 
-1. Create ticfac with independent CI and `ticfac run-epic <id>`.
+### Phase 1: the reconciler and the local subprocess executor
+
+1. Create ticfac with independent CI and `ticfac run-epic <id>`. Separate from
+   the start: the contract bundle is what makes the release dance cheap, and a
+   separate repository is the only mechanical proof of the dependency
+   direction.
 2. Implement the tk client, Git integration command, evidence command, and the
-   restartable reconciliation loop for one epic at concurrency one.
-3. Implement one local executor through the four-operation protocol.
+   restartable reconciliation loop for one epic at concurrency one. This is the
+   deterministic lifecycle — claims, waves, gates, merge, boundary checks,
+   cleanup ordering — in code, and it now exists for local orchestration by
+   construction rather than as a later extraction.
+3. Implement the **local subprocess executor** through the four-operation
+   protocol: a worktree per attempt, the runner launched headless, RESULT as
+   the completion contract. Start is spawn; inspect is pid, worktree state,
+   and RESULT; cancel is kill; collect is read the worktree branch. `claude`,
+   `codex`, and `pi` are runner values on this one executor — the same
+   worktree-per-attempt mechanism for all three, so Appendix A is tested once.
+   (The current Pi JSON subprocess handling is this executor with one runner
+   hardcoded.)
 4. Add independently configurable implement-tick, review-epic, and
-   closeout-epic profiles; preserve the EPIC-SKELETON behavior.
+   closeout-epic profiles; preserve the EPIC-SKELETON behavior. Phase 1
+   profiles resolve to executor, runner, model, prompt and nothing else
+   (§4.5).
 5. Demonstrate restart after dispatch, after collection, and before closure
    without duplicate work or false success.
+
+The interactive session's own subagent tool is not an executor: the reconciler
+cannot drive it from outside, so that path only works if the session is the
+reconciler, which is the Markdown loop Phase 3 retires. The interactive agent
+becomes an operator — it runs `ticfac run-epic`, watches, and intervenes.
+
+**Gate:** one real epic on this repository completes through ticfac locally
+with a `claude` or `codex` runner, killed and restarted at each of the three
+points in step 5.
 
 This phase is the v1 architecture test. Do not add a general event bus,
 universal workflow abstraction, plugin system, or same-repository multi-epic
 execution to make it pass.
 
-### Phase 2: move the Cloudflare product as a compatibility host
+### Phase 2: the Herdr executor
+
+1. Implement the Herdr executor behind the same four operations; move
+   execution-oriented Herdr process/fleet helpers from internal/herd/** into
+   it. Herdr adds fleet visibility, panes, and heterogeneous runner selection
+   on top of the Phase 1 contract; it does not add lifecycle.
+2. Support a range of Herdr protocol versions from the start (a hard floor, a
+   warn version, no upper bound) — the single most recurrent local breakage.
+3. Retain tracker-domain configuration and the question relay in ticks.
+4. Move internal/factory/** and Factory command files from cmd/tk/cmd/ to the
+   ticfac CLI; do not retain hidden tk dispatch shims. Replace every ticks
+   internal Go import with tk --json, Git, or a pinned schema.
+
+**Gate:** a real ticks epic is run through `ticfac run-epic` on Herdr instead
+of the tk herd skill ritual, by the operator, for actual work. This is the
+dogfood gate and the one that proves the architecture is worth having.
+
+### Phase 3: role jobs, and retire Markdown as lifecycle implementation
+
+1. Run review-epic and closeout-epic as role jobs with validated results and
+   evidence records, locally, on both executors.
+2. Delete — not extract — the lifecycle loop from
+   extensions/ticks-runner/runner.ts, merge.ts, boundary.ts, and
+   agent-runner.md; Phase 1 already holds that behavior in code.
+3. Keep good-tick, super-tick, Definition of Ready, roadmap, role, and
+   EPIC-SKELETON authoring policy in ticks.
+4. Keep a concise tracker-facing runner contract in ticks and move concrete
+   role prompts, executor procedures, and operator guidance to ticfac.
+5. Add conformance tests proving every executor obeys the same lifecycle and
+   source/evidence boundary.
+
+**Gate:** an epic's review and closeout run as jobs with evidence records and
+no person reading runner Markdown; the ticks skill no longer contains a
+lifecycle.
+
+### Phase 4: move the Cloudflare product as a compatibility host
 
 1. Move cloud/factory/** to ticfac/cloudflare/** while preserving routes and
    D1/R2 behavior initially.
 2. Make RunWorkflow host the reconciler rather than an orchestrator coding
-   container; use one Workflow per EpicRun.
+   container; use one Workflow per EpicRun. Tracker access goes through the
+   contract-held implementation of §3.1.
 3. Introduce the repository Durable Object with one slot and one serialized
    publisher. Preserve current RunRoom lease behavior behind it.
 4. Move cloud/sandbox/** to ticfac/image/** and expose current SandboxBinding
    behavior through the compatibility executor.
 5. Keep cloud/worker/** in ticks and verify that the ticks.sh board is absent
    from the Factory deployment.
+6. Move run/attempt/decision records from D1 into `.ticfac/` on the run
+   branch, pushed on origin at once (§10.4); leave D1 as a rebuildable index
+   or remove it.
+7. Move Factory credentials, embedding, deployment bundles, and CI.
 
-### Phase 3: move local Factory and executor adapters
-
-1. Move internal/factory/** and Factory command files from cmd/tk/cmd/ to the
-   ticfac CLI; do not retain hidden tk dispatch shims.
-2. Keep Pi JSON subprocess handling as the first complete local executor and
-   map Claude, Codex, and Prime behavior to role profiles plus adapter code.
-3. Move execution-oriented Herdr process/fleet helpers into the Herdr executor;
-   retain tracker-domain configuration and the question relay in ticks.
-4. Replace every ticks internal Go import with tk --json, Git, or a pinned
-   schema.
-5. Move Factory credentials, embedding, deployment bundles, and CI.
-
-### Phase 4: retire Markdown as lifecycle implementation
-
-1. Extract deterministic behavior from extensions/ticks-runner/runner.ts,
-   merge.ts, boundary.ts, and agent-runner.md into reconcile/Git/evidence code.
-2. Keep good-tick, super-tick, Definition of Ready, roadmap, role, and
-   EPIC-SKELETON authoring policy in ticks.
-3. Keep a concise tracker-facing runner contract in ticks and move concrete
-   role prompts, executor procedures, and operator guidance to ticfac.
-4. Add conformance tests proving every executor obeys the same lifecycle and
-   source/evidence boundary.
+**Gate:** project w1z A1 again — an epic completes unattended and merges its
+own PR — through the new reconciler, with a restart of the Workflow mid-run.
 
 ### Phase 5: introduce Cloudflare Computer
 
@@ -1132,6 +1373,9 @@ execution to make it pass.
 4. Shadow the Sandbox executor before changing defaults; retain Sandbox as
    rollback capacity until parity and preview risk are acceptable.
 
+**Gate:** the Phase 4 gate run repeated on the Computer executor, shadowed
+against Sandbox, with matching evidence.
+
 ### Phase 6: enable multi-epic composition deliberately
 
 1. Add `ticfac run <scope> --max-epics N` as a scheduler over independent
@@ -1141,6 +1385,9 @@ execution to make it pass.
    learnings-file, merge-driver, lease/status, and freshness tests pass.
 4. Serialize publication, rerun stale integrated gates, and rerun semantic
    frontier review where a changed target can invalidate it.
+
+**Gate:** two epics in the same repository complete concurrently with
+serialized publication and no stale gate.
 
 ### Phase 7: cut over and simplify ticks
 
@@ -1152,6 +1399,9 @@ execution to make it pass.
    the board.
 4. Prove the dependency direction mechanically: ticks builds without ticfac;
    ticfac passes compatibility against a pinned ticks release.
+
+**Gate:** ticks builds without ticfac; ticfac passes the contract bundle
+against a pinned ticks release.
 
 ## 13. Design principles
 
@@ -1168,8 +1418,9 @@ execution to make it pass.
 6. **Cloudflare-native host, portable domain seams.** Use Workflow, Durable
    Objects, Computer, and R2 directly, while keeping Job*, role, Git, and
    evidence contracts free of Cloudflare types.
-7. **Git is the source ledger.** Branches, commits, ancestry, and checks are not
-   duplicated into a private source-state system.
+7. **Git is the ledger — for source and for run state.** Branches, commits,
+   ancestry, checks, and `.ticfac/` are not duplicated into a private database.
+   Everything authoritative lives in the repository, as it does for ticks.
 8. **Durable facts beat liveness.** Process exits and handles are observations;
    source refs, tracker state, JobResults, and evidence are authoritative.
 9. **Explicit capability/backend policy.** Selection is recorded, authorized,
@@ -1206,6 +1457,8 @@ execution to make it pass.
 - Replacing Sandbox and extracting repositories in one flag-day change.
 - Treating Computer preview APIs as stable without pinning and conformance
   tests.
+- Keeping authoritative run state in any store the repository cannot
+  reconstruct it from.
 
 ## 15. Initial completion criteria
 
@@ -1218,7 +1471,10 @@ The first production architecture is complete when all of the following hold:
 - Local and Cloudflare compatibility executors pass the same Job* conformance
   suite; Herdr can be added without changing reconciliation semantics.
 - The Cloudflare deployment uses one Workflow per EpicRun, a repository Durable
-  Object, R2 artifacts, and no required orchestrator coding container.
+  Object as a lock, R2 for logs, and no required orchestrator coding container.
+- Authoritative run state lives under `.ticfac/` in the repository; D1 is
+  absent or provably rebuildable from it; a controller restarted from a clone
+  alone reconciles every in-flight attempt.
 - Review and closeout execute as independently configurable epic-boundary roles
   against the integrated diff and return validated structured results.
 - A job result is accepted only with durable source/report/evidence facts and
@@ -1235,3 +1491,47 @@ The first production architecture is complete when all of the following hold:
   and serialized publication.
 - No Factory-specific command, credential, runner, or wave supervisor remains
   in ticks beyond an explicitly documented compatibility transition.
+
+## Appendix A: Lifecycle invariants earned from live runs
+
+Each of these was paid for by a failed cloud run before it was written down.
+They are conformance tests, not guidance: a reconciler or executor that
+violates one is wrong regardless of what the rest of this document says.
+
+1. **A stop is a durable refusal to issue credentials, checked before every
+   boot** — not a revocation a restart can undo. Revoke before teardown: the
+   money dies first, then the work is rescued.
+2. **A supervisor cannot report its own death.** A record written by the thing
+   that may be gone is not evidence of its liveness. Liveness is observed from
+   outside; the run record is not it.
+3. **No step outlives the host's cap.** Long waits are spread across bounded
+   steps that re-derive state from durable facts on each leg.
+4. **Polling is the keepalive.** The interval at which a live job is addressed
+   stays well under the substrate's sleep/wipe threshold, and that relationship
+   is pinned by a constant or a test, not by arithmetic in two files.
+5. **In-progress work is pushed on a timer.** Durability that depends on a job
+   remembering to push is not durability. A process exit or a missing handle is
+   never proof of completion, and a job that dies leaves its partial work on
+   origin.
+6. **A live job is never redispatched.** Adopt by stable identity; a fresh
+   attempt is created only when the previous one is proven dead.
+7. **Read back after write.** A recorded decision or wave is confirmed by
+   re-reading it before anything acts on it; a write that silently did not land
+   must not look like a finished epic.
+8. **An in-flight state is settled by whoever finds it next**, from durable
+   evidence (does the thing exist?), never by trusting the claimer to return.
+9. **Never collapse distinct failure classes into one message.** An expired
+   lease and a stolen one; an absent report and landed work; a record that is
+   unreadable and one that is outside the epic — each reports differently.
+10. **Boundaries are enforced by the substrate, not requested of the model.**
+    Compliance is a property of the model. The `.tick/` and `.ticfac/` rules
+    are made impossible to break, and every attempt is reported.
+11. **A struck-out unit is released by a person, never by the clock.** A
+    rolling window bounds the window, not the subject; a table with writes and
+    no reads is not a guard.
+12. **Effective budgets are reported after clamping.** An operator's number
+    silently replaced by a deployment ceiling is discovered from a cancelled
+    run; say the number that will govern at submission.
+13. **Evidence is fingerprinted to what it evaluated** — source SHA,
+    integration SHA, config digest, profile digest — and publication checks
+    freshness against the current target.
