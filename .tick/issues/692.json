@@ -2,13 +2,15 @@
   "id": "692",
   "title": "ticfac Phase 0: freeze behavior and the three protocols",
   "description": "SPEC §12 Phase 0. Entirely in the ticks repository (the ticfac repository is created in Phase 1). Publish the tk --json command manifest and minimum version; make the cross-language contract bundle versioned, pinned and executable from both the Go and the TypeScript implementations already in this repo; define JobSpec/JobHandle/JobStatus/JobResult/role-result/evidence schemas (credentials included) before moving code; record current cloud routes, D1/R2 keys, image tags, worker result semantics and cleanup ordering as compatibility tests; define credential ownership and ~/.ticfacrc; define the .ticfac/ layout, checkpoint and compare-and-swap rules; encode the Appendix A lifecycle invariants as a conformance suite. No behavior change.",
+  "notes": "2026-09-02 13:39 - runner-state: substrate=herdr requested=auto reason=herdr-available base_branch=main integration_branch=epic/692 orchestrator=claude:orchestrator",
   "status": "open",
   "priority": 2,
   "type": "epic",
   "owner": "peter@engelbrecht.dk",
   "parent": "hzm",
   "acceptance_criteria": "Gate: the contract bundle passes from both the Go and TypeScript sides in CI; a deliberate fixture break fails a build; every Phase 0 schema and rule in SPEC §12 Phase 0 steps 1-7 exists as a versioned, executable fixture under contracts/; no runtime behavior of tk or the cloud factory has changed (existing test suites unchanged and green).",
+  "base_branch": "main",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-02T11:28:24.43036Z",
-  "updated_at": "2026-09-02T11:28:24.43036Z"
+  "updated_at": "2026-09-02T11:39:30.529539Z"
 }
