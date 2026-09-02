@@ -211,10 +211,23 @@ ticks internals into a shared library.
 ### 3.3 Credentials and deployment ownership
 
 Factory credentials belong to ticfac. The extraction plan already calls for a
-separate ~/.ticfacrc; ~/.ticksrc must not remain a covert Factory secret store.
-ticfac owns Cloudflare account credentials, Factory gateway tokens, runner
-credentials, and migration of those values. ticks retains only credentials
-needed for the tracker/board product.
+separate `~/.ticfacrc`; `~/.ticksrc` must not remain a covert Factory secret
+store. ticfac owns Cloudflare account credentials, model/gateway access,
+subscription-broker seats, GitHub App or installation credentials, run tokens,
+source access grades, and migration of those values. ticks owns no Factory
+execution credential; its board-sync credentials remain a separate ticks
+product concern.
+
+The complete ownership table, the fifteen-key `~/.ticfacrc` schema, the
+merge-and-drain migration, and the security rules are in
+[`credentials.md`](credentials.md). The machine-readable contract fixture is
+[`contracts/credential-ownership.json`](../../../contracts/credential-ownership.json).
+In particular, a `read_only` source grade is enforced by the host and never
+receives the operator's GitHub credential; `cancel` revokes before stopping and
+a standing stop is a durable refusal to issue a replacement credential before
+every boot. Metered credentials carry a telemetry-backed cost budget; a
+flat-rate subscription seat carries no per-request cost budget but still has
+wall-clock, cancellation, and explicit quota-exhaustion semantics.
 
 ticfac deploy deploys the Factory product. tk does not discover, install,
 upgrade, or dispatch to ticfac.
@@ -1256,7 +1269,8 @@ the reconciler plus two executors; runners are unchanged.
    schemas before moving code.
 4. Record current cloud routes, D1/R2 keys, image tags, worker result semantics,
    and cleanup ordering as compatibility tests.
-5. Define credential ownership and ~/.ticfacrc migration.
+5. Define credential ownership and `~/.ticfacrc` migration (see
+   [`credentials.md`](credentials.md)).
 6. Define the `.ticfac/` layout, checkpoint, and compare-and-swap rules
    (§10.4) alongside the schemas; run state never lands in D1 as authority.
 7. Inventory the lifecycle invariants the current implementation earned from
