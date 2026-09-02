@@ -10,10 +10,15 @@ import "testing"
 // Every test does two things:
 //
 //  1. replays its invariant's sequences against the fake harness, and
-//  2. runs the negative control: with the invariant's guard(s) OFF, at least
-//     one sequence must stop matching the contract. A guard nothing has ever
-//     seen refuse is not known to be a guard, and a suite whose fake would pass
-//     either way proves only that a series of operations ends somewhere.
+//  2. runs the negative control, ONE GUARD AT A TIME: with any single guard of
+//     that invariant off, at least one sequence must stop matching the
+//     contract, and every OTHER invariant must stay green while it is off. A
+//     guard nothing has ever seen refuse is not known to be a guard, and a
+//     suite whose fake would pass either way proves only that a series of
+//     operations ends somewhere. Disabling an invariant's guards together —
+//     which is what this did until bundle 3.0.0 — cannot see a dead guard:
+//     A1 and A13 have two each, and the first one's divergence satisfied the
+//     whole control.
 //
 // Appendix A's preamble is the standing order for all thirteen: "They are
 // conformance tests, not guidance: a reconciler or executor that violates one

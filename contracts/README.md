@@ -159,6 +159,19 @@ neighbours:
    exit code 11 — its own slot, so "install a different tk" is distinguishable
    from a routing refusal (1) or a usage error (2) without parsing stderr.
 
+A fourth thing, added when the manifest and SPEC §3.1 were reconciled: **the
+manifest records what it does not publish.** §3.1's illustrative call list
+named `tk sandbox image|setup|substrate|worker-prompt --json` and `tk ask …
+--json`; no `sandbox` subcommand registers a `--json` flag at all, and `tk ask
+--json` means *read the question from stdin as JSON* rather than *print the
+answer as JSON*, so a consumer reimplementing the list would have blocked on an
+empty stdin. The gap is written into the file's top-level `$comment` and
+asserted from both sides — publishing one of those commands without editing the
+note fails a test — and §3.1 was corrected to the manifest rather than the
+reverse. A design document's sketch is not a published surface, and the
+difference has to be legible to the host that reimplements from the manifest
+alone.
+
 Schemas here keep `additionalProperties` open on purpose: within a contract
 version tk may **add** fields, and only a removal or a type change is a break.
 Removing a field, renaming one, retyping one, or dropping a command is a new
@@ -231,12 +244,18 @@ asserted against the real file with `git check-ignore` — ticks is a ticfac
 target like any other, so "the fragment is defined" has to mean git applies it,
 not that a JSON file mentions it.
 
-There are also, as of this wave, **two TypeScript strict-subset validators**:
-`cloud/factory/test/json-schema.ts` (job-protocol) and
-`cloud/factory/test/schema-subset.ts` (run-state), written independently
-against the same subset of `internal/tkcontract/schema.go`. Both are left in
-place — they are test helpers rather than a contract, and unifying them is a
-call for the epic's final review, not for a merge.
+For one wave there were **two** TypeScript strict-subset validators —
+`json-schema.ts` (job-protocol) and `schema-subset.ts` (run-state) — written
+independently against the same subset of `internal/tkcontract/schema.go`, and
+left in place with the call deferred to the epic's final review. That review
+made it (bundle `3.0.0`): there is **one**, `cloud/factory/test/json-schema.ts`.
+The second copy was the weaker of the two — `required` checked with `in`,
+keyword values not type-checked, divergent refusal text, no unknown-keyword
+test — and a second spelling of one rule is precisely the drift these fixtures
+exist to catch, reproduced inside the machinery meant to catch it. Every
+TypeScript reader here now validates through the one file, which is also what
+lets a fixture pin `expect_error_contains` once and have it mean the same thing
+to Go and to TypeScript.
 
 ### The invariant suite is a gate, not a case table
 

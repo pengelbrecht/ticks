@@ -23,6 +23,11 @@ import (
 type harness struct {
 	thresholds thresholds
 
+	// protectedPrefixes is A10's boundary, read from the fixture rather than
+	// hard-coded here. Two hard-coded copies of one boundary is two copies
+	// that can drift apart with both suites green.
+	protectedPrefixes []string
+
 	now int64
 
 	stopped bool
@@ -111,6 +116,7 @@ func newHarness(c contract) *harness {
 		evidence:    map[string]map[string]string{},
 		off:         map[string]bool{},
 	}
+	h.protectedPrefixes = append(h.protectedPrefixes, c.Harness.ProtectedPrefixes.Prefixes...)
 	for _, f := range c.Harness.FingerprintFields.Fields {
 		h.fingerprintFields = append(h.fingerprintFields, f.ProvenanceField)
 	}
@@ -328,7 +334,13 @@ func (h *harness) run(t *testing.T, s step) string {
 	// ---- A10: the substrate enforces, and reports every attempt.
 
 	case "attempt_boundary_write":
-		protected := strings.HasPrefix(s.Path, ".tick/") || strings.HasPrefix(s.Path, ".ticfac/")
+		protected := false
+		for _, prefix := range h.protectedPrefixes {
+			if strings.HasPrefix(s.Path, prefix) {
+				protected = true
+				break
+			}
+		}
 		if h.guarded("substrate_enforces_boundary") && protected {
 			h.boundaryReports = append(h.boundaryReports, s.Path)
 			return "refused_and_reported"

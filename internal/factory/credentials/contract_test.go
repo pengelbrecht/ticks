@@ -3,13 +3,12 @@ package credentials
 import (
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"os"
-	"regexp"
 	"sort"
 	"strings"
 	"testing"
-	"time"
+
+	"github.com/pengelbrecht/ticks/internal/tkcontract"
 )
 
 const credentialOwnershipContractFile = "../../../contracts/credential-ownership.json"
@@ -41,14 +40,21 @@ type credentialContract struct {
 		Secret         bool     `json:"secret"`
 		StoredIn       []string `json:"stored_in"`
 	} `json:"keys"`
-	Schema struct {
-		Type                 string                              `json:"type"`
-		Required             []string                            `json:"required"`
-		AdditionalProperties bool                                `json:"additionalProperties"`
-		Properties           map[string]credentialSchemaProperty `json:"properties"`
-	} `json:"schema"`
+	// Schema is kept RAW on purpose. Until bundle 3.0.0 it was decoded into a
+	// hand-rolled struct that ignored every keyword it did not carry, which
+	// meant the file could declare a constraint no validator enforced. It is
+	// now written in the strict subset and parsed by the one validator this
+	// repository has, so a keyword outside that subset fails to parse rather
+	// than reading as if it constrained something.
+	Schema       json.RawMessage   `json:"schema"`
 	ValidExample map[string]string `json:"valid_example"`
-	Lifecycle    struct {
+	Invalid      []struct {
+		Name                string         `json:"name"`
+		Why                 string         `json:"why"`
+		ExpectErrorContains string         `json:"expect_error_contains"`
+		Document            map[string]any `json:"document"`
+	} `json:"invalid"`
+	Lifecycle struct {
 		Stop struct {
 			RevokeBeforeStop             bool `json:"revoke_before_stop"`
 			RefuseIssueBeforeEveryBoot   bool `json:"refuse_issue_before_every_boot"`
@@ -82,19 +88,6 @@ type credentialContract struct {
 		CrashSafety string   `json:"crash_safety"`
 		Retention   string   `json:"retention"`
 	} `json:"migration"`
-}
-
-type credentialSchemaProperty struct {
-	Type      string   `json:"type"`
-	Format    string   `json:"format"`
-	Pattern   string   `json:"pattern"`
-	MinLength int      `json:"minLength"`
-	Enum      []string `json:"enum"`
-	OneOf     []struct {
-		Type   string `json:"type"`
-		Format string `json:"format"`
-		Const  string `json:"const"`
-	} `json:"oneOf"`
 }
 
 func readCredentialContract(t *testing.T) credentialContract {
@@ -147,16 +140,20 @@ func TestCredentialOwnershipContractHasAValidatingExample(t *testing.T) {
 	if contract.File.UnknownLines != "preserved" || contract.File.AtomicWrites != "temp+rename" {
 		t.Errorf("file safety = unknown lines %q, writes %q; want preserved/temp+rename", contract.File.UnknownLines, contract.File.AtomicWrites)
 	}
-	if contract.Schema.Type != "object" || contract.Schema.AdditionalProperties {
-		t.Errorf("logical schema = type %q, additional_properties %v; want object/false", contract.Schema.Type, contract.Schema.AdditionalProperties)
+	schema := parseCredentialSchema(t, contract)
+	if len(schema.Type) != 1 || schema.Type[0] != "object" {
+		t.Errorf("logical schema type = %v, want object", schema.Type)
 	}
-	if len(contract.Schema.Required) != 0 {
-		t.Errorf("required = %v, want no required keys because setup is incremental", contract.Schema.Required)
+	if schema.AdditionalProperties == nil || *schema.AdditionalProperties {
+		t.Error("logical schema must be closed (additionalProperties: false): an unknown factory_ key is a typo, and a typo that persists is a credential the operator believes they set")
+	}
+	if len(schema.Required) != 0 {
+		t.Errorf("required = %v, want no required keys because setup is incremental", schema.Required)
 	}
 
 	wantKeys := sortedStrings(currentCredentialKeys())
-	gotSchemaKeys := make([]string, 0, len(contract.Schema.Properties))
-	for key := range contract.Schema.Properties {
+	gotSchemaKeys := make([]string, 0, len(schema.Properties))
+	for key := range schema.Properties {
 		gotSchemaKeys = append(gotSchemaKeys, key)
 	}
 	if got := sortedStrings(gotSchemaKeys); fmt.Sprint(got) != fmt.Sprint(wantKeys) {
@@ -192,21 +189,26 @@ func TestCredentialOwnershipContractHasAValidatingExample(t *testing.T) {
 		t.Fatalf("metadata keys = %v, want exactly current factory keys %v", got, wantKeys)
 	}
 
+	// The example is validated by the VALIDATOR, not by a reader that walks
+	// the schema's keywords by hand and skips the ones it does not carry.
+	// `~/.ticfacrc` is line-oriented text, so every value is a string; the
+	// closed shape and the enums are what the subset can enforce, and the rest
+	// of what a value must look like is a `description`, which is honest about
+	// being prose rather than pretending to be a constraint.
+	example := make(map[string]any, len(contract.ValidExample))
+	for key, value := range contract.ValidExample {
+		example[key] = value
+	}
+	if errs := tkcontract.Validate(schema, nil, example); len(errs) > 0 {
+		t.Errorf("valid_example does not validate against the contract's own schema:\n  %s", strings.Join(errs, "\n  "))
+	}
 	for _, key := range wantKeys {
-		property := contract.Schema.Properties[key]
-		if property.Type != "string" && len(property.OneOf) == 0 {
-			t.Errorf("schema property %q type = %q, want string", key, property.Type)
-		}
-		value, ok := contract.ValidExample[key]
-		if !ok {
+		if _, ok := contract.ValidExample[key]; !ok {
 			t.Errorf("valid_example is missing %q", key)
 			continue
 		}
-		validateCredentialExampleValue(t, key, value, property, keyMetadata[key].secret)
-	}
-	for key := range contract.ValidExample {
-		if _, ok := contract.Schema.Properties[key]; !ok {
-			t.Errorf("valid_example contains undeclared key %q", key)
+		if keyMetadata[key].secret {
+			assertRedacted(t, key, contract.ValidExample[key])
 		}
 	}
 
@@ -281,64 +283,65 @@ func TestCredentialOwnershipContractHasAValidatingExample(t *testing.T) {
 	}
 }
 
-func validateCredentialExampleValue(t *testing.T, key, value string, property credentialSchemaProperty, secret bool) {
+// parseCredentialSchema reads the contract's `schema` block through the ONE
+// strict-subset validator this repository has (its TypeScript twin is
+// cloud/factory/test/json-schema.ts, which refuses the same documents with the
+// same words). Parsing is itself an assertion: a keyword outside the subset —
+// `oneOf`, `const`, `minLength`, `format`, `pattern`, all of which this block
+// carried until bundle 3.0.0 — fails here rather than being ignored, so the
+// file cannot read as if it constrained something no validator checks.
+func parseCredentialSchema(t *testing.T, contract credentialContract) *tkcontract.Schema {
 	t.Helper()
-	if property.MinLength > 0 && len(value) < property.MinLength {
-		t.Errorf("valid_example[%q] has length %d, want at least %d", key, len(value), property.MinLength)
+	schema, err := tkcontract.ParseSchema(contract.Schema)
+	if err != nil {
+		t.Fatalf("contracts/credential-ownership.json `schema` is not in the strict subset: %v", err)
 	}
-	if len(property.Enum) > 0 {
-		found := false
-		for _, allowed := range property.Enum {
-			if value == allowed {
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.Errorf("valid_example[%q] = %q is outside enum %v", key, value, property.Enum)
-		}
+	return schema
+}
+
+// This file is committed to a PUBLIC repository. A real token in the example is
+// not a fixture problem, it is a disclosure.
+func assertRedacted(t *testing.T, key, value string) {
+	t.Helper()
+	if !strings.HasPrefix(value, "<redacted-") || !strings.HasSuffix(value, ">") {
+		t.Errorf("valid_example[%q] contains a non-redacted secret placeholder %q", key, value)
 	}
-	if property.Pattern != "" {
-		matched, err := regexp.MatchString(property.Pattern, value)
-		if err != nil {
-			t.Fatalf("schema pattern for %q is invalid: %v", key, err)
-		}
-		if !matched {
-			t.Errorf("valid_example[%q] = %q does not match %q", key, value, property.Pattern)
-		}
+}
+
+// TestCredentialSchemaRefusesItsNegativeExamples is the half that matters more:
+// a validator nobody has watched refuse anything is not known to refuse
+// anything. Until bundle 3.0.0 this contract shipped no negative at all — both
+// readers walked `valid_example` and neither had ever seen the schema say no.
+//
+// Every negative pins the refusal it expects. Without that a case can start
+// failing for a completely different reason and stay green, which is a
+// validator that has quietly stopped checking the thing the case was written
+// about. `cloud/factory/test/json-schema.ts` matches Go's message text
+// character for character, so one pin means the same thing to both readers.
+func TestCredentialSchemaRefusesItsNegativeExamples(t *testing.T) {
+	contract := readCredentialContract(t)
+	schema := parseCredentialSchema(t, contract)
+
+	if len(contract.Invalid) == 0 {
+		t.Fatal("the contract ships no negative example, so nothing has ever seen its schema refuse a document")
 	}
-	switch property.Format {
-	case "uri":
-		parsed, err := url.ParseRequestURI(value)
-		if err != nil || parsed.Scheme == "" || parsed.Host == "" {
-			t.Errorf("valid_example[%q] = %q is not a URI", key, value)
+
+	for i, bad := range contract.Invalid {
+		if bad.Name == "" || bad.Why == "" {
+			t.Errorf("invalid[%d]: a negative example must name itself and say what it is proving", i)
 		}
-	case "date-time":
-		if _, err := time.Parse(time.RFC3339, value); err != nil {
-			t.Errorf("valid_example[%q] = %q is not RFC3339: %v", key, value, err)
+		errs := tkcontract.Validate(schema, nil, any(bad.Document))
+		if len(errs) == 0 {
+			t.Errorf("invalid[%d] (%s) VALIDATED — the schema does not refuse it", i, bad.Name)
+			continue
 		}
-	}
-	if len(property.OneOf) > 0 {
-		matched := false
-		for _, alternative := range property.OneOf {
-			if alternative.Const == value {
-				matched = true
-				break
-			}
-			if alternative.Format == "date-time" && value != "" {
-				if _, err := time.Parse(time.RFC3339, value); err == nil {
-					matched = true
-					break
-				}
-			}
+		if bad.ExpectErrorContains == "" {
+			t.Errorf("invalid[%d] (%s) does not pin the refusal it expects", i, bad.Name)
+			continue
 		}
-		if !matched {
-			t.Errorf("valid_example[%q] = %q matches none of the declared oneOf alternatives", key, value)
-		}
-	}
-	if secret {
-		if !strings.HasPrefix(value, "<redacted-") || !strings.HasSuffix(value, ">") {
-			t.Errorf("valid_example[%q] contains a non-redacted secret placeholder %q", key, value)
+		if !strings.Contains(strings.Join(errs, "\n"), bad.ExpectErrorContains) {
+			t.Errorf("invalid[%d] (%s): no error contains %q; got:\n  %s",
+				i, bad.Name, bad.ExpectErrorContains, strings.Join(errs, "\n  "))
 		}
 	}
 }

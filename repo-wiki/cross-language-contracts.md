@@ -9,7 +9,7 @@ status: active
 ## Compiled Truth
 
 **`contracts/` at the repo root holds every rule that more than one
-implementation has to obey.** Fourteen files at bundle `2.1.0` — nine
+implementation has to obey.** Fourteen files at bundle `3.0.0` — nine
 behavioural case tables, plus `tk-json-manifest.json` (a published API surface),
 `credential-ownership.json`, `job-protocol.json` (record schemas, including the
 bundle's one evidence record), `ticfac-run-state.json` (a case table over an
@@ -201,6 +201,23 @@ No silent-orphan contract was found.
   package that ships both — nothing can be true in a fixture and false on screen.
 
 ## Timeline
+- 2026-09-02 — bundle `3.0.0`: the epic 692 final review's contract repairs
+  (tick `wh8`), all one failure in different files — *a fixture reading as if it
+  asserted something nothing asserts*. `credential-ownership.json`'s schema
+  rewritten in the strict subset (it was the only file using `oneOf`, `const`,
+  `minLength`, `format`, `pattern`, so both readers hand-rolled a partial walk
+  and `format: uri` meant different things in the two languages); every negative
+  example in every contract now carries `expect_error_contains` asserted by both
+  readers, and `credential-ownership.json` got its first negatives at all; the
+  second, weaker TypeScript strict-subset validator (`test/schema-subset.ts`)
+  deleted so there is ONE (`test/json-schema.ts`); `tk-json-manifest.json`'s
+  schemas parsed strictly on the TypeScript side too; the lifecycle thresholds
+  pinned to the substrate constants they name (see
+  [[lifecycle-invariants-suite]]); the negative controls made per guard; A10's
+  protected prefixes moved into the JSON; the `review-epic` evidence golden made
+  epic-level per SPEC §6.3; and the manifest's `$comment` now records the SPEC
+  §3.1 invocations it deliberately does not publish, with §3.1 corrected to the
+  manifest rather than the reverse
 - 2026-09-02 — bundle `2.1.0`: `lifecycle-invariants.json` added — SPEC Appendix
   A's thirteen lifecycle invariants as a conformance suite, with a fake
   reconciler/executor harness both languages implement, a named guard per rule

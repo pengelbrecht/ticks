@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import contract from "../../../contracts/credential-ownership.json";
 
+import { parseSchema, validate, type Schema } from "./json-schema";
+
 import {
   DEFAULT_RUN_CREDENTIAL_GRADE,
   LEAST_RUN_CREDENTIAL_GRADE,
@@ -35,22 +37,25 @@ import {
  * subsumes the other, which is why the contract needs both.
  */
 
-type SchemaProperty = {
-  type?: string;
-  format?: string;
-  pattern?: string;
-  minLength?: number;
-  enum?: string[];
-  oneOf?: Array<{ type?: string; format?: string; const?: string }>;
-};
-
-const schema = contract.schema as {
-  type: string;
-  required: string[];
-  additionalProperties: boolean;
-  properties: Record<string, SchemaProperty>;
-};
+/**
+ * Parsed by the ONE TypeScript strict-subset validator (`./json-schema.ts`,
+ * the twin of `internal/tkcontract/schema.go`, matching its refusal text
+ * character for character). Parsing is itself an assertion: until bundle 3.0.0
+ * this block carried `oneOf`, `const`, `minLength`, `format` and `pattern` —
+ * none of which either validator implements — and both readers hand-rolled a
+ * partial walk that ignored what it did not handle, with `format: uri` meaning
+ * different things in the two languages. A keyword outside the subset now
+ * throws here instead of reading as a constraint nothing checks.
+ */
+const schema: Schema = parseSchema(contract.schema, "credential-ownership schema");
+const noDefs: Record<string, Schema> = {};
 const validExample = contract.valid_example as Record<string, string>;
+const invalid = contract.invalid as ReadonlyArray<{
+  name: string;
+  why: string;
+  expect_error_contains: string;
+  document: Record<string, unknown>;
+}>;
 const keys = contract.keys as ReadonlyArray<{
   name: string;
   credential_type: string;
@@ -62,8 +67,6 @@ const ownership = contract.ownership as ReadonlyArray<{
   owner: string;
   file_keys: string[];
 }>;
-
-const RFC3339 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 
 describe("the credential ownership contract's file shape", () => {
   it("identifies itself", () => {
@@ -87,7 +90,7 @@ describe("the credential ownership contract's file shape", () => {
     // factory is a legal state and must not fail to parse. Closed, because an
     // unknown `factory_*` key is a typo, and a typo that silently persists is
     // a credential the operator believes they set.
-    expect(schema.type).toBe("object");
+    expect(schema.type).toEqual(["object"]);
     expect(schema.additionalProperties).toBe(false);
     expect(schema.required).toEqual([]);
   });
@@ -95,7 +98,7 @@ describe("the credential ownership contract's file shape", () => {
 
 describe("the declared keys and the ownership table agree", () => {
   it("declares metadata for exactly the keys the schema declares", () => {
-    const schemaKeys = Object.keys(schema.properties).sort();
+    const schemaKeys = Object.keys(schema.properties ?? {}).sort();
     const metadataKeys = keys.map((key) => key.name).sort();
     expect(metadataKeys).toEqual(schemaKeys);
   });
@@ -158,48 +161,16 @@ describe("the declared keys and the ownership table agree", () => {
 
 describe("the redacted example validates against the contract's own schema", () => {
   it("covers exactly the declared keys", () => {
-    expect(Object.keys(validExample).sort()).toEqual(Object.keys(schema.properties).sort());
+    expect(Object.keys(validExample).sort()).toEqual(Object.keys(schema.properties ?? {}).sort());
   });
 
-  it("validates every value against its declared property", () => {
-    const secretKeys = new Set(keys.filter((key) => key.secret).map((key) => key.name));
-
-    for (const [key, value] of Object.entries(validExample)) {
-      const property = schema.properties[key];
-      expect(property, `valid_example contains undeclared key ${key}`).toBeDefined();
-      expect(
-        property.type === "string" || (property.oneOf?.length ?? 0) > 0,
-        `schema property ${key} is neither a string nor a oneOf`,
-      ).toBe(true);
-
-      if (property.minLength !== undefined) {
-        expect(value.length, `valid_example[${key}] is shorter than minLength`).toBeGreaterThanOrEqual(
-          property.minLength,
-        );
-      }
-      if (property.enum) {
-        expect(property.enum, `valid_example[${key}] = ${value} is outside its enum`).toContain(value);
-      }
-      if (property.pattern) {
-        expect(new RegExp(property.pattern).test(value), `valid_example[${key}] = ${value} fails its pattern`).toBe(
-          true,
-        );
-      }
-      if (property.format === "uri") {
-        expect(() => new URL(value), `valid_example[${key}] = ${value} is not a URI`).not.toThrow();
-      }
-      if (property.format === "date-time") {
-        expect(RFC3339.test(value), `valid_example[${key}] = ${value} is not RFC3339`).toBe(true);
-      }
-      if (property.oneOf) {
-        const matched = property.oneOf.some((alternative) => {
-          if (alternative.const !== undefined) return alternative.const === value;
-          if (alternative.format === "date-time") return value !== "" && RFC3339.test(value);
-          return false;
-        });
-        expect(matched, `valid_example[${key}] = ${value} matches none of its oneOf alternatives`).toBe(true);
-      }
-    }
+  it("validates against the strict-subset validator, not a hand-rolled walk", () => {
+    // The example is checked BY THE VALIDATOR. `~/.ticfacrc` is line-oriented
+    // text, so every value is a string; the closed shape and the enums are
+    // what the subset can enforce. What a value must look like beyond that —
+    // a URI, an RFC3339 instant, `owner/repo` — is a `description`, which is
+    // honest about being prose rather than a constraint nothing applies.
+    expect(validate(schema, noDefs, validExample)).toEqual([]);
   });
 
   it("redacts every secret", () => {
@@ -215,6 +186,36 @@ describe("the redacted example validates against the contract's own schema", () 
       ).toBe(true);
     }
   });
+});
+
+describe("and the schema is watched refusing something", () => {
+  it("ships negative documents", () => {
+    // Until bundle 3.0.0 this contract had none, so nothing on either side had
+    // ever seen its schema say no. A validator nobody has watched refuse
+    // anything is not known to refuse anything.
+    expect(invalid.length).toBeGreaterThan(0);
+  });
+
+  for (const [i, bad] of invalid.entries()) {
+    it(`refuses: ${bad.name}`, () => {
+      expect(bad.why, "a negative example must say what it is testing").toBeTruthy();
+      expect(
+        bad.expect_error_contains,
+        "a negative example must pin the refusal it expects",
+      ).toBeTruthy();
+
+      const errors = validate(schema, noDefs, bad.document);
+      expect(errors.length, `invalid[${i}] VALIDATED — the schema does not refuse it`).toBeGreaterThan(0);
+      // The pin is what makes the case about its own subject: without it a
+      // negative that starts failing for an unrelated reason stays green.
+      // `./json-schema.ts` matches Go's refusal text character for character,
+      // so one pin means the same thing to both readers.
+      expect(
+        errors.join("\n"),
+        `${bad.name}: no error contains ${JSON.stringify(bad.expect_error_contains)}`,
+      ).toContain(bad.expect_error_contains);
+    });
+  }
 });
 
 describe("the lifecycle rules bind to the Worker that implements them", () => {

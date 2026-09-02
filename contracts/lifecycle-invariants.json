@@ -65,11 +65,45 @@
       "boundary_reports — every refused write outside the caller's boundary."
     ],
     "thresholds": {
-      "$comment": "Appendix A #4 says the relationship between the poll interval and the substrate's wipe threshold is pinned by a constant or a test, not by arithmetic in two files. This is that one place. Both readers assert max_poll_ms < wipe_threshold_ms rather than recomputing it.",
-      "wipe_threshold_ms": 600000,
+      "$comment": "Appendix A #4 says the relationship between the poll interval and the substrate's wipe threshold is pinned by a constant or a test, not by arithmetic in two files. This is that one place — and `substrate` below is what stops it from being a THIRD copy of numbers the substrate already holds. Bundle 2.1.0 shipped wipe_threshold_ms as 600000, which is WORKFLOW_STEP_TIMEOUT_MS: nothing tied the fixture to the substrate, so the number was wrong and both readers agreed with it. Every value here is now equal to a named constant in a named file, and `substrate` says which. The TypeScript reader IMPORTS the three TypeScript constants and asserts the numbers above equal them (parsing SANDBOX_SLEEP_AFTER's duration string), which is the only assertion that can catch the substrate moving. The Go reader cannot import TypeScript, so it reads the shell default for push_interval_ms, checks every named symbol still exists in its named file, and asserts the RELATION Appendix A #4 is about.",
+      "wipe_threshold_ms": 1200000,
       "max_poll_ms": 300000,
       "push_interval_ms": 60000,
-      "step_cap_ms": 480000
+      "step_cap_ms": 480000,
+      "substrate": {
+        "wipe_threshold_ms": {
+          "file": "cloud/factory/src/sandbox.ts",
+          "symbol": "SANDBOX_SLEEP_AFTER",
+          "form": "duration string",
+          "note": "The Cloudflare Sandbox sleeps a container this long after its last request; a job addressed less often than this is gone. This is the real wipe threshold — not the Workflow step cap it was confused with."
+        },
+        "max_poll_ms": {
+          "file": "cloud/factory/src/run-workflow.ts",
+          "symbol": "MAX_POLL_MS",
+          "form": "milliseconds",
+          "note": "The longest the supervisor's backoff will ever wait before addressing a job again. Polling IS the keepalive, so this is the number that has to stay well under the wipe threshold."
+        },
+        "step_cap_ms": {
+          "file": "cloud/factory/src/workflow-limits.ts",
+          "symbol": "STEP_WORK_BUDGET_MS",
+          "form": "milliseconds",
+          "note": "What one Workflow step's own work may be SIZED to spend: eight of the platform's ten minutes, the other two being the margin a step cannot plan for."
+        },
+        "push_interval_ms": {
+          "file": "cloud/sandbox/entrypoint.sh",
+          "symbol": "TICKS_KEEPER_INTERVAL",
+          "form": "seconds, shell default",
+          "note": "How often the in-container keeper pushes partial work to origin. Read from the shell default rather than imported, because this half of the substrate is a shell script."
+        }
+      }
+    },
+    "protected_prefixes": {
+      "$comment": "A10's boundary, in the fixture rather than in the two harnesses. Both copies used to hard-code `.tick/` and `.ticfac/` in code, which meant the fixture described a boundary it did not define: the prefixes could drift apart between Go and TypeScript, or drift away from the repository's real boundary, with the sequences still green in both. `attempt_boundary_write` refuses exactly a path under one of these and reports it; anything else is permitted.",
+      "prefixes": [".tick/", ".ticfac/"],
+      "why": [
+        ".tick/ — the tracker. A worker committed tracker state although its prompt forbade it in as many words; compliance is a property of the model, so the substrate refuses the write and REPORTS the attempt.",
+        ".ticfac/ — the run state. Same rule, other authority: a job may not rewrite the record of its own run."
+      ]
     },
     "rules": [
       "A refused operation changes nothing: origin does not move, no job boots, no credential is issued.",
@@ -295,7 +329,7 @@
             { "op": "poll", "job": "worker-mrq", "expect": "polled" },
             { "op": "advance_clock", "ms": 300000, "expect": "advanced" },
             { "op": "poll", "job": "worker-mrq", "expect": "polled" },
-            { "op": "advance_clock", "ms": 900000, "expect": "advanced" },
+            { "op": "advance_clock", "ms": 1500000, "expect": "advanced" },
             { "op": "poll", "job": "worker-mrq", "expect": "wiped" }
           ],
           "final": { "liveness": { "worker-mrq": "dead" } }
