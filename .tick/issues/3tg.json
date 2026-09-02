@@ -3,7 +3,7 @@
   "title": "Close out ticfac Phase 0: run epic retro, then flesh out Phase 1 into ticks",
   "description": "Run the epic-close retro against the Phase 0 acceptance item by item. Then flesh out Phase 1 (the reconciler and the local subprocess executor, in the new separate ticfac repository) into child ticks including its EPIC-SKELETON pair, per SPEC §12 Phase 1.",
   "notes": "2026-09-02 17:12 - decision: Epic 692 acceptance has no [A\u003cn\u003e] items and no [evidence.acceptance] mapping; what is the authorized evidence? → The PR's CI run: it executes the bundle from Go and TypeScript in named steps, includes the deliberate-break step, and the full suites; closeout waits for it green per config.md Rules — Nothing outside runners.toml authorizes shell; CI is the repo's configured gate and the only executable authority for these items. Local runs of the same suites (already green) are corroboration, not authority.\n2026-09-02 17:22 - decision: PR #79 CI fails twice in run-workflow.test.ts (hung-context cancellations, evicted mid-commit, no such table) while main is green; rerun, or change the test harness? → Serialize factory test files (vitest fileParallelism: false) — The failures are state torn out from under a live workerd test by sibling files on a 2-vCPU runner, the cliff crossed by this epic's ~150 added tests. A rerun would be treating a defect as noise (learnings). Serial files cost minutes; test strategy is a standing-order class.",
-  "status": "in_progress",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -14,6 +14,7 @@
   "role": "closeout",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-02T11:28:24.82317Z",
-  "updated_at": "2026-09-02T15:22:18.754567Z",
-  "started_at": "2026-09-02T15:11:13.782561Z"
+  "updated_at": "2026-09-02T15:44:45.021287Z",
+  "closed_at": "2026-09-02T15:44:45.021287Z",
+  "closed_reason": "Completed: retro run (learnings folded in and compacted to 148 lines; drift review clean; decisions logged; wiki roadmap updated); acceptance verified outside-in via PR #79 CI green on all 8 jobs after two harness fixes (serial factory test files, 30 s timeouts) and one infra rerun; Phase 1 fleshed out — ticfac repository created (pengelbrecht/ticfac) and its tracker holds epic qeu with seven waves; 4ik here carries the roadmap link and closes on the gate evidence"
 }
