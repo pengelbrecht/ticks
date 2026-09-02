@@ -1,0 +1,13 @@
+{
+  "id": "hzm",
+  "title": "ticfac: execution and orchestration extracted from ticks",
+  "description": "Project for docs/projects/2026-09-01-ticfac-architecture/SPEC.md. ticks stays the tracker (tk, .tick/, authoring policy); ticfac is a new, separate repository that owns execution and orchestration: a reconciler over two durable authorities (ticks and Git incl. .ticfac/), a four-operation executor protocol (start/inspect/cancel/collect), role jobs for review and closeout, and hosts (local subprocess, Herdr, Cloudflare compatibility, Cloudflare Computer). Migration in gated chunks per SPEC §12: local hosts first, Cloudflare once the reconciler is proven. Each phase is one epic whose final tick is a real gate run. Roadmap-level changes are human decisions.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "acceptance_criteria": "[A1] ticks builds and tests without importing or embedding Factory code; ticfac builds against a pinned tk --json release and contract bundle. [A2] ticfac run-epic completes and recovers one epic locally using only tk, Git, the executor protocol, role jobs and evidence commands, with claude, codex and pi as runners on the local subprocess executor and Herdr as a second executor, both passing the same conformance suite. [A3] Authoritative run state lives under .ticfac/ in the repository, pushed on origin at once; a controller restarted from a clone alone reconciles every in-flight attempt and never silently redispatches or declares success from missing state. [A4] Review and closeout run as independently configurable role jobs against the integrated diff and return validated structured results with provenance. [A5] The Cloudflare deployment uses one Workflow per EpicRun hosting the reconciler, a Durable Object as a lock, R2 for logs, no orchestrator coding container, and completes an epic unattended with a merged PR (w1z A1 through the new reconciler). [A6] No Factory-specific command, credential, runner or wave supervisor remains in ticks beyond a documented compatibility transition.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-02T11:28:24.399845Z",
+  "updated_at": "2026-09-02T11:28:24.399845Z"
+}

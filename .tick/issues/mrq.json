@@ -1,0 +1,14 @@
+{
+  "id": "mrq",
+  "title": "Cloud compatibility tests: routes, D1/R2 keys, image tags, worker result semantics, cleanup ordering",
+  "description": "SPEC §12 Phase 0 step 4. Record the current cloud factory's externally observable behavior as tests so Phase 4 can move it without silent drift: HTTP routes and their auth grades, D1 table/key shapes, R2 key layout, image tags and the deployment vars that select model/route, worker RESULT semantics (fallback report, timer push, exit is not proof), and the revoke-before-teardown cleanup ordering. Tests only; no behavior change.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "692",
+  "acceptance_criteria": "A compatibility test file (or files) under cloud/factory exercises each listed surface against the current implementation and is green; each test names the SPEC section or Appendix A invariant it protects; the suite is registered in the existing factory CI job.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-02T11:28:24.701203Z",
+  "updated_at": "2026-09-02T11:28:24.701203Z"
+}

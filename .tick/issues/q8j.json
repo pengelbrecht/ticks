@@ -1,0 +1,17 @@
+{
+  "id": "q8j",
+  "title": "JobSpec/JobHandle/JobStatus/JobResult, role-result and evidence schemas",
+  "description": "SPEC §4.3, §10.1 / §12 Phase 0 step 3. Versioned JSON schemas in the bundle for the four-operation executor protocol records and for role-result and evidence records, including the credentials grant on JobSpec (issued by host, source grade, metered vs flat-rate cost semantics) and revocation semantics on cancel. Provide golden example documents (the illustrative ones in the spec) that validate, and negative examples that do not.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "hym"
+  ],
+  "parent": "692",
+  "acceptance_criteria": "Schemas live in the bundle with schema_version; golden examples validate and negative examples fail from both Go and TypeScript; JobSpec carries a credentials object with model and source grade; the schemas are referenced from the spec by path.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-02T11:28:24.675892Z",
+  "updated_at": "2026-09-02T11:28:24.675892Z"
+}

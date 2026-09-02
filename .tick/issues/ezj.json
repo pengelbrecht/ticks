@@ -1,0 +1,20 @@
+{
+  "id": "ezj",
+  "title": "ticfac Phase 6: multi-epic composition",
+  "description": "SPEC §12 Phase 6. ticfac run \u003cscope\u003e --max-epics N as a scheduler over independent run-epic primitives; concurrency first across different repository coordination keys; same-repository N\u003e1 only after tick-ID, learnings-file, merge-driver, lease/status and freshness tests pass; serialized publication, stale integrated gates rerun, semantic frontier review rerun where a changed target can invalidate it.",
+  "status": "open",
+  "priority": 2,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "ncv"
+  ],
+  "after": [
+    "yvi"
+  ],
+  "parent": "hzm",
+  "acceptance_criteria": "Gate: two epics in the same repository complete concurrently with serialized publication and no stale gate.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-02T11:28:24.577859Z",
+  "updated_at": "2026-09-02T11:28:24.577859Z"
+}

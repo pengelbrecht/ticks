@@ -1,0 +1,14 @@
+{
+  "id": "hym",
+  "title": "Versioned, pinned, executable contract bundle run from Go and TypeScript",
+  "description": "SPEC §3.2 / §12 Phase 0 step 2. Turn contracts/ into a versioned bundle (bundle version file, changelog rule), pinned by exact version in cloud/factory (today's TypeScript consumer, tomorrow's ticfac), with the same behavioral fixtures executed by both the Go and TypeScript sides in CI. Include runner config, worker boot, message context, tracker layout, collection vocabulary, sandbox image/configuration. A copied JSON file without an executable check is not a contract.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "692",
+  "acceptance_criteria": "A bundle version exists and is pinned in cloud/factory/package.json (or equivalent); CI runs the fixtures from both languages; a test that deliberately breaks one fixture is shown to fail at least one build (recorded in the tick notes with the CI run URL); no runtime behavior changed.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-02T11:28:24.652049Z",
+  "updated_at": "2026-09-02T11:28:24.652049Z"
+}

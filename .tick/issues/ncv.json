@@ -1,0 +1,18 @@
+{
+  "id": "ncv",
+  "title": "ticfac Phase 4: Cloudflare as a compatibility host",
+  "description": "SPEC §12 Phase 4. Move cloud/factory/** to ticfac/cloudflare/** preserving routes initially; RunWorkflow hosts the reconciler (one Workflow per EpicRun) with tracker access through the contract-held TypeScript implementation (§3.1); repository Durable Object as one-slot lock and serialized publisher; cloud/sandbox/** to ticfac/image/**; cloud/worker/** stays in ticks; run/attempt/decision records move from D1 into .ticfac/ on the run branch pushed on origin at once, D1 as rebuildable index or removed; move Factory credentials, embedding, deployment bundles and CI.",
+  "notes": "2026-09-02 13:29 - INHERITED FROM 5hm: see the note on 4ik — items (1) embedded.go bundle pin, (2) required-tk-commands scanner, (3) cloud/worker stays, (4) two binaries and 'tk cloud' -\u003e 'ticfac' repointing all land in this phase when cloud/factory and cloud/sandbox move.",
+  "status": "open",
+  "priority": 2,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "tw6"
+  ],
+  "parent": "hzm",
+  "acceptance_criteria": "Gate: project w1z A1 again — an epic completes unattended and merges its own PR — through the new reconciler, with a Workflow restart mid-run and every in-flight attempt reconciled from .ticfac/.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-02T11:28:24.528753Z",
+  "updated_at": "2026-09-02T11:29:06.158045Z"
+}
