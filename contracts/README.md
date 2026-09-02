@@ -90,10 +90,12 @@ the implementations disagreeing.
 | `tracker-layout.json` | the tracker's on-disk record layout and field order | `internal/tick/tracker_layout_parity_test.go` |
 | `collect-vocabulary.json` | the collect verdict/status vocabulary and the status-line parse cases | `internal/herd/collect/contract_test.go`, `internal/cloud/collect/contract_test.go` |
 | `tk-json-manifest.json` | the published `tk --json` command surface: every command a consumer may call, its argv, its output schema, and the contract version this build serves | `cmd/tk/cmd/tk_json_contract_test.go`, `internal/tkcontract` |
+| `credential-ownership.json` | which product owns each credential type, the `~/.ticfacrc` key set and its redacted example, and the stop/cost/security lifecycle rules | `internal/factory/credentials/contract_test.go` |
 
 The TypeScript readers live in the factory's vitest suite (`worker-boot.test.ts`,
 `repo-config.test.ts`, `message-context.test.ts`, `tick-membership.test.ts`,
-`sweep-contract.test.ts`, `collect-vocabulary.test.ts`, and their siblings).
+`sweep-contract.test.ts`, `collect-vocabulary.test.ts`, `tk-json-manifest.test.ts`,
+`credential-ownership.test.ts`, and their siblings).
 They import from here by relative path — `../../../contracts/<name>.json` — and
 there is deliberately no second copy under `cloud/factory/test/fixtures/`. Two
 copies of a parity fixture is the one arrangement guaranteed to defeat it: a

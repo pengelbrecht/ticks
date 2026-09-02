@@ -55,6 +55,8 @@ jobs:
         run: |
           go test -short \
             ./internal/contracts/... \
+            ./internal/tkcontract/... \
+            ./internal/factory/credentials/... \
             ./internal/herd/config/... \
             ./internal/herd/collect/... \
             ./internal/cloud/collect/... \
