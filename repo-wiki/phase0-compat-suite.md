@@ -2,7 +2,7 @@
 type: architecture
 source: from-chat
 covers: [cloud/factory/test/phase0-compat.test.ts, docs/projects/2026-09-01-ticfac-architecture/SPEC.md]
-verified_against: 8276dc18
+verified_against: a8594b8e
 status: active
 ---
 
@@ -49,13 +49,26 @@ name, so there is no second place to update and none to forget.
   against a fake `SandboxBinding`; the Run Workflow is never created. A vitest
   case that starts a run and does not end it keeps the Workflow supervising and
   times out the *next* file in the shared workerd runtime (`.tick/learnings.md`).
-- **It does not reach the shell.** `cloud/sandbox/*.sh` is the other half of
+- **It does not EXECUTE the shell.** `cloud/sandbox/*.sh` is the other half of
   several of these contracts (the fallback report shapes, the keeper's timer
-  push, the exit codes). Those are pinned from the TypeScript side and, where a
-  cross-language rule exists, through `contracts/worker-boot-contract.json` —
-  the vitest pool has no filesystem, so a test here cannot read the scripts.
-  The `keeper_interval` default (60s, `TICKS_KEEPER_INTERVAL`) lives only in
-  `cloud/sandbox/entrypoint.sh` and is **not** pinned by any test.
+  push, the exit codes). No test here runs a script: the vitest pool has no
+  filesystem and no shell.
+
+  It does *read* them, which is a different thing and was worth the change
+  (tick `dtp`). The workerd runtime has no `fs`, but vite inlines a `?raw`
+  import at transform time, so `import WORKER_SH from "../../sandbox/worker.sh?raw"`
+  hands the test the file's bytes as a string. The three fallback `STATUS:`
+  lines are now EXTRACTED from `write_fallback_report` and compared to the
+  suite's pin, rather than transcribed into it — the transcription had already
+  drifted from `worker.sh` by a clause and nothing could see it. The same
+  mechanism reads `wrangler.toml`'s `[[containers]] name` and greps
+  `run-workflow.ts` for orderings the suite cannot execute.
+
+  Where a genuine cross-language rule exists it still belongs in
+  `contracts/worker-boot-contract.json`; `?raw` is for pinning ONE file's
+  bytes, not for replacing a contract. The `keeper_interval` default (60s,
+  `TICKS_KEEPER_INTERVAL`) lives only in `cloud/sandbox/entrypoint.sh` and is
+  **not** pinned by any test.
 
 See also: [[ticfac-roadmap]], [[cross-language-contracts]],
 [[worker-fallback-report-shapes]], [[credential-grades]],

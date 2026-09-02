@@ -50,7 +50,12 @@ the status stays **independent of the verdict** collect computes from the branch
 (`internal/herd/collect/doc.go`): 5jo would now read `ready-to-merge` beside
 `DONE_WITH_CONCERNS — no agent report exists`, which together say exactly what
 happened. Pinned in `TestWorkerFallbackReportSeparatesTheShapesOfANoReportRun`,
-which reads the pushed report back through `collect.ParseStatus`.
+which reads the pushed report back through `collect.ParseStatus`, and — since
+tick `dtp` — in `cloud/factory/test/phase0-compat.test.ts`, which EXTRACTS the
+three `STATUS:` lines from `write_fallback_report` itself (a vite `?raw` import
+of `worker.sh`) and compares them to its pin. The earlier version of that test
+transcribed the lines, and the transcription had already drifted from the script
+by a clause; a pin fed its own literals pins the parser, not the script.
 
 ## This was not tick gm5's symptom
 
