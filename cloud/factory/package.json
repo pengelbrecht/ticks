@@ -9,9 +9,10 @@
     "tail": "wrangler tail",
     "mint-token": "node scripts/mint-factory-token.mjs",
     "contracts:check": "node scripts/contracts.mjs check",
+    "contracts:test": "node --test --no-warnings scripts/contracts.test.mjs",
     "contracts:sync": "node scripts/contracts.mjs sync",
     "typecheck": "pnpm contracts:check && tsc --noEmit",
-    "test": "pnpm contracts:check && vitest run",
+    "test": "pnpm contracts:check && pnpm contracts:test && vitest run",
     "test:watch": "pnpm contracts:check && vitest"
   },
   "devDependencies": {
