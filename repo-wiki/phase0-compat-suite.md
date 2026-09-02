@@ -2,7 +2,7 @@
 type: architecture
 source: from-chat
 covers: [cloud/factory/test/phase0-compat.test.ts, docs/projects/2026-09-01-ticfac-architecture/SPEC.md]
-verified_against: 491c9489
+verified_against: 8276dc18
 status: active
 ---
 
