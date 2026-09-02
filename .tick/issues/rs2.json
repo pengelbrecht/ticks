@@ -1,11 +1,10 @@
 {
   "id": "rs2",
   "title": "tk --json command manifest and minimum version",
-  "description": "SPEC §3.1 / §12 Phase 0 step 1. Publish the list of tk --json commands ticfac may call (reads: show/list/graph/ready/next/deps/status; controlled writes: claim, update, note, close/reopen, merge-file, merge-activity), each with a versioned JSON schema, and a machine-readable minimum tk version (e.g. tk version --json reporting a contract number). A command must fail closed when its requested contract is unavailable or incompatible. Document that a host that cannot run tk (Cloudflare Workflow) implements the same contract in its own language and proves it with the bundle.",
+  "description": "SPEC \u00a73.1 / \u00a712 Phase 0 step 1. Publish the list of tk --json commands ticfac may call (reads: show/list/graph/ready/next/deps/status; controlled writes: claim, update, note, close/reopen, merge-file, merge-activity), each with a versioned JSON schema, and a machine-readable minimum tk version (e.g. tk version --json reporting a contract number). A command must fail closed when its requested contract is unavailable or incompatible. Document that a host that cannot run tk (Cloudflare Workflow) implements the same contract in its own language and proves it with the bundle.",
   "status": "open",
   "priority": 2,
   "type": "task",
-  "owner": "peter@engelbrecht.dk",
   "parent": "692",
   "acceptance_criteria": "tk version --json reports a contract version; a manifest file under contracts/ lists every command with its schema; a Go test asserts every manifest command exists and its --json output validates; a tk invoked with an unknown requested contract version fails closed with a distinct error.",
   "created_by": "noreply@anthropic.com",

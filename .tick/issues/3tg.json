@@ -1,11 +1,10 @@
 {
   "id": "3tg",
   "title": "Close out ticfac Phase 0: run epic retro, then flesh out Phase 1 into ticks",
-  "description": "Run the epic-close retro against the Phase 0 acceptance item by item. Then flesh out Phase 1 (the reconciler and the local subprocess executor, in the new separate ticfac repository) into child ticks including its EPIC-SKELETON pair, per SPEC §12 Phase 1.",
+  "description": "Run the epic-close retro against the Phase 0 acceptance item by item. Then flesh out Phase 1 (the reconciler and the local subprocess executor, in the new separate ticfac repository) into child ticks including its EPIC-SKELETON pair, per SPEC \u00a712 Phase 1.",
   "status": "open",
   "priority": 2,
   "type": "task",
-  "owner": "peter@engelbrecht.dk",
   "blocked_by": [
     "5y2"
   ],

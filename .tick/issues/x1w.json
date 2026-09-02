@@ -1,11 +1,10 @@
 {
   "id": "x1w",
   "title": ".ticfac/ layout, checkpoint and compare-and-swap rules as schema and fixtures",
-  "description": "SPEC §10.4 / §12 Phase 0 step 6. Define .ticfac/runs/\u003cid\u003e/{checkpoint.json, attempts/\u003cn\u003e.json, evidence/\u003ckey\u003e.json, decisions/\u003cn\u003e.json}, the gitignored .index.json and logs/, the persistence policy (durable means pushed on origin; churn on the run branch; terminal record lands once at publish; run branch tagged at terminal state; ticfac gc) and the compare-and-swap rules (create-if-absent for attempts, SHA-guarded update for checkpoints, against the origin ref). Schemas and golden fixtures in the bundle, plus the .gitignore fragment.",
+  "description": "SPEC \u00a710.4 / \u00a712 Phase 0 step 6. Define .ticfac/runs/<id>/{checkpoint.json, attempts/<n>.json, evidence/<key>.json, decisions/<n>.json}, the gitignored .index.json and logs/, the persistence policy (durable means pushed on origin; churn on the run branch; terminal record lands once at publish; run branch tagged at terminal state; ticfac gc) and the compare-and-swap rules (create-if-absent for attempts, SHA-guarded update for checkpoints, against the origin ref). Schemas and golden fixtures in the bundle, plus the .gitignore fragment.",
   "status": "open",
   "priority": 2,
   "type": "task",
-  "owner": "peter@engelbrecht.dk",
   "blocked_by": [
     "hym"
   ],
