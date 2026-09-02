@@ -9,7 +9,8 @@ status: active
 ## Compiled Truth
 
 **`contracts/` at the repo root holds every rule that more than one
-implementation has to obey.** Nine files today. Both languages read them, and a
+implementation has to obey.** Ten files today — nine behavioural case tables,
+plus `tk-json-manifest.json`, which is a different animal (below). Both languages read them, and a
 one-sided edit fails a build — that is the whole point and it is proven, not
 assumed (see *Every contract is proven to bite*).
 
@@ -34,6 +35,40 @@ Two Go packages re-implementing one rule belong here too.
 Go** (`internal/herd/collect`, `internal/cloud/collect`) — they used to be one
 type by import, so drift was impossible; they are copies now and the contract
 stands in for the compiler.
+
+### `tk-json-manifest.json` is a published API surface, not a case table
+
+Added by tick `rs2` (ticfac Phase 0, SPEC §3.1). Its second implementation is
+not TypeScript-in-this-repo — it is **whatever consumes released `tk`
+behaviour**, ticfac first. Three consequences that make it look unlike its
+neighbours:
+
+- **Its reader RUNS the surface.** `cmd/tk/cmd/tk_json_contract_test.go` looks
+  each of the 15 published commands up in the real cobra tree, executes it
+  against a fixture repository, and validates the actual stdout. Each fixture
+  additionally asserts the result is *substantive* — this caught `tk ready
+  --json` and `tk next --json` passing while returning nothing, because both
+  filter to the detected owner unless given `--all`, and **an empty list
+  validates against every schema in the file**.
+- **The binary carries it** (`embedded.go`), and `tk version --json` reports the
+  contract number out of those same bytes. A manifest read off disk could
+  disagree with the binary beside it.
+- **Consumers pin it and tk fails closed.** `--json-contract <n>` /
+  `TK_JSON_CONTRACT`, refused *before the command runs* with exit **11** — its
+  own slot, because "install a different tk" is neither a retry (1) nor a
+  command-line fix (2).
+
+Two design calls worth not re-deriving: schemas keep `additionalProperties`
+**open**, so within a contract number tk may add fields and only a removal or a
+retype is a break; and `internal/tkcontract`'s validator **rejects any JSON
+Schema keyword it does not implement** rather than ignoring it, because a
+validator that skips what it does not understand publishes a schema that asserts
+nothing. The subset is deliberately small; growing it is a code change.
+
+The §3.1 non-tk-host rule lives in the file's own `hosts` block, not only in the
+design doc: a Cloudflare Workflow or isolate cannot exec a Go binary, so it
+implements this same contract in its own language and proves it against
+`tracker-layout.json` and its siblings. Every host that *can* run `tk` runs `tk`.
 
 ### What is NOT a contract
 
@@ -76,8 +111,14 @@ git submodule (an un-initialised submodule is a very quiet empty directory).
 
 ## Every contract is proven to bite
 
-All nine were broken on **both** the Go and the TypeScript side and confirmed
-red, then reverted and confirmed green (ticks `i0o`, `i61`).
+All nine case tables were broken on **both** the Go and the TypeScript side and
+confirmed red, then reverted and confirmed green (ticks `i0o`, `i61`).
+
+`tk-json-manifest.json` was proven the same way and is the one exception to the
+"edit the implementation, never the contract" method below: it has no second
+implementation in this repo yet, so the mutation ran on the manifest itself —
+a required field added, an item type flipped — and every one of the 13 JSON
+subtests plus both merge-driver subtests went red (tick `rs2`).
 
 **The method matters.** Edit an *implementation*, never the contract file —
 editing the contract changes what both sides compare against, so both go red for

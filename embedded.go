@@ -76,3 +76,22 @@ var sandboxFS embed.FS
 func SandboxFS() embed.FS {
 	return sandboxFS
 }
+
+// tkJSONManifest holds contracts/tk-json-manifest.json — the published tk
+// --json command surface and the JSON contract version this build serves.
+//
+// It ships inside the binary for the same reason the factory bundle does: a
+// consumer holding only a tk executable asks it (`tk version --json`) which
+// contract it serves, and the answer has to come from the same bytes the
+// repository's parity test validates against. A manifest read off disk at
+// runtime would let a binary and its manifest disagree, which is the one thing
+// this file exists to make impossible.
+//
+//go:embed contracts/tk-json-manifest.json
+var tkJSONManifest []byte
+
+// TkJSONManifest returns the embedded tk --json contract manifest. Callers
+// should go through internal/tkcontract, which parses and validates it.
+func TkJSONManifest() []byte {
+	return tkJSONManifest
+}

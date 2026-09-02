@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -13,6 +14,7 @@ import (
 
 	"github.com/pengelbrecht/ticks/internal/github"
 	"github.com/pengelbrecht/ticks/internal/skills"
+	"github.com/pengelbrecht/ticks/internal/tkcontract"
 )
 
 // resolveActor determines the actor for an activity entry using the precedence:
@@ -75,6 +77,18 @@ const (
 	// nor a config fix, and because a run must be able to tell "the watchdog
 	// cannot fire" apart from an ordinary failure without parsing stderr.
 	ExitPluginUnhealthy = 10
+
+	// ExitContractUnsupported reports that tk refused to run because the
+	// caller pinned a tk --json contract version this build cannot serve
+	// (--json-contract / TK_JSON_CONTRACT; see contracts/tk-json-manifest.json).
+	// Its own slot for the reason ExitWaveFull and ExitPluginUnhealthy have
+	// theirs: the next action is "install a tk that serves this contract",
+	// which is neither a retry nor a fix to the command line, and a consumer
+	// must be able to tell it from a routing refusal (1) or a usage error (2)
+	// without parsing stderr. The refusal happens BEFORE the command runs —
+	// fail closed, so nothing ever parses output shaped by a contract it did
+	// not ask for.
+	ExitContractUnsupported = 11
 )
 
 // ExitError is an error that carries a specific exit code.
@@ -224,6 +238,20 @@ Human-Only Tasks (awaiting=work):
 	// invocation so that fresh clones and CI environments get the drivers
 	// without requiring an explicit `tk init`.
 	PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+		// Contract negotiation comes first, and applies to every command
+		// including the ones skipped below: a caller that pinned a contract
+		// this build cannot serve must be refused before tk does anything,
+		// `tk version --json` included — that call is precisely how a consumer
+		// discovers the mismatch.
+		if err := enforceJSONContract(); err != nil {
+			// A contract refusal is not a usage error, and the caller is a
+			// machine: printing the command's whole flag table on stderr
+			// would bury the one line that says which contracts this tk
+			// serves, and make the refusal look like exit 2.
+			silenceUsageForRefusal(cmd)
+			return err
+		}
+
 		// Skip for commands that don't need a git repo or that ARE the merge
 		// driver themselves (to avoid recursion/noise).
 		skip := map[string]bool{
@@ -285,6 +313,7 @@ func ExecuteArgsContext(ctx context.Context, args []string) error {
 	// and when running multiple commands in the same process (e.g., tests),
 	// flag values persist between executions.
 	ResetFlags()
+	restoreSilencedUsage()
 
 	// Reset Cobra's flag tracking for all subcommands.
 	// This ensures cmd.Flags().Changed() returns false for flags
@@ -704,6 +733,17 @@ func ResetFlags() {
 	cloudCollectEpic, cloudCollectJSON = "", false
 	cloudReconcileEpic, cloudReconcileJSON = "", false
 
+	// Reset the contract request
+	jsonContract = ""
+
+	// Reset version flags
+	versionJSON = false
+
+	// Reset note flags
+	noteEdit = false
+	noteFrom = "agent"
+	noteJSON = false
+
 	// Reset config migration flags
 	configMigrateApply = false
 	configMigrateWrite = false
@@ -720,10 +760,60 @@ func SetVersion(v string) {
 	skills.SetVersion(v)
 }
 
+// jsonContract holds --json-contract: the tk --json contract version the
+// caller was built against. Empty means "no request", which is every
+// interactive use and every call made before this flag existed.
+var jsonContract string
+
+// contractSilenced records commands whose SilenceUsage this gate flipped, so
+// ExecuteArgsContext can put it back. Cobra commands are process globals, and
+// a value left set leaks into every later invocation in the same process —
+// the class of bug ResetFlags exists for.
+var contractSilenced []*cobra.Command
+
+func silenceUsageForRefusal(cmd *cobra.Command) {
+	if cmd == nil || cmd.SilenceUsage {
+		return
+	}
+	cmd.SilenceUsage = true
+	contractSilenced = append(contractSilenced, cmd)
+}
+
+// restoreSilencedUsage undoes silenceUsageForRefusal for every command it
+// touched. Commands that declare SilenceUsage themselves were never recorded,
+// so their setting is untouched.
+func restoreSilencedUsage() {
+	for _, cmd := range contractSilenced {
+		cmd.SilenceUsage = false
+	}
+	contractSilenced = nil
+}
+
+// enforceJSONContract resolves the requested contract (--json-contract, then
+// TK_JSON_CONTRACT) and refuses with ExitContractUnsupported when this build
+// cannot serve it. Classification is by TYPE — tkcontract's own error — never
+// by message text.
+func enforceJSONContract() error {
+	requested := jsonContract
+	if requested == "" {
+		requested = os.Getenv("TK_JSON_CONTRACT")
+	}
+	if err := tkcontract.Negotiate(requested); err != nil {
+		var unsupported *tkcontract.ErrUnsupportedContract
+		if errors.As(err, &unsupported) {
+			return NewExitError(ExitContractUnsupported, "%v", err)
+		}
+		return err
+	}
+	return nil
+}
+
 func init() {
-	// Global flags can be added here in the future
-	// For example:
-	// rootCmd.PersistentFlags().BoolP("json", "j", false, "Output as JSON")
+	// The tk --json contract a consumer pins. Persistent, so it is accepted
+	// after any subcommand; it cannot lead the command line because tk's argv
+	// dispatch (cmd/tk/main.go) reads argv[1] as the command name.
+	rootCmd.PersistentFlags().StringVar(&jsonContract, "json-contract", "",
+		"require this tk --json contract version; exit "+strconv.Itoa(ExitContractUnsupported)+" if this build cannot serve it")
 
 	// Disable the default completion command (can be re-enabled later if needed)
 	rootCmd.CompletionOptions.DisableDefaultCmd = true
