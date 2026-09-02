@@ -3,7 +3,7 @@
   "title": "tk --json command manifest and minimum version",
   "description": "SPEC §3.1 / §12 Phase 0 step 1. Publish the list of tk --json commands ticfac may call (reads: show/list/graph/ready/next/deps/status; controlled writes: claim, update, note, close/reopen, merge-file, merge-activity), each with a versioned JSON schema, and a machine-readable minimum tk version (e.g. tk version --json reporting a contract number). A command must fail closed when its requested contract is unavailable or incompatible. Document that a host that cannot run tk (Cloudflare Workflow) implements the same contract in its own language and proves it with the bundle.",
   "notes": "2026-09-02 13:39 - runner-state: substrate=herdr kind=claude branch=tick/rs2 worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-rs2 workspace=wHX base=c0496c1dce72cd7a1892044bb9779fb97a9512a5 agent=tick-rs2 pane=wHX:p1 session=421d71ae-d203-4dab-8a35-0af70ff40bd6",
-  "status": "in_progress",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -11,6 +11,7 @@
   "acceptance_criteria": "tk version --json reports a contract version; a manifest file under contracts/ lists every command with its schema; a Go test asserts every manifest command exists and its --json output validates; a tk invoked with an unknown requested contract version fails closed with a distinct error.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-02T11:28:24.627419Z",
-  "updated_at": "2026-09-02T11:40:39.773025Z",
-  "started_at": "2026-09-02T11:40:39.773025Z"
+  "updated_at": "2026-09-02T12:20:08.787973Z",
+  "closed_at": "2026-09-02T12:20:08.787973Z",
+  "closed_reason": "Completed: contracts/tk-json-manifest.json publishes 15 tk --json commands with schemas; internal/tkcontract validates real stdout against them; tk version --json reports contract 1 / min 0.32.0; --json-contract / TK_JSON_CONTRACT fails closed with exit 11; tk note gained --json"
 }
