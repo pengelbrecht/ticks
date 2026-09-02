@@ -2,7 +2,7 @@
 type: architecture
 source: from-chat
 covers: [contracts/lifecycle-invariants.json, internal/factory/lifecycle, cloud/factory/test/lifecycle-invariants.test.ts, cloud/factory/test/lifecycle-harness.ts, docs/projects/2026-09-01-ticfac-architecture/SPEC.md]
-verified_against: aeb4c925
+verified_against: fa11f6d8
 status: active
 ---
 
