@@ -50,3 +50,15 @@ and the executable checks on both sides — the bundle is now a thing that can b
 pinned rather than a directory that can be copied.
 
 Consumers: `cloud/factory` pins `1.0.0`. Nothing to follow.
+
+## 1.1.0
+
+MINOR. Two contracts added by ticfac Phase 0 (epic 692); no existing fixture
+byte changed, so an unchanged consumer is still correct but no longer complete.
+
+- `tk-json-manifest.json` — the published `tk --json` surface: every command a
+  consumer may call, its argv, its JSON schema, and the contract version it
+  was added in (tick rs2, SPEC §3.1).
+- `credential-ownership.json` — which credentials belong to ticfac and which to
+  ticks, the `~/.ticfacrc` schema, grant grades and stop rules (tick uzq,
+  SPEC §3.3).
