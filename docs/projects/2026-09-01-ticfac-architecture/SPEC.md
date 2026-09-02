@@ -1,6 +1,6 @@
 # ticfac architecture
 
-> **Status:** proposed architecture, revised 2026-09-02
+> **Status:** proposed architecture, revised 2026-09-02 (b: run state lives in the repository under `.ticfac/`; see §4.1, §10.4)
 > **Scope:** extraction of Factory and execution orchestration from the pengelbrecht/ticks repository into a new ticfac repository.
 > **This change:** documentation only. It does not move or modify implementation code.
 
@@ -215,19 +215,31 @@ are useful responsibilities, but making every noun a framework abstraction
 would recreate an agent platform inside ticfac. The target instead has three
 durable authorities and three narrow protocols.
 
-### 4.1 Three durable authorities
+### 4.1 Two durable authorities, one observation source
 
 1. **ticks:** work identity, graph, readiness, roles, acceptance, claims, and
    tracker lifecycle through tk --json.
 2. **Git:** source identity, isolated implementation refs, integration refs,
-   publication order, and recoverable code history.
-3. **Execution substrate:** live job handles and workspace materialization.
-   These are observations unless their durable facts have been persisted in a
-   JobResult or artifact store.
+   publication order, recoverable code history — **and ticfac's own run
+   state**, committed as files under `.ticfac/` (§4.2, §10.4).
 
-No fourth event-sourced domain model should duplicate all three. ticfac stores
-only the run IDs, idempotency keys, job handles, decisions, evidence references,
-budgets, and checkpoints needed to reconcile them.
+The **execution substrate** is not an authority. Live job handles, processes,
+cursors, and workspace materialization are observations; they carry no truth
+that has not been persisted to Git or the tracker.
+
+There is no separate run database. ticks already draws this line: tracker
+state is committed, `.tick/logs/` is a gitignored cache, and `.index.json` is a
+rebuildable index. ticfac applies the same rule with the same layout.
+Everything the reconciler needs to resume — run and attempt records,
+decisions, idempotency markers, checkpoints, evidence references, budgets —
+lives in the repository. What does not live there is either exhaust (logs) or
+a derived index (§8.6), and neither is consulted to decide what is true.
+
+This is the ticks principle applied to execution: **everything authoritative
+lives in the repo.** A laptop and a Cloudflare host reconciling the same run
+read and write the same files, which is what makes §8.2's portability claim
+true rather than aspirational, and what lets a dead controller's last
+checkpoint be read by anyone with a clone.
 
 ### 4.2 The reconciler
 
@@ -258,6 +270,25 @@ repair, dispatch idempotency, fan-in, configured gates, integration,
 publication, closure ordering, cancellation, budgets, and cleanup. A green
 deterministic gate followed by ready work advances without asking an LLM for
 permission.
+
+Two mechanics make the loop safe to restart, and both are Git primitives:
+
+- **A checkpoint is a commit.** The reconciler commits
+  `.ticfac/runs/<run-id>/checkpoint.json` on the EpicRun's integration branch
+  when state changes — a decision, a dispatch, a collected result — never per
+  observation. Recovery is a fetch; audit is `git log -- .ticfac/runs/<run-id>/`.
+- **An effect is guarded by a compare-and-swap.** Creating a file fails if it
+  already exists; updating one requires its current SHA. Dispatching attempt N
+  creates `.ticfac/runs/<run-id>/attempts/<n>.json`, and a second reconciler
+  racing for the same attempt is refused by the repository, not by a lock it
+  might have lost. This is the primitive the signal funnel already relies on
+  (the contents API is a compare-and-swap on the branch ref); a Worker reaches
+  it through the GitHub contents API and a local host through
+  `git push --force-with-lease`.
+
+"Idempotent effects" therefore has a definition rather than an aspiration: an
+effect is idempotent when the compare-and-swap that precedes it proves it has
+not already happened.
 
 ### 4.3 The executor protocol
 
@@ -706,10 +737,10 @@ implementation is intentionally Cloudflare-native:
 ~~~text
 Cloudflare Worker        API, webhooks, schedules, campaign admission
 Cloudflare Workflow      one durable workflow per EpicRun
-Durable Object           repository semaphore and serialized publisher
+Durable Object           repository semaphore and serialized publisher (a lock, not a store)
 Cloudflare Computer      primary cloud executor
-R2                       large logs, reports, patches, and evidence
-Git + tk                 durable source and work state
+R2                       large logs and transcripts (exhaust, never authority)
+Git + tk                 durable source, work state, and run state (.ticfac/)
 ~~~
 
 ticfac MUST NOT invent a lowest-common-denominator workflow, lease, storage, or
@@ -824,11 +855,12 @@ reconstructable materialization.
 
 - Git remote refs, worker branches, commits, merge commits, and source SHAs;
 - .tick/ tracker state, claims, statuses, and notes through tk;
-- Durable Object Workspace files/state and synchronization metadata;
-- D1 run/attempt/event records;
-- R2 manifests, reports, logs selected as evidence, and verification artifacts;
-- Decision Requests/Responses and the evidence references they used;
-- executor/backend selection, capability decision, and terminal lifecycle facts.
+- ticfac run state under `.ticfac/` (§10.4): run and attempt records, decision
+  requests/responses with the evidence references they used, executor/backend
+  selection and capability decisions, terminal lifecycle facts, checkpoints;
+- bounded, redacted evidence records committed beside the run state;
+- Durable Object Workspace files/state and synchronization metadata, for as
+  long as a job is live.
 
 **Derived local/executor state:**
 
@@ -837,6 +869,15 @@ reconstructable materialization.
 - a local worktree path or container filesystem cache;
 - package/build caches and preview processes;
 - an in-memory controller object or an unpersisted dashboard view.
+
+**Indexes and exhaust (never authority):**
+
+- D1, if used at all, holds a rebuildable index over `.ticfac/` for dashboards
+  and cost queries — the role `.index.json` plays for ticks. Losing it costs a
+  rebuild, never a fact.
+- R2 holds large streaming logs and transcripts. They are diagnostic material
+  (§10.1); the reconciler never consults them to decide state.
+- The repository Durable Object holds a lock, not truth (§9.1).
 
 Before disposal, the executor MUST push or persist any source/evidence that the
 reconciler relies on. After restart, the reconciler MUST be able to reconstruct
@@ -894,8 +935,14 @@ Workflow per EpicRun
 Computer Workspace + role job/container(s)
               │
               ▼
-       Git branches + reports + evidence
+   Git: branches, reports, evidence, .ticfac/ run state
 ~~~
+
+The Durable Object is a coordination lock, not a store: it grants epic slots
+and serialises publication, and every fact it acts on is read from `.ticfac/`
+and tk. If it is lost, the safe outcome is that nobody holds the lock until
+reconciliation re-derives who should — the lease that lapsed in the current
+implementation failed exactly this safe way.
 
 Deep coding happens in jobs. The orchestrator therefore needs no orchestrator
 container. It can start a role job from an isolate/service boundary, persist
@@ -1017,6 +1064,57 @@ materialization. The executor MUST record:
 Disposal is allowed only after the reconciler has either persisted required
 source/evidence or recorded an explicit recovery/escalation outcome.
 
+### 10.4 Run state in the repository
+
+ticfac keeps its run state in the repository it executes against, under a dot
+directory that mirrors `.tick/` in layout and in rules:
+
+~~~text
+.ticfac/
+  runs/<run-id>/
+    checkpoint.json            one commit per state change; the run's audit log is git log on this path
+    attempts/<n>.json          created once per dispatch — existence is the idempotency marker
+    evidence/<key>.json        bounded, redacted evidence records (§10.1)
+    decisions/<n>.json         role-job requests and validated responses, with provenance
+  .index.json                  gitignored, rebuildable (D1 is the hosted equivalent)
+  logs/                        gitignored exhaust
+~~~
+
+Every committed file carries a `schema_version` and the provenance fields of
+an evidence record. One file per record, so concurrent EpicRuns writing
+different `runs/<id>/` directories merge cleanly — the same argument ticks
+makes for one file per tick.
+
+Where it lives: on the **EpicRun's integration branch**, landing on the target
+ref when the epic publishes. This is what the current factory already does
+with `.tick/` (a closeout commits tracker state on the run branch and merges it
+through the run's PR). Target-ref history grows the way `.tick/activity/`
+already does and is pruned the same way (`ticfac gc`, by age and terminal
+state).
+
+Rules:
+
+- **Only the reconciler writes `.ticfac/`; workers never do.** This is the
+  `.tick/` boundary rule mirrored, and it is enforced the same way. ticks never
+  reads `.ticfac/`, so the one-way dependency holds.
+- **It is run state, not configuration.** Profiles stay in the ticfac
+  repository (§11) and run configuration stays in `.tick/runners.toml` (§2.1).
+  `.ticfac/` must not become a second configuration surface.
+- **Checkpoint on state change, not on observation.** A poll that learns
+  nothing writes nothing.
+- **Every effect is preceded by the compare-and-swap that proves it has not
+  happened** (§4.2).
+- A deployment MAY point `.ticfac/` at a sibling repository for operators who
+  do not want execution history in the project's own history; the default is
+  the project repository, because the coordination key is already
+  repository + target ref.
+
+The costs are known and bounded. Write cadence at roughly ten checkpoints per
+hour is negligible. A Worker pays GitHub API rate limits for these commits as
+it already does for `.tick/`; batch where possible and flush bulk evidence from
+a container. A compare-and-swap conflict between two reconcilers is the desired
+outcome, not an error to retry blindly.
+
 ## 11. Initial ticfac repository layout
 
 The repository should expose the narrow protocols in its directory structure,
@@ -1029,7 +1127,7 @@ ticfac/
 ├── core/
 │   ├── reconcile/                 # pure next-effect rules + checkpoint types
 │   ├── ticks/                     # tk --json client
-│   ├── git/                       # integration, freshness, serialized publish
+│   ├── git/                       # integration, freshness, serialized publish, .ticfac/ run state
 │   ├── jobs/                      # four-operation executor protocol
 │   ├── roles/                     # role contracts, profiles, context assembly
 │   └── evidence/                  # verification and artifact records
@@ -1043,7 +1141,7 @@ ticfac/
 │   ├── workflows/epic-run/        # Workflow host for one EpicRun
 │   ├── durable/repository/        # N-slot semaphore + serialized publisher
 │   ├── artifacts/                 # R2 indexing/storage
-│   ├── migrations/                # D1 only where queryable records are needed
+│   ├── migrations/                # D1 index only; never run-state authority (§8.6)
 │   └── tests/
 ├── profiles/                      # versioned factory/role defaults
 ├── schemas/                       # tk pin + Job*/role/evidence contracts
@@ -1070,6 +1168,8 @@ on Workflow, Durable Object, R2, Sandbox, or Computer types.
 4. Record current cloud routes, D1/R2 keys, image tags, worker result semantics,
    and cleanup ordering as compatibility tests.
 5. Define credential ownership and ~/.ticfacrc migration.
+6. Define the `.ticfac/` layout, checkpoint, and compare-and-swap rules
+   (§10.4) alongside the schemas; run state never lands in D1 as authority.
 
 ### Phase 1: prove the smallest local vertical slice
 
@@ -1098,6 +1198,8 @@ execution to make it pass.
    behavior through the compatibility executor.
 5. Keep cloud/worker/** in ticks and verify that the ticks.sh board is absent
    from the Factory deployment.
+6. Move run/attempt/decision records from D1 into `.ticfac/` on the run
+   branch; leave D1 as a rebuildable index or remove it.
 
 ### Phase 3: move local Factory and executor adapters
 
@@ -1168,8 +1270,9 @@ execution to make it pass.
 6. **Cloudflare-native host, portable domain seams.** Use Workflow, Durable
    Objects, Computer, and R2 directly, while keeping Job*, role, Git, and
    evidence contracts free of Cloudflare types.
-7. **Git is the source ledger.** Branches, commits, ancestry, and checks are not
-   duplicated into a private source-state system.
+7. **Git is the ledger — for source and for run state.** Branches, commits,
+   ancestry, checks, and `.ticfac/` are not duplicated into a private database.
+   Everything authoritative lives in the repository, as it does for ticks.
 8. **Durable facts beat liveness.** Process exits and handles are observations;
    source refs, tracker state, JobResults, and evidence are authoritative.
 9. **Explicit capability/backend policy.** Selection is recorded, authorized,
@@ -1206,6 +1309,8 @@ execution to make it pass.
 - Replacing Sandbox and extracting repositories in one flag-day change.
 - Treating Computer preview APIs as stable without pinning and conformance
   tests.
+- Keeping authoritative run state in any store the repository cannot
+  reconstruct it from.
 
 ## 15. Initial completion criteria
 
@@ -1218,7 +1323,10 @@ The first production architecture is complete when all of the following hold:
 - Local and Cloudflare compatibility executors pass the same Job* conformance
   suite; Herdr can be added without changing reconciliation semantics.
 - The Cloudflare deployment uses one Workflow per EpicRun, a repository Durable
-  Object, R2 artifacts, and no required orchestrator coding container.
+  Object as a lock, R2 for logs, and no required orchestrator coding container.
+- Authoritative run state lives under `.ticfac/` in the repository; D1 is
+  absent or provably rebuildable from it; a controller restarted from a clone
+  alone reconciles every in-flight attempt.
 - Review and closeout execute as independently configurable epic-boundary roles
   against the integrated diff and return validated structured results.
 - A job result is accepted only with durable source/report/evidence facts and
