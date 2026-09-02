@@ -92,7 +92,15 @@ test("re-cutting the digests without bumping the version still fails the pin", (
   // Internally consistent now — so only the exact-version pin can object, and
   // it can only object if the editor was honest enough to bump. Simulate the
   // honest bump and assert the stale pin refuses it.
-  bundle.version = "1.1.0";
+  //
+  // Derived from the real version rather than written literally: a literal
+  // here is a landmine that goes off the day the bundle is genuinely cut to
+  // that number, and it did — this control was written when the bundle was
+  // 1.0.0, hardcoded "1.1.0" as the simulated bump, and broke the moment wave
+  // 1 cut a real 1.1.0. A negative control must not depend on the bundle
+  // version standing still, because the thing it is testing is the bundle
+  // version moving.
+  bundle.version = `${Number(bundle.version.split(".")[0]) + 1}.0.0`;
   writeBundle(dir, bundle);
 
   assert.throws(
