@@ -2,7 +2,7 @@
   "id": "hym",
   "title": "Versioned, pinned, executable contract bundle run from Go and TypeScript",
   "description": "SPEC §3.2 / §12 Phase 0 step 2. Turn contracts/ into a versioned bundle (bundle version file, changelog rule), pinned by exact version in cloud/factory (today's TypeScript consumer, tomorrow's ticfac), with the same behavioral fixtures executed by both the Go and TypeScript sides in CI. Include runner config, worker boot, message context, tracker layout, collection vocabulary, sandbox image/configuration. A copied JSON file without an executable check is not a contract.",
-  "notes": "2026-09-02 13:39 - runner-state: substrate=herdr kind=claude branch=tick/hym worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-hym workspace=wHW base=c0496c1dce72cd7a1892044bb9779fb97a9512a5 agent=tick-hym pane=wHW:p1 session=75993818-7f06-4656-9166-5116d51177c9",
+  "notes": "2026-09-02 13:39 - runner-state: substrate=herdr kind=claude branch=tick/hym worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-hym workspace=wHW base=c0496c1dce72cd7a1892044bb9779fb97a9512a5 agent=tick-hym pane=wHW:p1 session=75993818-7f06-4656-9166-5116d51177c9\n2026-09-02 14:10 - Continued (not redispatched) after the integrated gate: bundle 1.1.0 needs TypeScript readers for tk-json-manifest.json and credential-ownership.json; worker told to merge d343c9dd38a5177d494d28582312fdc5954670ea first.",
   "status": "in_progress",
   "priority": 2,
   "type": "task",
@@ -11,6 +11,6 @@
   "acceptance_criteria": "A bundle version exists and is pinned in cloud/factory/package.json (or equivalent); CI runs the fixtures from both languages; a test that deliberately breaks one fixture is shown to fail at least one build (recorded in the tick notes with the CI run URL); no runtime behavior changed.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-02T11:28:24.652049Z",
-  "updated_at": "2026-09-02T11:40:39.720589Z",
+  "updated_at": "2026-09-02T12:10:38.067875Z",
   "started_at": "2026-09-02T11:40:39.720588Z"
 }
