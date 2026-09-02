@@ -2,7 +2,7 @@
   "id": "5y2",
   "title": "Final review of ticfac Phase 0 diff",
   "description": "Review the full Phase 0 diff against SPEC §12 Phase 0 and the epic acceptance: schemas versioned and executable from both languages, no runtime behavior change, deliberate-break evidence recorded. Resolve or route findings before close-out.",
-  "notes": "2026-09-02 16:02 - runner-state: runner=claude review dispatched in-process at frontier tier over git diff main...epic/692 (HEAD 1b9a1b93); read-only; invisible on the herdr board by design.",
+  "notes": "2026-09-02 16:02 - runner-state: runner=claude review dispatched in-process at frontier tier over git diff main...epic/692 (HEAD 1b9a1b93); read-only; invisible on the herdr board by design.\n2026-09-02 16:35 - Final review verdict (frontier reviewer, HEAD 1b9a1b93): acceptance MET, no blockers; 13 should-fix + 7 nits. Routed: dtp (docs/claims 1,2,3,4,6,7 + nits 14-20), wh8 (contracts 5,8,9,10,11,12,13). Confirmed clean: no runtime behaviour change for existing callers; atx phase/executor/role enums match SPEC §4.3/§4.4/§6; public-repo check passes; go test ./... and 1396 factory tests green.",
   "status": "in_progress",
   "priority": 2,
   "type": "task",
@@ -12,12 +12,14 @@
     "mrq",
     "uzq",
     "8jz",
-    "atx"
+    "atx",
+    "dtp",
+    "wh8"
   ],
   "parent": "692",
   "role": "review",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-02T11:28:24.797971Z",
-  "updated_at": "2026-09-02T14:02:37.522487Z",
+  "updated_at": "2026-09-02T14:35:18.755103Z",
   "started_at": "2026-09-02T14:02:37.499211Z"
 }
