@@ -28,6 +28,21 @@ export default defineConfig(async () => {
     test: {
       include: ["test/**/*.test.ts"],
       setupFiles: ["./test/apply-migrations.ts"],
+      // One test file at a time. The suite runs inside real workerd, and
+      // run-workflow.test.ts drives Workflows, Durable Objects and D1 with
+      // wall-clock budgets; when other files run beside it on a 2-vCPU CI
+      // runner it fails with hung-context cancellations, "evicted mid-commit"
+      // and "no such table" — state torn out from under a live test, not code
+      // under test. Observed on every CI run of epic 692 (which added ~150
+      // tests in new files) while main stayed green; the file alone passes.
+      // Serial files cost minutes, not correctness. (Legacy tick 5qj.)
+      fileParallelism: false,
+      // Serial files removed the state-corruption failures and left plain
+      // "Test timed out in 5000ms" on the same file: run-workflow's Workflow
+      // legs are budgeted in wall-clock and a 2-vCPU runner runs them at a
+      // fraction of a laptop's speed. Vitest's 5 s default is a laptop number.
+      testTimeout: 30_000,
+      hookTimeout: 30_000,
     },
   };
 });

@@ -1,0 +1,1494 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ticks.sh/contracts/job-protocol.json",
+  "schema_version": 1,
+  "contract": "ticfac.job-protocol",
+  "why": [
+    "The record schemas for ticfac's four-operation executor protocol (SPEC §4.3), the",
+    "role-result envelope every LLM job returns (§4.4), and the evidence record a gate",
+    "persists (§10.1). Phase 0 step 3 freezes them BEFORE code moves, so the reconciler",
+    "and every executor — local subprocess, Herdr, Cloudflare Sandbox, Cloudflare",
+    "Computer — are written against one surface instead of four that happen to agree.",
+    "",
+    "WHAT DRIFT THIS CATCHES. The protocol's whole value is that the reconciler does not",
+    "know which executor it is talking to. That property has no compiler behind it: an",
+    "executor is free to return a JobStatus with a field the reconciler never reads, or",
+    "to omit one it does. The failure is silent and it is a LIVENESS bug — a status",
+    "whose `terminal` flag disagrees with its `state` makes a controller either wait",
+    "forever or dispose a running workspace. So the schemas live here, with a reader on",
+    "each side, and the golden and negative documents below are the part that proves the",
+    "reader is a reader rather than a decoration.",
+    "",
+    "WHY THE NEGATIVE EXAMPLES MATTER MORE THAN THE GOLDEN ONES. A schema nothing has",
+    "ever been refused by is not known to refuse anything. Every negative document below",
+    "names the refusal it expects, in the exact words both validators produce, so a",
+    "keyword quietly dropped from a schema fails a build instead of widening the",
+    "contract.",
+    "",
+    "READERS (both must stay in this list):",
+    "  - internal/factory/jobprotocol/contract_test.go",
+    "  - cloud/factory/test/job-protocol.test.ts"
+  ],
+  "versioning": {
+    "rule": "Every record carries schema_version and a schema_id ending in .v<n>. The reconciler validates against the schema_id a record declares, never against 'the current one'.",
+    "adding_a_field": "Records are closed (additionalProperties: false), so adding a field is a new schema_id and a new schema_version — not a compatible extension. That is the opposite of the tk --json manifest's rule, and deliberately: tk publishes ONE surface many consumers read, while an executor record is exchanged between two components that ship together, where a field one side invents and the other ignores is the bug.",
+    "records_are_closed": "additionalProperties: false on every record, and on every nested object except JobHandle.handle, which is executor-private by design.",
+    "schema_subset": "These schemas use only the JSON Schema keywords both readers enforce: $ref (local #/$defs/<name> only), type, required, properties, additionalProperties, items, enum, anyOf, description, $comment. A keyword outside that set makes the contract fail to PARSE on both sides rather than being silently ignored."
+  },
+  "operations": [
+    {
+      "operation": "start",
+      "argv": "ticfac-exec-<name> start",
+      "input": "job_spec",
+      "output": "job_handle",
+      "rule": "Persist the JobSpec before addressing the executor, then record the returned handle. A handle that was never persisted is a job nobody can find after a restart."
+    },
+    {
+      "operation": "inspect",
+      "argv": "ticfac-exec-<name> inspect",
+      "input": "job_handle",
+      "output": "job_status",
+      "rule": "Re-address by stable identity and resume from the cursor. inspect distinguishes a live worker from a missing one; it never dispatches."
+    },
+    {
+      "operation": "cancel",
+      "argv": "ticfac-exec-<name> cancel",
+      "input": "job_handle",
+      "output": "cancel_ack",
+      "rule": "Revoke credentials, THEN request a stop. A cancelled handle can never obtain a fresh credential; the refusal is durable and is checked before every boot, so a restart cannot undo it."
+    },
+    {
+      "operation": "collect",
+      "argv": "ticfac-exec-<name> collect",
+      "input": "job_handle",
+      "output": "job_result",
+      "rule": "Read terminal facts from durable source refs and the worker's report. Terminal output is diagnostic material and never the completion contract."
+    }
+  ],
+  "credentials": {
+    "issuer": "host",
+    "owned_by": "contracts/credential-ownership.json",
+    "$comment": "Credentials are part of the protocol, not an adapter detail (SPEC §4.3). The host issues EVERY credential a job holds — model access, and source access at a declared grade — and records the grant in the attempt record. The ownership, key names and file format live in credential-ownership.json; what lives here is the shape the grant takes ON A JobSpec, and the semantics cancel must honour. The two files are cross-checked by both readers, because two spellings of one rule is exactly the drift contracts/ exists to catch.",
+    "revocation": {
+      "on_cancel": "revoke credentials before requesting a stop",
+      "order": "revoke-then-stop",
+      "reissue_after_cancel": "refused",
+      "revoke_before_stop": true,
+      "refuse_issue_before_every_boot": true,
+      "cancelled_handle_cannot_reissue": true,
+      "rule": "A stop is a durable refusal to issue credentials, not a revocation a restart can undo."
+    },
+    "cost": {
+      "metered_budget_field": "max_cost_usd",
+      "metered_budget_path": "JobSpec.limits.max_cost_usd",
+      "flat_rate_quota_failure": "quota_exhausted",
+      "rule": "Cost is a property of the CREDENTIAL, not of the job. A metered credential carries a cost budget enforced from gateway telemetry. A flat-rate credential — a subscription seat behind a broker — has no per-request cost to bound and SAYS SO: its budget_field is required and null, so 'no budget' is a stated fact rather than a missing key. Wall-clock and cancellation still apply to it, and quota exhaustion is reported as its own failure class, never as a broken route."
+    }
+  },
+  "rules": {
+    "completion_contract": {
+      "drives_collection": ["durable git ref", "RESULT-<tick-id>.md report"],
+      "never_drives_collection": ["terminal output"],
+      "why": "SPEC §10.1. Terminal output is useful diagnostic material, but it is not a completion contract. This preserves the rule cloud/factory/src/worker-collect.ts already enforces, and it is why JobResult.source and JobResult.role_result are required while evidence output may be a bounded artifact URI."
+    },
+    "disposal": {
+      "allowed_only_after": [
+        "the required source or evidence has been persisted",
+        "or an explicit recovery/escalation outcome has been recorded"
+      ],
+      "why": "SPEC §10.3. extensions/ticks-runner/merge.ts already refuses cleanup until tracker durability and integration ancestry are known; a remote executor and a restarted controller do not weaken the invariant."
+    }
+  },
+  "records": {
+    "job_spec": {
+      "schema_id": "ticfac.job-spec.v1",
+      "description": "What to run: the role, the source revision, the requested capabilities, the inputs, the output contract, the artifact destination, the credential grant, and the limits. Substrate-neutral on purpose — concrete backend names never appear.",
+      "schema": { "$ref": "#/$defs/job_spec" }
+    },
+    "job_handle": {
+      "schema_id": "ticfac.job-handle.v1",
+      "description": "A stable, opaque, re-addressable identity for a started job. Opaque to the reconciler and interpreted only by the executor that issued it; re-addressable means a controller that restarted with nothing but this record can inspect, cancel and collect.",
+      "schema": { "$ref": "#/$defs/job_handle" }
+    },
+    "job_status": {
+      "schema_id": "ticfac.job-status.v1",
+      "description": "Lifecycle observations and a cursor. Reports what the executor can see, not what the reconciler concludes.",
+      "schema": { "$ref": "#/$defs/job_status" }
+    },
+    "cancel_ack": {
+      "schema_id": "ticfac.cancel-ack.v1",
+      "description": "The acknowledgement cancel returns. It states that credentials were revoked, in what order relative to the stop request, and that reissue is refused — the three facts a caller cannot verify for itself.",
+      "schema": { "$ref": "#/$defs/cancel_ack" }
+    },
+    "job_result": {
+      "schema_id": "ticfac.job-result.v1",
+      "description": "Terminal facts: outcome and failure class, the source refs the job actually produced, the structured role output, and references to artifacts and evidence.",
+      "schema": { "$ref": "#/$defs/job_result" }
+    },
+    "role_result": {
+      "schema_id": "ticfac.role-result.v1",
+      "description": "The fixed envelope around every role job's structured output. `result` is the role-specific contract named by schema_id, which is what JobSpec.output_schema requested; the envelope around it never varies by role.",
+      "schema": { "$ref": "#/$defs/role_result" }
+    },
+    "evidence": {
+      "schema_id": "ticfac.evidence.v1",
+      "description": "A bounded, reproducible record that a configured command or review check ran against a named source ref and produced a result (SPEC §10.1). THE ONLY definition of the record in the bundle: contracts/ticfac-run-state.json places the file and pins how it is written, and references this schema_id rather than restating the shape. Its provenance fields are the shared $defs.provenance object every committed .ticfac/ record carries (SPEC §10.4). Every field is REQUIRED, nullable where it can be genuinely absent: a record that omits integration_ref and one that states it as null are different claims, and only the second is evidence.",
+      "referenced_by": ["contracts/ticfac-run-state.json"],
+      "schema": { "$ref": "#/$defs/evidence" }
+    }
+  },
+  "$defs": {
+    "job_id": {
+      "type": "string",
+      "description": "run/tick/attempt identity, e.g. run-42/tick-abc/attempt-1. Opaque to the executor; the reconciler owns its shape."
+    },
+    "timestamp": {
+      "type": "string",
+      "description": "RFC 3339 timestamp in UTC, e.g. 2026-09-02T11:04:00Z."
+    },
+    "digest": {
+      "type": "string",
+      "description": "Content digest as <algorithm>:<hex>, e.g. sha256:0f1e2d…"
+    },
+    "role": {
+      "type": "string",
+      "enum": [
+        "plan-epic",
+        "implement-tick",
+        "review-epic",
+        "triage-failure",
+        "plan-repair",
+        "resolve-conflict",
+        "closeout-epic",
+        "evaluate-goal"
+      ],
+      "description": "SPEC §4.4. There is no universal Decision Agent: every LLM call is a bounded job with a role-specific contract, so the role is a closed vocabulary rather than free text."
+    },
+    "executor": {
+      "type": "string",
+      "enum": ["local-subprocess", "herdr", "cloudflare-sandbox", "cloudflare-computer"],
+      "$comment": "SPEC §4.3 initial executors. An executor NAME crosses this seam; a concrete backend name does not — that is the difference between `cloudflare-computer` here and `container-shell` in an evidence record, which explains a run after the fact."
+    },
+    "source": {
+      "type": "object",
+      "required": ["repository", "base_sha", "write_ref"],
+      "additionalProperties": false,
+      "properties": {
+        "repository": { "type": "string" },
+        "base_sha": { "type": "string" },
+        "write_ref": {
+          "type": "string",
+          "description": "The ref the job may write. Naming it in the spec is what lets a read-only source grade be enforced by the issuer rather than trusted from the runner."
+        }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "required": ["persistence", "isolation", "network"],
+      "additionalProperties": false,
+      "properties": {
+        "persistence": { "type": "string", "enum": ["ephemeral", "durable"] },
+        "isolation": { "type": "string", "enum": ["process", "isolate", "container"] },
+        "network": { "type": "string", "enum": ["none", "restricted", "open"] }
+      },
+      "$comment": "A REQUEST, not a backend selection. The Cloudflare executor translates these to Computer Workspace and backend choices; a local executor translates the same request to a worktree and a subprocess."
+    },
+    "input": {
+      "type": "object",
+      "required": ["kind", "id"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "enum": ["tick", "epic", "run", "goal", "artifact", "evidence"] },
+        "id": { "type": "string" }
+      }
+    },
+    "limits": {
+      "type": "object",
+      "required": ["wall_seconds"],
+      "additionalProperties": false,
+      "properties": {
+        "wall_seconds": { "type": "integer" },
+        "max_cost_usd": {
+          "type": "number",
+          "description": "The budget a METERED model credential is enforced against, from gateway telemetry. A flat-rate seat has nothing to enforce it against and declares budget_field: null instead — wall_seconds still binds it."
+        }
+      }
+    },
+    "issuer": {
+      "type": "string",
+      "enum": ["host"],
+      "$comment": "The host issues every credential a job holds. A job never presents one it brought itself, which is why this is a one-value enum rather than a free string."
+    },
+    "issued_by_host": {
+      "type": "string",
+      "enum": ["issued-by-host"],
+      "description": "The shorthand the SPEC §4.3 illustration prints: model access is issued by the host and nothing further is pinned. Use the object form to declare cost class."
+    },
+    "metered_cost": {
+      "type": "object",
+      "required": ["class", "budget_field", "telemetry"],
+      "additionalProperties": false,
+      "properties": {
+        "class": { "type": "string", "enum": ["metered"] },
+        "budget_field": { "type": "string", "enum": ["max_cost_usd"] },
+        "telemetry": { "type": "string", "enum": ["gateway"] },
+        "unknown_cost": { "type": "string", "enum": ["refuse"] }
+      },
+      "$comment": "budget_field names the JobSpec.limits key the budget is read from, spelled exactly as credential-ownership.json spells it."
+    },
+    "flat_rate_cost": {
+      "type": "object",
+      "required": ["class", "budget_field", "quota_failure"],
+      "additionalProperties": false,
+      "properties": {
+        "class": { "type": "string", "enum": ["flat-rate"] },
+        "budget_field": {
+          "type": "null",
+          "description": "REQUIRED and null. A subscription seat behind a broker has no per-request cost to bound, and the contract makes it say so rather than leaving the key out, where 'no budget' and 'budget forgotten' look identical."
+        },
+        "quota_failure": { "type": "string", "enum": ["quota_exhausted"] }
+      }
+    },
+    "model_grant": {
+      "type": "object",
+      "required": ["issuer", "cost"],
+      "additionalProperties": false,
+      "properties": {
+        "issuer": { "$ref": "#/$defs/issuer" },
+        "provider": { "type": "string" },
+        "model": { "type": "string" },
+        "cost": {
+          "anyOf": [{ "$ref": "#/$defs/metered_cost" }, { "$ref": "#/$defs/flat_rate_cost" }]
+        }
+      }
+    },
+    "source_grade": {
+      "type": "string",
+      "enum": ["read-only", "write"],
+      "description": "The grade at which the host issues source access. A closed vocabulary because the grade is the security boundary: read-only means git write is refused by the issuer, not by the runner's good manners."
+    },
+    "source_grant": {
+      "type": "object",
+      "required": ["issuer", "grade"],
+      "additionalProperties": false,
+      "properties": {
+        "issuer": { "$ref": "#/$defs/issuer" },
+        "grade": { "$ref": "#/$defs/source_grade" },
+        "write_ref_prefix": {
+          "type": "string",
+          "description": "The only ref namespace a write grade may advance. Absent on a read-only grade."
+        }
+      }
+    },
+    "credentials": {
+      "type": "object",
+      "required": ["model", "source"],
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "anyOf": [{ "$ref": "#/$defs/issued_by_host" }, { "$ref": "#/$defs/model_grant" }]
+        },
+        "source": {
+          "anyOf": [{ "$ref": "#/$defs/source_grade" }, { "$ref": "#/$defs/source_grant" }]
+        }
+      },
+      "$comment": "Both halves are REQUIRED. A JobSpec that names no source grade is not 'unrestricted', it is unreviewable — nobody reading the attempt record afterwards can say what the job was allowed to touch."
+    },
+    "job_spec": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "job_id",
+        "role",
+        "source",
+        "capabilities",
+        "inputs",
+        "output_schema",
+        "artifact_prefix",
+        "credentials",
+        "limits"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": { "type": "integer", "enum": [1] },
+        "job_id": { "$ref": "#/$defs/job_id" },
+        "role": { "$ref": "#/$defs/role" },
+        "source": { "$ref": "#/$defs/source" },
+        "capabilities": { "$ref": "#/$defs/capabilities" },
+        "inputs": { "type": "array", "items": { "$ref": "#/$defs/input" } },
+        "output_schema": {
+          "type": "string",
+          "description": "The role-specific contract the job's role_result.result must satisfy, e.g. ticfac.job-result.implement-tick.v1. Named in the spec so the reconciler validates against what it ASKED for, not against what came back."
+        },
+        "artifact_prefix": { "type": "string" },
+        "credentials": { "$ref": "#/$defs/credentials" },
+        "limits": { "$ref": "#/$defs/limits" }
+      }
+    },
+    "handle_payload": {
+      "type": "object",
+      "description": "Executor-private addressing. The ONE open object in this contract: a Cloudflare Computer workspace id and a local pid have nothing in common, and forcing them into a shared shape would put backend names back on the seam. Opaque to the reconciler, which stores and returns it verbatim."
+    },
+    "job_handle": {
+      "type": "object",
+      "required": ["schema_version", "job_id", "attempt", "executor", "handle", "issued_at"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": { "type": "integer", "enum": [1] },
+        "job_id": { "$ref": "#/$defs/job_id" },
+        "attempt": { "type": "integer" },
+        "executor": { "$ref": "#/$defs/executor" },
+        "handle": { "$ref": "#/$defs/handle_payload" },
+        "issued_at": { "$ref": "#/$defs/timestamp" }
+      }
+    },
+    "state": {
+      "type": "string",
+      "enum": ["pending", "starting", "running", "lost", "succeeded", "failed", "cancelled"],
+      "$comment": "`lost` is deliberately NOT terminal. The executor can no longer address the handle, which is a statement about the observer, not about the job: recovery may re-adopt it. Collapsing lost into failed is how a running workspace gets disposed."
+    },
+    "observation": {
+      "type": "object",
+      "required": ["at", "kind", "detail"],
+      "additionalProperties": false,
+      "properties": {
+        "at": { "$ref": "#/$defs/timestamp" },
+        "kind": {
+          "type": "string",
+          "enum": [
+            "started",
+            "promoted",
+            "heartbeat",
+            "credential_issued",
+            "credential_revoked",
+            "cancel_requested",
+            "exited"
+          ]
+        },
+        "detail": { "type": "string" }
+      }
+    },
+    "status_live": {
+      "type": "object",
+      "required": ["state", "terminal"],
+      "properties": {
+        "state": { "type": "string", "enum": ["pending", "starting", "running", "lost"] },
+        "terminal": { "type": "boolean", "enum": [false] }
+      }
+    },
+    "status_terminal": {
+      "type": "object",
+      "required": ["state", "terminal"],
+      "properties": {
+        "state": { "type": "string", "enum": ["succeeded", "failed", "cancelled"] },
+        "terminal": { "type": "boolean", "enum": [true] }
+      }
+    },
+    "job_status": {
+      "type": "object",
+      "required": ["schema_version", "job_id", "state", "terminal", "observed_at", "cursor"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": { "type": "integer", "enum": [1] },
+        "job_id": { "$ref": "#/$defs/job_id" },
+        "state": { "$ref": "#/$defs/state" },
+        "terminal": {
+          "type": "boolean",
+          "description": "Whether `state` can still change. Redundant with state ON PURPOSE and cross-checked by the anyOf below: a controller branches on one flag, and a disagreement between the two is a bug worth failing on rather than a field worth trusting."
+        },
+        "observed_at": { "$ref": "#/$defs/timestamp" },
+        "cursor": {
+          "type": ["string", "null"],
+          "description": "Opaque resumption point for the observation stream. Hand it back to the next inspect to avoid re-reading; null when the executor has no more to say."
+        },
+        "observations": { "type": "array", "items": { "$ref": "#/$defs/observation" } }
+      },
+      "anyOf": [{ "$ref": "#/$defs/status_live" }, { "$ref": "#/$defs/status_terminal" }]
+    },
+    "cancel_ack": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "job_id",
+        "accepted_at",
+        "credentials_revoked",
+        "order",
+        "reissue",
+        "stop_requested"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": { "type": "integer", "enum": [1] },
+        "job_id": { "$ref": "#/$defs/job_id" },
+        "accepted_at": { "$ref": "#/$defs/timestamp" },
+        "credentials_revoked": {
+          "type": "boolean",
+          "enum": [true],
+          "description": "One permitted value. An acknowledgement that admits it did not revoke is not an acknowledgement — the caller has no other way to learn that the job still holds a live credential."
+        },
+        "order": {
+          "type": "string",
+          "enum": ["revoke-then-stop"],
+          "description": "The ordering the SPEC makes a MUST. Encoded as a value rather than as two timestamps because a validator can refuse a wrong value and cannot refuse a wrong clock."
+        },
+        "reissue": {
+          "type": "string",
+          "enum": ["refused"],
+          "description": "Durable. A kill switch is a refusal to ISSUE, checked before every boot — not a revocation a restart can undo."
+        },
+        "stop_requested": { "type": "boolean" },
+        "salvage_deadline": {
+          "type": ["string", "null"],
+          "description": "How long bounded salvage may still run before dispose. Null when none was granted."
+        }
+      }
+    },
+    "failure_class": {
+      "type": "string",
+      "enum": [
+        "quota_exhausted",
+        "cost_budget_exceeded",
+        "wall_clock_exceeded",
+        "credential_refused",
+        "runner_error",
+        "infrastructure_error"
+      ],
+      "$comment": "quota_exhausted has its own slot because a flat-rate seat running out of quota is NOT a broken route (SPEC §4.3); reporting it as infrastructure_error sends the next repair at the wrong problem."
+    },
+    "result_source": {
+      "type": "object",
+      "required": ["base_sha", "write_ref", "head_sha", "commits"],
+      "additionalProperties": false,
+      "properties": {
+        "base_sha": { "type": "string" },
+        "write_ref": { "type": "string" },
+        "head_sha": {
+          "type": ["string", "null"],
+          "description": "Null when the job produced no commit — collect-vocabulary.json's `no-commits` verdict, stated as a fact rather than inferred from a missing key."
+        },
+        "commits": { "type": "integer" }
+      }
+    },
+    "artifact_ref": {
+      "type": "object",
+      "required": ["kind", "uri", "content_digest"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": ["manifest", "event-log", "transcript", "model-metadata", "salvage", "report"]
+        },
+        "uri": { "type": "string" },
+        "content_digest": { "$ref": "#/$defs/digest" },
+        "bytes": { "type": "integer" }
+      }
+    },
+    "evidence_ref": {
+      "type": "object",
+      "$comment": "How a JobResult and a RoleResult cite evidence: by the `key` of a ticfac.evidence.v1 record, which is also its filename under .ticfac/runs/<run-id>/evidence/. One identifier, so a citation can be resolved to the record it names instead of being trusted.",
+      "required": ["key", "persistence_uri", "content_digest"],
+      "additionalProperties": false,
+      "properties": {
+        "key": { "type": "string", "description": "The `key` of the evidence record (ticfac.evidence.v1) this reference resolves to." },
+        "persistence_uri": { "type": "string" },
+        "content_digest": { "$ref": "#/$defs/digest" }
+      }
+    },
+    "outcome_succeeded": {
+      "type": "object",
+      "required": ["outcome", "role_result"],
+      "properties": {
+        "outcome": { "type": "string", "enum": ["succeeded"] },
+        "failure_class": {
+          "type": "null",
+          "description": "A success cannot carry a failure class. Typed null rather than merely omitted, so a result that sets one is refused instead of ignored."
+        }
+      }
+    },
+    "outcome_failed": {
+      "type": "object",
+      "required": ["outcome", "failure_class"],
+      "properties": {
+        "outcome": { "type": "string", "enum": ["failed"] }
+      },
+      "$comment": "A failure without a class is the record that produces 'the run broke' incident reports. Requiring it here is what makes quota_exhausted distinguishable from infrastructure_error at the moment it is written, not afterwards from a log."
+    },
+    "outcome_cancelled": {
+      "type": "object",
+      "required": ["outcome"],
+      "properties": {
+        "outcome": { "type": "string", "enum": ["cancelled"] }
+      }
+    },
+    "job_result": {
+      "type": "object",
+      "required": [
+        "schema_version",
+        "job_id",
+        "attempt",
+        "outcome",
+        "finished_at",
+        "source",
+        "artifacts",
+        "evidence"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": { "type": "integer", "enum": [1] },
+        "job_id": { "$ref": "#/$defs/job_id" },
+        "attempt": { "type": "integer" },
+        "outcome": { "type": "string", "enum": ["succeeded", "failed", "cancelled"] },
+        "failure_class": { "$ref": "#/$defs/failure_class" },
+        "finished_at": { "$ref": "#/$defs/timestamp" },
+        "source": { "$ref": "#/$defs/result_source" },
+        "role_result": { "$ref": "#/$defs/role_result" },
+        "artifacts": { "type": "array", "items": { "$ref": "#/$defs/artifact_ref" } },
+        "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidence_ref" } }
+      },
+      "anyOf": [
+        { "$ref": "#/$defs/outcome_succeeded" },
+        { "$ref": "#/$defs/outcome_failed" },
+        { "$ref": "#/$defs/outcome_cancelled" }
+      ]
+    },
+    "report_status": {
+      "type": "string",
+      "enum": ["DONE", "DONE_WITH_CONCERNS", "NEEDS_CONTEXT", "BLOCKED"],
+      "$comment": "The SAME four words as contracts/collect-vocabulary.json `statuses`, and both readers assert the two lists are equal. A fifth spelling here would let a cloud run and a herd run disagree about what happened to the same tick with nothing failing — which is the bug collect-vocabulary.json was written to stop."
+    },
+    "decision": {
+      "type": "object",
+      "required": ["question", "choice", "reason"],
+      "additionalProperties": false,
+      "properties": {
+        "question": { "type": "string" },
+        "choice": { "type": "string" },
+        "reason": { "type": "string" }
+      }
+    },
+    "role_result": {
+      "type": "object",
+      "required": ["schema_version", "schema_id", "role", "status", "summary", "result"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": { "type": "integer", "enum": [1] },
+        "schema_id": {
+          "type": "string",
+          "description": "The role-specific contract `result` satisfies. Must equal the JobSpec.output_schema that asked for it."
+        },
+        "role": { "$ref": "#/$defs/role" },
+        "status": { "$ref": "#/$defs/report_status" },
+        "summary": { "type": "string" },
+        "result": {
+          "type": "object",
+          "description": "The role-specific payload. Open here because its shape is the role contract named by schema_id, which the reconciler validates separately; the ENVELOPE around it is what this record freezes."
+        },
+        "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidence_ref" } },
+        "decisions": { "type": "array", "items": { "$ref": "#/$defs/decision" } }
+      }
+    },
+    "phase": {
+      "type": "string",
+      "enum": ["worker", "post-wave", "integrated", "review", "closeout"],
+      "$comment": "The gate vocabulary the current implementation already runs (SPEC §6.1 Gates: 'configured worker/post-wave/integrated/review commands'), plus closeout. Naming the phase is what makes a record reproducible: the same command against the same ref at a different phase answers a different question. Reached through $defs.provenance, so a checkpoint, an attempt, a decision and an evidence record all name their phase from this one closed vocabulary."
+    },
+    "check": {
+      "type": "object",
+      "required": ["id", "kind"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "kind": { "type": "string", "enum": ["command", "review"] },
+        "command": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "check_result": {
+      "type": "string",
+      "enum": ["pass", "fail", "error", "skipped"],
+      "$comment": "`error` is not `fail`: a gate whose command could not run has produced no evidence about the source ref, and treating that as a failing test sends repair at the wrong thing."
+    },
+    "acceptance": {
+      "type": "string",
+      "enum": ["required", "advisory"],
+      "description": "Whether this evidence gates closure or merely informs it. Recorded per-record because the same command is required at the integrated gate and advisory inside a worker."
+    },
+    "inline_output": {
+      "type": "object",
+      "required": ["mode", "stdout", "stderr", "truncated", "redacted", "max_bytes"],
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "type": "string", "enum": ["inline"] },
+        "stdout": { "type": "string" },
+        "stderr": { "type": "string" },
+        "truncated": { "type": "boolean" },
+        "redacted": { "type": "boolean" },
+        "max_bytes": { "type": "integer" }
+      },
+      "$comment": "SPEC §10.1 says stdout/stderr are kept 'bounded and redacted'. Both are required booleans, so a record cannot be silent about whether it was cut short or whether secrets were stripped — the two questions a reader of old evidence always has."
+    },
+    "artifact_output": {
+      "type": "object",
+      "required": ["mode", "uri", "content_digest", "redacted"],
+      "additionalProperties": false,
+      "properties": {
+        "mode": { "type": "string", "enum": ["artifact"] },
+        "uri": { "type": "string" },
+        "content_digest": { "$ref": "#/$defs/digest" },
+        "redacted": { "type": "boolean" },
+        "bytes": { "type": "integer" }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "description": "Where a record came from: which run, which refs, which phase, and what produced it — SPEC §10.1's provenance fields. This is the ONE definition of them in the bundle. The evidence record below carries it, and so does every committed .ticfac/ record (contracts/ticfac-run-state.json, SPEC §10.4: 'every committed file carries a schema_version and the provenance fields of an evidence record'). Every field is REQUIRED, nullable where it can be genuinely absent: a record that omits integration_ref and one that states it as null are different claims, and only the second is evidence.",
+      "required": [
+        "run_id",
+        "tick_id",
+        "attempt",
+        "source_ref",
+        "source_sha",
+        "integration_ref",
+        "phase",
+        "executor",
+        "workspace_id",
+        "backend",
+        "role",
+        "profile_digest",
+        "model",
+        "context_manifest_digest"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "run_id": { "type": "string" },
+        "tick_id": { "type": ["string", "null"], "description": "Null for epic-level or run-level records." },
+        "attempt": { "type": ["integer", "null"], "description": "Null for a record that belongs to no single dispatch — a run checkpoint, say." },
+        "source_ref": { "type": "string" },
+        "source_sha": { "type": "string" },
+        "integration_ref": {
+          "type": ["string", "null"],
+          "description": "Null before integration. Required-and-null rather than omitted, because 'this ran before integration' and 'nobody recorded where it ran' are different claims."
+        },
+        "phase": { "$ref": "#/$defs/phase" },
+        "executor": {
+          "anyOf": [{ "$ref": "#/$defs/executor" }, { "type": "null" }],
+          "description": "Null for a record no executor produced — a reconciler-side decision, say."
+        },
+        "workspace_id": { "type": ["string", "null"] },
+        "backend": {
+          "type": ["string", "null"],
+          "description": "The concrete backend, e.g. container-shell. Backend names do not cross the JobSpec seam; a record names them AFTER the fact, which is how a run is explained without the reconciler ever choosing one."
+        },
+        "role": {
+          "anyOf": [{ "$ref": "#/$defs/role" }, { "type": "null" }],
+          "description": "Null for a deterministic check with no LLM behind it — a test command is evidence too."
+        },
+        "profile_digest": { "type": ["string", "null"] },
+        "model": { "type": ["string", "null"] },
+        "context_manifest_digest": { "type": ["string", "null"] }
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "$comment": "THE ONE EVIDENCE RECORD. contracts/ticfac-run-state.json owns where this file goes (.ticfac/runs/<run-id>/evidence/<key>.json) and how it is written (create-if-absent against origin); it references this schema by schema_id rather than describing the record a second time. Bundle 1.2.0 shipped two incompatible shapes of it and neither reader noticed, because each validated its own examples — hence the cross-file readers that now validate both contracts' golden evidence examples against this definition.",
+      "required": [
+        "schema_version",
+        "key",
+        "provenance",
+        "check",
+        "started_at",
+        "finished_at",
+        "exit_code",
+        "output",
+        "result",
+        "acceptance",
+        "content_digest",
+        "persistence_uri"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": { "type": "integer", "enum": [1] },
+        "key": {
+          "type": "string",
+          "description": "The record's identity within its run, and its filename: .ticfac/runs/<run-id>/evidence/<key>.json (SPEC §10.4). A JobResult or a RoleResult cites evidence by this key — see evidence_ref."
+        },
+        "provenance": { "$ref": "#/$defs/provenance" },
+        "check": { "$ref": "#/$defs/check" },
+        "started_at": { "$ref": "#/$defs/timestamp" },
+        "finished_at": { "$ref": "#/$defs/timestamp" },
+        "exit_code": {
+          "type": ["integer", "null"],
+          "description": "Null for a review check that ran no process."
+        },
+        "output": {
+          "anyOf": [{ "$ref": "#/$defs/inline_output" }, { "$ref": "#/$defs/artifact_output" }]
+        },
+        "result": { "$ref": "#/$defs/check_result" },
+        "acceptance": { "$ref": "#/$defs/acceptance" },
+        "content_digest": { "$ref": "#/$defs/digest" },
+        "persistence_uri": { "type": "string" }
+      }
+    }
+  },
+  "examples": {
+    "golden": [
+      {
+        "name": "the SPEC illustration, verbatim",
+        "record": "job_spec",
+        "source": "SPEC §4.3 — the illustrative JobSpec printed in the design document",
+        "$comment": "Byte-for-byte what §4.3 prints. It is the document a reader will copy first, so it is the one that must not quietly stop validating.",
+        "document": {
+          "schema_version": 1,
+          "job_id": "run-42/tick-abc/attempt-1",
+          "role": "implement-tick",
+          "source": {
+            "repository": "git@example/repo.git",
+            "base_sha": "<sha>",
+            "write_ref": "refs/heads/ticfac/run-42/tick-abc/attempt-1"
+          },
+          "capabilities": {
+            "persistence": "durable",
+            "isolation": "container",
+            "network": "restricted"
+          },
+          "inputs": [{ "kind": "tick", "id": "abc" }],
+          "output_schema": "ticfac.job-result.implement-tick.v1",
+          "artifact_prefix": "runs/run-42/jobs/tick-abc/attempt-1/",
+          "credentials": { "model": "issued-by-host", "source": "read-only" },
+          "limits": { "wall_seconds": 3600, "max_cost_usd": 10 }
+        }
+      },
+      {
+        "name": "a metered model grant with an explicit write grade",
+        "record": "job_spec",
+        "source": "SPEC §4.3 — 'a metered credential carries a cost budget enforced from gateway telemetry'",
+        "document": {
+          "schema_version": 1,
+          "job_id": "run-42/tick-def/attempt-1",
+          "role": "review-epic",
+          "source": {
+            "repository": "git@example/repo.git",
+            "base_sha": "3f1c0aa",
+            "write_ref": "refs/heads/ticfac/run-42/epic-692/integration"
+          },
+          "capabilities": { "persistence": "durable", "isolation": "isolate", "network": "restricted" },
+          "inputs": [{ "kind": "epic", "id": "692" }],
+          "output_schema": "ticfac.job-result.review-epic.v1",
+          "artifact_prefix": "runs/run-42/jobs/epic-692/review-1/",
+          "credentials": {
+            "model": {
+              "issuer": "host",
+              "provider": "anthropic",
+              "model": "claude-opus-5",
+              "cost": { "class": "metered", "budget_field": "max_cost_usd", "telemetry": "gateway", "unknown_cost": "refuse" }
+            },
+            "source": { "issuer": "host", "grade": "write", "write_ref_prefix": "refs/heads/ticfac/run-42/" }
+          },
+          "limits": { "wall_seconds": 1800, "max_cost_usd": 4 }
+        }
+      },
+      {
+        "name": "a flat-rate seat that states it has no budget",
+        "record": "job_spec",
+        "source": "SPEC §4.3 — 'a flat-rate credential has no per-request cost to bound and says so'",
+        "$comment": "limits carries wall_seconds and NO max_cost_usd, and the grant states budget_field: null. Wall-clock and cancellation still bind it.",
+        "document": {
+          "schema_version": 1,
+          "job_id": "run-43/tick-ghi/attempt-2",
+          "role": "implement-tick",
+          "source": {
+            "repository": "git@example/repo.git",
+            "base_sha": "9ab77e1",
+            "write_ref": "refs/heads/ticfac/run-43/tick-ghi/attempt-2"
+          },
+          "capabilities": { "persistence": "durable", "isolation": "container", "network": "restricted" },
+          "inputs": [{ "kind": "tick", "id": "ghi" }],
+          "output_schema": "ticfac.job-result.implement-tick.v1",
+          "artifact_prefix": "runs/run-43/jobs/tick-ghi/attempt-2/",
+          "credentials": {
+            "model": {
+              "issuer": "host",
+              "provider": "subscription-broker",
+              "cost": { "class": "flat-rate", "budget_field": null, "quota_failure": "quota_exhausted" }
+            },
+            "source": { "issuer": "host", "grade": "read-only" }
+          },
+          "limits": { "wall_seconds": 3600 }
+        }
+      },
+      {
+        "name": "a Cloudflare Computer handle",
+        "record": "job_handle",
+        "source": "SPEC §4.3 — 'JobHandle is a stable, opaque, re-addressable identity'",
+        "document": {
+          "schema_version": 1,
+          "job_id": "run-42/tick-abc/attempt-1",
+          "attempt": 1,
+          "executor": "cloudflare-computer",
+          "handle": { "workspace_id": "ws_01H8XK", "session": "sess_7f2", "region": "auto" },
+          "issued_at": "2026-09-02T09:14:03Z"
+        }
+      },
+      {
+        "name": "a local subprocess handle",
+        "record": "job_handle",
+        "source": "SPEC §12 Phase 1 — 'start is spawn; inspect is pid, worktree state, and RESULT'",
+        "$comment": "The same record, an entirely different payload. That is what `handle` being the one open object buys.",
+        "document": {
+          "schema_version": 1,
+          "job_id": "run-44/tick-jkl/attempt-1",
+          "attempt": 1,
+          "executor": "local-subprocess",
+          "handle": { "pid": 48117, "worktree": "/tmp/ticfac/run-44/tick-jkl", "branch": "ticfac/run-44/tick-jkl" },
+          "issued_at": "2026-09-02T09:20:41Z"
+        }
+      },
+      {
+        "name": "a running job with a resumption cursor",
+        "record": "job_status",
+        "source": "SPEC §4.3 — 'JobStatus reports lifecycle observations and a cursor'",
+        "document": {
+          "schema_version": 1,
+          "job_id": "run-42/tick-abc/attempt-1",
+          "state": "running",
+          "terminal": false,
+          "observed_at": "2026-09-02T09:31:12Z",
+          "cursor": "evt-00412",
+          "observations": [
+            { "at": "2026-09-02T09:14:05Z", "kind": "credential_issued", "detail": "model, metered" },
+            { "at": "2026-09-02T09:14:06Z", "kind": "started", "detail": "isolate" },
+            { "at": "2026-09-02T09:22:58Z", "kind": "promoted", "detail": "container-shell before first test" }
+          ]
+        }
+      },
+      {
+        "name": "a job the executor can no longer address",
+        "record": "job_status",
+        "source": "SPEC §4.7 — recovery 'makes uncertainty explicit'",
+        "$comment": "`lost` with terminal: false. The controller must re-address or escalate; it must NOT dispose.",
+        "document": {
+          "schema_version": 1,
+          "job_id": "run-42/tick-abc/attempt-1",
+          "state": "lost",
+          "terminal": false,
+          "observed_at": "2026-09-02T09:44:00Z",
+          "cursor": null
+        }
+      },
+      {
+        "name": "a cancellation that revoked first",
+        "record": "cancel_ack",
+        "source": "SPEC §4.3 — 'cancel MUST revoke those credentials before requesting a stop'",
+        "document": {
+          "schema_version": 1,
+          "job_id": "run-42/tick-abc/attempt-1",
+          "accepted_at": "2026-09-02T09:45:10Z",
+          "credentials_revoked": true,
+          "order": "revoke-then-stop",
+          "reissue": "refused",
+          "stop_requested": true,
+          "salvage_deadline": "2026-09-02T09:47:10Z"
+        }
+      },
+      {
+        "name": "a successful implement-tick collect",
+        "record": "job_result",
+        "source": "SPEC §4.3 — 'JobResult reports terminal facts, source refs, structured role output, and artifact/evidence references'",
+        "document": {
+          "schema_version": 1,
+          "job_id": "run-42/tick-abc/attempt-1",
+          "attempt": 1,
+          "outcome": "succeeded",
+          "finished_at": "2026-09-02T09:51:02Z",
+          "source": {
+            "base_sha": "3f1c0aa",
+            "write_ref": "refs/heads/ticfac/run-42/tick-abc/attempt-1",
+            "head_sha": "b204d17",
+            "commits": 2
+          },
+          "role_result": {
+            "schema_version": 1,
+            "schema_id": "ticfac.job-result.implement-tick.v1",
+            "role": "implement-tick",
+            "status": "DONE",
+            "summary": "Added the executor protocol schemas and both readers.",
+            "result": { "files_changed": 5, "tests_added": ["internal/factory/jobprotocol/contract_test.go"] },
+            "evidence": [
+              {
+                "key": "ev-run-42-abc-gate",
+                "persistence_uri": "r2://ticfac/runs/run-42/evidence/ev-run-42-abc-gate.json",
+                "content_digest": "sha256:5c1d0e77aa2b41c9f0a6b8d3e274915f8c0b6a4d3e2f1908c7b6a5d4e3f21098"
+              }
+            ]
+          },
+          "artifacts": [
+            {
+              "kind": "report",
+              "uri": "r2://ticfac/runs/run-42/jobs/tick-abc/attempt-1/RESULT-abc.md",
+              "content_digest": "sha256:11223344556677889900aabbccddeeff00112233445566778899aabbccddeeff",
+              "bytes": 2148
+            }
+          ],
+          "evidence": [
+            {
+              "key": "ev-run-42-abc-gate",
+              "persistence_uri": "r2://ticfac/runs/run-42/evidence/ev-run-42-abc-gate.json",
+              "content_digest": "sha256:5c1d0e77aa2b41c9f0a6b8d3e274915f8c0b6a4d3e2f1908c7b6a5d4e3f21098"
+            }
+          ]
+        }
+      },
+      {
+        "name": "a flat-rate seat that ran out of quota",
+        "record": "job_result",
+        "source": "SPEC §4.3 — 'quota exhaustion is reported as its own failure class, never as a broken route'",
+        "$comment": "No commits, so head_sha is null and commits is 0 — stated, not inferred. The failure class is quota_exhausted, not infrastructure_error.",
+        "document": {
+          "schema_version": 1,
+          "job_id": "run-43/tick-ghi/attempt-2",
+          "attempt": 2,
+          "outcome": "failed",
+          "failure_class": "quota_exhausted",
+          "finished_at": "2026-09-02T10:02:44Z",
+          "source": {
+            "base_sha": "9ab77e1",
+            "write_ref": "refs/heads/ticfac/run-43/tick-ghi/attempt-2",
+            "head_sha": null,
+            "commits": 0
+          },
+          "artifacts": [],
+          "evidence": []
+        }
+      },
+      {
+        "name": "a blocked implement-tick envelope",
+        "record": "role_result",
+        "source": "SPEC §4.4 — 'every LLM call is a bounded job with a role-specific contract'",
+        "$comment": "BLOCKED is one of the four collect-vocabulary statuses. A worker can commit nothing and still return a well-formed envelope; the envelope is what the reconciler validates, the verdict is what it decides.",
+        "document": {
+          "schema_version": 1,
+          "schema_id": "ticfac.job-result.implement-tick.v1",
+          "role": "implement-tick",
+          "status": "BLOCKED",
+          "summary": "The migration this tick depends on has not landed on the base ref.",
+          "result": { "blocked_on": ["tick-mno"], "files_changed": 0 },
+          "decisions": [
+            {
+              "question": "Stub the missing migration or stop?",
+              "choice": "stop",
+              "reason": "A stub would pass the gate and hide the ordering bug the next wave inherits."
+            }
+          ]
+        }
+      },
+      {
+        "name": "an integrated gate that passed, output kept inline",
+        "record": "evidence",
+        "source": "SPEC §10.1 — the minimal evidence record",
+        "document": {
+          "schema_version": 1,
+          "key": "ev-run-42-abc-gate",
+          "provenance": {
+            "run_id": "run-42",
+            "tick_id": null,
+            "attempt": 1,
+            "source_ref": "refs/heads/ticfac/run-42/epic-692/integration",
+            "source_sha": "b204d17",
+            "integration_ref": "refs/heads/ticfac/run-42/epic-692/integration",
+            "phase": "integrated",
+            "executor": "cloudflare-computer",
+            "workspace_id": "ws_01H8XK",
+            "backend": "container-shell",
+            "role": null,
+            "profile_digest": null,
+            "model": null,
+            "context_manifest_digest": null
+          },
+          "check": { "id": "go-test", "kind": "command", "command": ["go", "test", "./..."] },
+          "started_at": "2026-09-02T10:11:00Z",
+          "finished_at": "2026-09-02T10:14:37Z",
+          "exit_code": 0,
+          "output": {
+            "mode": "inline",
+            "stdout": "ok  github.com/pengelbrecht/ticks/internal/factory/jobprotocol\t0.31s\n",
+            "stderr": "",
+            "truncated": false,
+            "redacted": true,
+            "max_bytes": 65536
+          },
+          "result": "pass",
+          "acceptance": "required",
+          "content_digest": "sha256:5c1d0e77aa2b41c9f0a6b8d3e274915f8c0b6a4d3e2f1908c7b6a5d4e3f21098",
+          "persistence_uri": "r2://ticfac/runs/run-42/evidence/ev-run-42-abc-gate.json"
+        }
+      },
+      {
+        "name": "a review-role check with no process, output spilled to an artifact",
+        "record": "evidence",
+        "source": "SPEC §10.1 — 'stdout/stderr or artifact URI (bounded and redacted)'; SPEC §6.3 — review-epic runs against the integrated EpicRun ref and is required",
+        "$comment": "exit_code is null because nothing ran; role/model/profile_digest are set because an LLM did. The mirror image of the gate above, and the reason each of those fields is nullable rather than optional. It is EPIC-level, and the three fields that say so are load-bearing: SPEC §6.3 puts review-epic at the epic boundary, running read-only against the integrated ref, so tick_id is null (it belongs to no single tick), source_ref IS the integration ref rather than an attempt branch, and acceptance is `required` — there is no implementation-role fallback for a required frontier review. An earlier cut of this example had all three the other way and was a review-epic record no §6.3 review could have produced.",
+        "document": {
+          "schema_version": 1,
+          "key": "ev-run-42-review-692",
+          "provenance": {
+            "run_id": "run-42",
+            "tick_id": null,
+            "attempt": 1,
+            "source_ref": "refs/heads/epic/692",
+            "source_sha": "b204d17",
+            "integration_ref": "refs/heads/epic/692",
+            "phase": "review",
+            "executor": "cloudflare-computer",
+            "workspace_id": "ws_01H8XM",
+            "backend": "worker-javascript",
+            "role": "review-epic",
+            "profile_digest": "sha256:aa11bb22cc33dd44ee55ff6600112233445566778899aabbccddeeff00112233",
+            "model": "claude-opus-5",
+            "context_manifest_digest": "sha256:bb22cc33dd44ee55ff6600112233445566778899aabbccddeeff001122334455"
+          },
+          "check": { "id": "review-epic-692", "kind": "review" },
+          "started_at": "2026-09-02T10:20:00Z",
+          "finished_at": "2026-09-02T10:23:19Z",
+          "exit_code": null,
+          "output": {
+            "mode": "artifact",
+            "uri": "r2://ticfac/runs/run-42/evidence/review-epic-692.txt",
+            "content_digest": "sha256:cc33dd44ee55ff6600112233445566778899aabbccddeeff0011223344556677",
+            "redacted": true,
+            "bytes": 18432
+          },
+          "result": "pass",
+          "acceptance": "required",
+          "content_digest": "sha256:dd44ee55ff6600112233445566778899aabbccddeeff00112233445566778899",
+          "persistence_uri": "r2://ticfac/runs/run-42/evidence/ev-run-42-review-692.json"
+        }
+      }
+    ],
+    "negative": [
+      {
+        "name": "a JobSpec with no credential grant",
+        "record": "job_spec",
+        "why": "Credentials are part of the protocol, not an adapter detail. A spec that names none is not 'unrestricted' — it is a job nobody can say afterwards what it was allowed to touch.",
+        "expect_error_contains": "missing required property \"credentials\"",
+        "document": {
+          "schema_version": 1,
+          "job_id": "run-42/tick-abc/attempt-1",
+          "role": "implement-tick",
+          "source": {
+            "repository": "git@example/repo.git",
+            "base_sha": "3f1c0aa",
+            "write_ref": "refs/heads/ticfac/run-42/tick-abc/attempt-1"
+          },
+          "capabilities": { "persistence": "durable", "isolation": "container", "network": "restricted" },
+          "inputs": [{ "kind": "tick", "id": "abc" }],
+          "output_schema": "ticfac.job-result.implement-tick.v1",
+          "artifact_prefix": "runs/run-42/jobs/tick-abc/attempt-1/",
+          "limits": { "wall_seconds": 3600 }
+        }
+      },
+      {
+        "name": "a source grade outside the vocabulary",
+        "record": "job_spec",
+        "why": "The grade is the security boundary. An unrecognised grade must be refused, not treated as the nearest thing the issuer knows how to mint.",
+        "expect_error_contains": "$.credentials.source: value matches none of the anyOf alternatives",
+        "document": {
+          "schema_version": 1,
+          "job_id": "run-42/tick-abc/attempt-1",
+          "role": "implement-tick",
+          "source": {
+            "repository": "git@example/repo.git",
+            "base_sha": "3f1c0aa",
+            "write_ref": "refs/heads/ticfac/run-42/tick-abc/attempt-1"
+          },
+          "capabilities": { "persistence": "durable", "isolation": "container", "network": "restricted" },
+          "inputs": [{ "kind": "tick", "id": "abc" }],
+          "output_schema": "ticfac.job-result.implement-tick.v1",
+          "artifact_prefix": "runs/run-42/jobs/tick-abc/attempt-1/",
+          "credentials": { "model": "issued-by-host", "source": "admin" },
+          "limits": { "wall_seconds": 3600 }
+        }
+      },
+      {
+        "name": "a flat-rate credential that quietly carries a budget",
+        "record": "job_spec",
+        "why": "THE COST BUG THIS SCHEMA EXISTS FOR. A subscription seat has no per-request cost to enforce a budget against, so a budget on one is a number that looks enforced and is not. flat_rate_cost requires budget_field to be null, so this fails both alternatives instead of half-passing one.",
+        "expect_error_contains": "$.credentials.model: value matches none of the anyOf alternatives",
+        "document": {
+          "schema_version": 1,
+          "job_id": "run-43/tick-ghi/attempt-2",
+          "role": "implement-tick",
+          "source": {
+            "repository": "git@example/repo.git",
+            "base_sha": "9ab77e1",
+            "write_ref": "refs/heads/ticfac/run-43/tick-ghi/attempt-2"
+          },
+          "capabilities": { "persistence": "durable", "isolation": "container", "network": "restricted" },
+          "inputs": [{ "kind": "tick", "id": "ghi" }],
+          "output_schema": "ticfac.job-result.implement-tick.v1",
+          "artifact_prefix": "runs/run-43/jobs/tick-ghi/attempt-2/",
+          "credentials": {
+            "model": {
+              "issuer": "host",
+              "cost": { "class": "flat-rate", "budget_field": "max_cost_usd", "quota_failure": "quota_exhausted" }
+            },
+            "source": { "issuer": "host", "grade": "read-only" }
+          },
+          "limits": { "wall_seconds": 3600, "max_cost_usd": 10 }
+        }
+      },
+      {
+        "name": "a role nobody wrote a contract for",
+        "record": "job_spec",
+        "why": "There is no universal Decision Agent (SPEC §4.4). A role outside the list has no prompt, no profile and no output contract, so dispatching it produces output nothing can validate.",
+        "expect_error_contains": "$.role: refactor-everything is not one of the permitted values",
+        "document": {
+          "schema_version": 1,
+          "job_id": "run-42/tick-abc/attempt-1",
+          "role": "refactor-everything",
+          "source": {
+            "repository": "git@example/repo.git",
+            "base_sha": "3f1c0aa",
+            "write_ref": "refs/heads/ticfac/run-42/tick-abc/attempt-1"
+          },
+          "capabilities": { "persistence": "durable", "isolation": "container", "network": "restricted" },
+          "inputs": [{ "kind": "tick", "id": "abc" }],
+          "output_schema": "ticfac.job-result.implement-tick.v1",
+          "artifact_prefix": "runs/run-42/jobs/tick-abc/attempt-1/",
+          "credentials": { "model": "issued-by-host", "source": "read-only" },
+          "limits": { "wall_seconds": 3600 }
+        }
+      },
+      {
+        "name": "a JobSpec naming a concrete backend",
+        "record": "job_spec",
+        "why": "Backend names do not cross this seam (SPEC §4.3). A spec that pins `container-shell` has chosen the Cloudflare executor for every host that reads it, which is the coupling the capability request exists to prevent.",
+        "expect_error_contains": "$: unexpected property \"backend\"",
+        "document": {
+          "schema_version": 1,
+          "job_id": "run-42/tick-abc/attempt-1",
+          "role": "implement-tick",
+          "backend": "container-shell",
+          "source": {
+            "repository": "git@example/repo.git",
+            "base_sha": "3f1c0aa",
+            "write_ref": "refs/heads/ticfac/run-42/tick-abc/attempt-1"
+          },
+          "capabilities": { "persistence": "durable", "isolation": "container", "network": "restricted" },
+          "inputs": [{ "kind": "tick", "id": "abc" }],
+          "output_schema": "ticfac.job-result.implement-tick.v1",
+          "artifact_prefix": "runs/run-42/jobs/tick-abc/attempt-1/",
+          "credentials": { "model": "issued-by-host", "source": "read-only" },
+          "limits": { "wall_seconds": 3600 }
+        }
+      },
+      {
+        "name": "a handle flattened to a string",
+        "record": "job_handle",
+        "why": "The payload is opaque, not unstructured. A string handle cannot carry the fields a restarted controller needs to re-address the job, and 'opaque' is exactly the word that invites this mistake.",
+        "expect_error_contains": "$.handle: expected type object, got string",
+        "document": {
+          "schema_version": 1,
+          "job_id": "run-42/tick-abc/attempt-1",
+          "attempt": 1,
+          "executor": "cloudflare-computer",
+          "handle": "ws_01H8XK",
+          "issued_at": "2026-09-02T09:14:03Z"
+        }
+      },
+      {
+        "name": "a running job flagged terminal",
+        "record": "job_status",
+        "why": "THE LIVENESS BUG. A controller that believes a running job is terminal disposes a live workspace; one that believes a finished job is live waits forever. state and terminal are cross-checked so the disagreement fails at the boundary.",
+        "expect_error_contains": "$: value matches none of the anyOf alternatives",
+        "document": {
+          "schema_version": 1,
+          "job_id": "run-42/tick-abc/attempt-1",
+          "state": "running",
+          "terminal": true,
+          "observed_at": "2026-09-02T09:31:12Z",
+          "cursor": "evt-00412"
+        }
+      },
+      {
+        "name": "a cancellation that admits it did not revoke",
+        "record": "cancel_ack",
+        "why": "cancel MUST revoke credentials before requesting a stop. An acknowledgement is the only way a caller learns that happened, so `false` is not a status it may report — it is a refusal to have cancelled.",
+        "expect_error_contains": "$.credentials_revoked: false is not one of the permitted values",
+        "document": {
+          "schema_version": 1,
+          "job_id": "run-42/tick-abc/attempt-1",
+          "accepted_at": "2026-09-02T09:45:10Z",
+          "credentials_revoked": false,
+          "order": "revoke-then-stop",
+          "reissue": "refused",
+          "stop_requested": true
+        }
+      },
+      {
+        "name": "a cancellation that stopped before revoking",
+        "record": "cancel_ack",
+        "why": "The ordering is the rule, not a detail: a job stopped first and revoked afterwards holds a live credential for the window in between, and a restart inside that window boots with it.",
+        "expect_error_contains": "$.order: stop-then-revoke is not one of the permitted values",
+        "document": {
+          "schema_version": 1,
+          "job_id": "run-42/tick-abc/attempt-1",
+          "accepted_at": "2026-09-02T09:45:10Z",
+          "credentials_revoked": true,
+          "order": "stop-then-revoke",
+          "reissue": "refused",
+          "stop_requested": true
+        }
+      },
+      {
+        "name": "a cancelled handle that may ask again",
+        "record": "cancel_ack",
+        "why": "A kill switch is a durable refusal to ISSUE, checked before every boot — not a revocation a restart can undo. `retry-allowed` is that undo, spelled politely.",
+        "expect_error_contains": "$.reissue: retry-allowed is not one of the permitted values",
+        "document": {
+          "schema_version": 1,
+          "job_id": "run-42/tick-abc/attempt-1",
+          "accepted_at": "2026-09-02T09:45:10Z",
+          "credentials_revoked": true,
+          "order": "revoke-then-stop",
+          "reissue": "retry-allowed",
+          "stop_requested": true
+        }
+      },
+      {
+        "name": "a failure with no failure class",
+        "record": "job_result",
+        "why": "This is the record that produces 'the run broke' incident reports. Requiring the class at write time is what keeps quota_exhausted distinguishable from infrastructure_error later, when only the record survives.",
+        "expect_error_contains": "$: value matches none of the anyOf alternatives",
+        "document": {
+          "schema_version": 1,
+          "job_id": "run-43/tick-ghi/attempt-2",
+          "attempt": 2,
+          "outcome": "failed",
+          "finished_at": "2026-09-02T10:02:44Z",
+          "source": {
+            "base_sha": "9ab77e1",
+            "write_ref": "refs/heads/ticfac/run-43/tick-ghi/attempt-2",
+            "head_sha": null,
+            "commits": 0
+          },
+          "artifacts": [],
+          "evidence": []
+        }
+      },
+      {
+        "name": "a success carrying a failure class",
+        "record": "job_result",
+        "why": "The mirror of the above, and the one a hand-written adapter actually emits: a struct with every field set, serialized whole. A success that also names how it failed is two claims, and a reconciler branching on either one is right half the time.",
+        "expect_error_contains": "$: value matches none of the anyOf alternatives",
+        "document": {
+          "schema_version": 1,
+          "job_id": "run-42/tick-abc/attempt-1",
+          "attempt": 1,
+          "outcome": "succeeded",
+          "failure_class": "runner_error",
+          "finished_at": "2026-09-02T09:51:02Z",
+          "source": {
+            "base_sha": "3f1c0aa",
+            "write_ref": "refs/heads/ticfac/run-42/tick-abc/attempt-1",
+            "head_sha": "b204d17",
+            "commits": 2
+          },
+          "role_result": {
+            "schema_version": 1,
+            "schema_id": "ticfac.job-result.implement-tick.v1",
+            "role": "implement-tick",
+            "status": "DONE",
+            "summary": "Landed.",
+            "result": {}
+          },
+          "artifacts": [],
+          "evidence": []
+        }
+      },
+      {
+        "name": "a role result with a status of its own invention",
+        "record": "role_result",
+        "why": "THE VERDICT-INVERSION BUG collect-vocabulary.json was written to stop. A fifth spelling of 'done' makes a cloud run and a herd run disagree about what happened to the same tick, and nothing fails — the report just quietly means something else.",
+        "expect_error_contains": "$.status: COMPLETE is not one of the permitted values",
+        "document": {
+          "schema_version": 1,
+          "schema_id": "ticfac.job-result.implement-tick.v1",
+          "role": "implement-tick",
+          "status": "COMPLETE",
+          "summary": "Landed.",
+          "result": {}
+        }
+      },
+      {
+        "name": "evidence that does not say which commit it ran against",
+        "record": "evidence",
+        "why": "Evidence is 'a record that a check ran AGAINST A NAMED SOURCE REF' (SPEC §10.1). Without the sha it is a record that a check ran, which proves nothing about the tree anyone is about to merge.",
+        "expect_error_contains": "$.provenance: missing required property \"source_sha\"",
+        "document": {
+          "schema_version": 1,
+          "key": "ev-run-42-abc-gate",
+          "provenance": {
+            "run_id": "run-42",
+            "tick_id": null,
+            "attempt": 1,
+            "source_ref": "refs/heads/ticfac/run-42/epic-692/integration",
+            "integration_ref": null,
+            "phase": "integrated",
+            "executor": "cloudflare-computer",
+            "workspace_id": "ws_01H8XK",
+            "backend": "container-shell",
+            "role": null,
+            "profile_digest": null,
+            "model": null,
+            "context_manifest_digest": null
+          },
+          "check": { "id": "go-test", "kind": "command", "command": ["go", "test", "./..."] },
+          "started_at": "2026-09-02T10:11:00Z",
+          "finished_at": "2026-09-02T10:14:37Z",
+          "exit_code": 0,
+          "output": { "mode": "inline", "stdout": "ok\n", "stderr": "", "truncated": false, "redacted": true, "max_bytes": 65536 },
+          "result": "pass",
+          "acceptance": "required",
+          "content_digest": "sha256:5c1d0e77aa2b41c9f0a6b8d3e274915f8c0b6a4d3e2f1908c7b6a5d4e3f21098",
+          "persistence_uri": "r2://ticfac/runs/run-42/evidence/ev-run-42-abc-gate.json"
+        }
+      },
+      {
+        "name": "inline output that will not say whether it was redacted",
+        "record": "evidence",
+        "why": "SPEC §10.1 requires output be bounded AND redacted. Both flags are required so an old record cannot be silent about the two questions its reader always has; silence here is how a token reaches an artifact store.",
+        "expect_error_contains": "$.output: value matches none of the anyOf alternatives",
+        "document": {
+          "schema_version": 1,
+          "key": "ev-run-42-abc-gate",
+          "provenance": {
+            "run_id": "run-42",
+            "tick_id": null,
+            "attempt": 1,
+            "source_ref": "refs/heads/ticfac/run-42/epic-692/integration",
+            "source_sha": "b204d17",
+            "integration_ref": null,
+            "phase": "integrated",
+            "executor": "cloudflare-computer",
+            "workspace_id": "ws_01H8XK",
+            "backend": "container-shell",
+            "role": null,
+            "profile_digest": null,
+            "model": null,
+            "context_manifest_digest": null
+          },
+          "check": { "id": "go-test", "kind": "command", "command": ["go", "test", "./..."] },
+          "started_at": "2026-09-02T10:11:00Z",
+          "finished_at": "2026-09-02T10:14:37Z",
+          "exit_code": 0,
+          "output": { "mode": "inline", "stdout": "ok\n", "stderr": "", "truncated": false, "max_bytes": 65536 },
+          "result": "pass",
+          "acceptance": "required",
+          "content_digest": "sha256:5c1d0e77aa2b41c9f0a6b8d3e274915f8c0b6a4d3e2f1908c7b6a5d4e3f21098",
+          "persistence_uri": "r2://ticfac/runs/run-42/evidence/ev-run-42-abc-gate.json"
+        }
+      },
+      {
+        "name": "evidence at a phase nobody gates on",
+        "record": "evidence",
+        "why": "The phase is what makes a record reproducible — the same command against the same ref at a different phase answers a different question. An unknown phase silently joins no gate and blocks no closure.",
+        "expect_error_contains": "$.provenance.phase: smoke is not one of the permitted values",
+        "document": {
+          "schema_version": 1,
+          "key": "ev-run-42-abc-smoke",
+          "provenance": {
+            "run_id": "run-42",
+            "tick_id": "abc",
+            "attempt": 1,
+            "source_ref": "refs/heads/ticfac/run-42/tick-abc/attempt-1",
+            "source_sha": "b204d17",
+            "integration_ref": null,
+            "phase": "smoke",
+            "executor": "local-subprocess",
+            "workspace_id": null,
+            "backend": null,
+            "role": null,
+            "profile_digest": null,
+            "model": null,
+            "context_manifest_digest": null
+          },
+          "check": { "id": "go-test", "kind": "command", "command": ["go", "test", "./..."] },
+          "started_at": "2026-09-02T10:11:00Z",
+          "finished_at": "2026-09-02T10:14:37Z",
+          "exit_code": 0,
+          "output": { "mode": "inline", "stdout": "ok\n", "stderr": "", "truncated": false, "redacted": true, "max_bytes": 65536 },
+          "result": "pass",
+          "acceptance": "required",
+          "content_digest": "sha256:5c1d0e77aa2b41c9f0a6b8d3e274915f8c0b6a4d3e2f1908c7b6a5d4e3f21098",
+          "persistence_uri": "r2://ticfac/runs/run-42/evidence/ev-run-42-abc-gate.json"
+        }
+      },
+      {
+        "name": "the flat evidence record bundle 1.2.0 shipped",
+        "record": "evidence",
+        "why": "THE REGRESSION CONTROL FOR THIS RECONCILIATION. In bundle 1.2.0 this document validated here while the run-state contract required a nested provenance object and a key, so no document could satisfy both and neither suite could see it — each validated its own examples against its own schema. Provenance is now one nested object, and the flat spelling is refused rather than accepted alongside it.",
+        "expect_error_contains": "$: unexpected property \"run_id\"",
+        "document": {
+          "schema_version": 1,
+          "run_id": "run-42",
+          "tick_id": null,
+          "attempt": 1,
+          "source_ref": "refs/heads/ticfac/run-42/epic-692/integration",
+          "source_sha": "b204d17",
+          "integration_ref": "refs/heads/ticfac/run-42/epic-692/integration",
+          "phase": "integrated",
+          "executor": "cloudflare-computer",
+          "workspace_id": "ws_01H8XK",
+          "backend": "container-shell",
+          "role": null,
+          "profile_digest": null,
+          "model": null,
+          "context_manifest_digest": null,
+          "check": { "id": "go-test", "kind": "command", "command": ["go", "test", "./..."] },
+          "started_at": "2026-09-02T10:11:00Z",
+          "finished_at": "2026-09-02T10:14:37Z",
+          "exit_code": 0,
+          "output": { "mode": "inline", "stdout": "ok\n", "stderr": "", "truncated": false, "redacted": true, "max_bytes": 65536 },
+          "result": "pass",
+          "acceptance": "required",
+          "content_digest": "sha256:5c1d0e77aa2b41c9f0a6b8d3e274915f8c0b6a4d3e2f1908c7b6a5d4e3f21098",
+          "persistence_uri": "r2://ticfac/runs/run-42/evidence/ev-run-42-abc-gate.json"
+        }
+      },
+      {
+        "name": "evidence accepted under a vocabulary this contract does not publish",
+        "record": "evidence",
+        "why": "The other half of the same reconciliation: the run-state golden example said acceptance was \"accepted\", which is a RESULT dressed as an acceptance. Acceptance says whether the record gates closure (required) or merely informs it (advisory); whether it passed is `result`. Two vocabularies for one field is how a gate stops gating without anything failing.",
+        "expect_error_contains": "$.acceptance: accepted is not one of the permitted values",
+        "document": {
+          "schema_version": 1,
+          "key": "ev-run-42-abc-gate",
+          "provenance": {
+            "run_id": "run-42",
+            "tick_id": null,
+            "attempt": 1,
+            "source_ref": "refs/heads/ticfac/run-42/epic-692/integration",
+            "source_sha": "b204d17",
+            "integration_ref": "refs/heads/ticfac/run-42/epic-692/integration",
+            "phase": "integrated",
+            "executor": "cloudflare-computer",
+            "workspace_id": "ws_01H8XK",
+            "backend": "container-shell",
+            "role": null,
+            "profile_digest": null,
+            "model": null,
+            "context_manifest_digest": null
+          },
+          "check": { "id": "go-test", "kind": "command", "command": ["go", "test", "./..."] },
+          "started_at": "2026-09-02T10:11:00Z",
+          "finished_at": "2026-09-02T10:14:37Z",
+          "exit_code": 0,
+          "output": { "mode": "inline", "stdout": "ok\n", "stderr": "", "truncated": false, "redacted": true, "max_bytes": 65536 },
+          "result": "pass",
+          "acceptance": "accepted",
+          "content_digest": "sha256:5c1d0e77aa2b41c9f0a6b8d3e274915f8c0b6a4d3e2f1908c7b6a5d4e3f21098",
+          "persistence_uri": "r2://ticfac/runs/run-42/evidence/ev-run-42-abc-gate.json"
+        }
+      }
+    ]
+  }
+}

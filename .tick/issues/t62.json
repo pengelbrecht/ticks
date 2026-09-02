@@ -1,0 +1,14 @@
+{
+  "id": "t62",
+  "title": "tk frontier --check and the herd guard are repo-wide, so a scoped epic run is nudged about unrelated ticks",
+  "description": "Observed 2026-09-02 during the ticfac Phase 0 run (epic 692). With all four wave-1 ticks claimed in_progress and dispatch.now empty, the herd guard still nudged the orchestrator three times: \"frontier is actionable: implement 0t9, implement 0vz, ... +41 more\". Every listed tick belongs to other epics or to no epic. tk frontier has no --epic/--scope flag, and the guard has no way to know which epic or project a run was started on, so a run scoped to one epic is judged against the whole repository and reads as stalled whenever any unrelated tick is ready. Effect: the nudge budget is burned on false positives and a real stall later in the same episode goes unnudged.\nFix: (1) tk frontier [--epic \u003cid\u003e | --project \u003cid\u003e] restricts the predicate to that container's descendants (and its close-out continuation); (2) tk herd spawn records the run scope in .tick/logs/herd/.watch-orchestrator.json (the epic of the first spawned tick, or an explicit tk herd watch --scope), and tk herd guard evaluates tk frontier with that scope; (3) the guard message names the scope it evaluated. Unscoped behaviour stays the default for bare tk frontier so existing callers are unchanged.",
+  "notes": "2026-09-02 15:50 - Also: tk herd watch --clear is undone by the next tk herd spawn, which re-arms the orchestrator watch. A cleared watch should stay cleared for the run (or --clear should record a tombstone spawn respects).",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "tk frontier --check --epic \u003cid\u003e exits 1 when every dispatchable tick outside \u003cid\u003e is ready but nothing inside it is; a guard armed by a spawn under epic X judges the frontier of X only (table test with a fake herdr pane); guard nudge text names the scope; bare tk frontier unchanged (existing tests green).",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-02T11:41:08.182488Z",
+  "updated_at": "2026-09-02T13:50:10.093673Z"
+}

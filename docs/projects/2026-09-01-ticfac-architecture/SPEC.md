@@ -146,30 +146,43 @@ packages. The initial CLI surface should be declared in a checked-in
 manifest, analogous to cloud/sandbox/required-tk-commands, with the exact
 command, flags, JSON schema, and minimum tk version for each call.
 
-Typical reads include:
+That manifest now exists — `contracts/tk-json-manifest.json` — and it, not
+this list, is the surface. The reads it publishes are:
 
 ~~~text
 tk version --json
 tk show <tick-id> --json
-tk graph --json
-tk list --json
-tk ready --json
+tk list --all --json
+tk ready --all --json
+tk next --all --json
+tk deps <tick-id> --json
+tk graph <epic-id> --json
 tk status --json
-tk sandbox image --json
-tk sandbox setup --json
-tk sandbox substrate --json
-tk sandbox worker-prompt --json
 ~~~
 
-Typical controlled writes include only tracker mutations that ticfac is
-authorized to perform:
+The controlled writes are tracker mutations only:
 
 ~~~text
-tk update <tick-id> ... --json
-tk close <tick-id> ... --json
-tk note <tick-id> ... --json
-tk ask ... --json
+tk update <tick-id> --status in_progress --owner <owner> --json
+tk update <tick-id> --notes <text> --json
+tk note <tick-id> <text> --json
+tk close <tick-id> --json
+tk reopen <tick-id> --json
 ~~~
+
+Plus the two git merge drivers, whose contract is an exit code rather than
+stdout: `tk merge-file` and `tk merge-activity`.
+
+An earlier draft of this section also listed `tk sandbox
+image|setup|substrate|worker-prompt --json` and `tk ask ... --json`. **Those
+are not published, and the manifest's `$comment` records why**: no `sandbox`
+subcommand registers a `--json` flag at all (each already emits its own
+machine-readable output, so `--json` is a usage error), and `tk ask --json`
+means *read the question from stdin as JSON* rather than *print the answer as
+JSON* — a consumer reading this list as an output-format flag would block on an
+empty stdin. `tk graph` also takes the epic it is asked about. Publishing any
+of them is a flag first and a manifest entry second, in one commit; the list
+above was corrected to the manifest rather than the reverse.
 
 The final command names and schemas are a release decision, not an invitation
 for ticfac to reach into internal/. A command MUST fail closed when its
@@ -211,10 +224,23 @@ ticks internals into a shared library.
 ### 3.3 Credentials and deployment ownership
 
 Factory credentials belong to ticfac. The extraction plan already calls for a
-separate ~/.ticfacrc; ~/.ticksrc must not remain a covert Factory secret store.
-ticfac owns Cloudflare account credentials, Factory gateway tokens, runner
-credentials, and migration of those values. ticks retains only credentials
-needed for the tracker/board product.
+separate `~/.ticfacrc`; `~/.ticksrc` must not remain a covert Factory secret
+store. ticfac owns Cloudflare account credentials, model/gateway access,
+subscription-broker seats, GitHub App or installation credentials, run tokens,
+source access grades, and migration of those values. ticks owns no Factory
+execution credential; its board-sync credentials remain a separate ticks
+product concern.
+
+The complete ownership table, the fifteen-key `~/.ticfacrc` schema, the
+merge-and-drain migration, and the security rules are in
+[`credentials.md`](credentials.md). The machine-readable contract fixture is
+[`contracts/credential-ownership.json`](../../../contracts/credential-ownership.json).
+In particular, a `read_only` source grade is enforced by the host and never
+receives the operator's GitHub credential; `cancel` revokes before stopping and
+a standing stop is a durable refusal to issue a replacement credential before
+every boot. Metered credentials carry a telemetry-backed cost budget; a
+flat-rate subscription seat carries no per-request cost budget but still has
+wall-clock, cancellation, and explicit quota-exhaustion semantics.
 
 ticfac deploy deploys the Factory product. tk does not discover, install,
 upgrade, or dispatch to ticfac.
@@ -328,6 +354,16 @@ inputs, output contract, and artifact destinations. JobHandle is a stable,
 opaque, re-addressable identity. JobStatus reports lifecycle observations and
 a cursor. JobResult reports terminal facts, source refs, structured role
 output, and artifact/evidence references. All schemas are versioned.
+
+The schemas themselves live in the contract bundle, at
+[`contracts/job-protocol.json`](../../../contracts/job-protocol.json) —
+JobSpec, JobHandle, JobStatus, the cancel acknowledgement, JobResult, the
+role-result envelope (§4.4) and the evidence record (§10.1), each with a
+`schema_id` and `schema_version`. The illustration below is a golden example
+in that file, so it validates or a build fails; the negative examples beside it
+are the documents each schema must refuse. Both readers —
+`internal/factory/jobprotocol` and `cloud/factory/test/job-protocol.test.ts` —
+run them.
 
 An illustrative JobSpec is deliberately substrate-neutral:
 
@@ -1047,16 +1083,33 @@ An evidence record should minimally contain:
 
 ~~~text
 schema_version
-run_id / tick_id / attempt
-source_ref / source_sha / integration_ref
-phase / executor / workspace_id / backend
-role / profile_digest / model / context_manifest_digest
-command or check identifier
+key                              names the record, and is its filename (§10.4)
+provenance:
+  run_id / tick_id / attempt
+  source_ref / source_sha / integration_ref
+  phase / executor / workspace_id / backend
+  role / profile_digest / model / context_manifest_digest
+check identifier (id, kind, command)
 started_at / finished_at / exit_code
 stdout/stderr or artifact URI (bounded and redacted)
-result / acceptance status
+result / acceptance (required | advisory)
 content digest and persistence URI
 ~~~
+
+**There is exactly one schema for this record in the bundle:**
+[`contracts/job-protocol.json`](../../../contracts/job-protocol.json)
+`records.evidence`, published as `ticfac.evidence.v1`. Every field above is
+required there, nullable where it can be genuinely absent: a record that omits
+`integration_ref` and one that states it as null are different claims, and only
+the second is evidence.
+
+The provenance fields are one nested object, `$defs.provenance`, because §10.4
+requires every committed `.ticfac/` file to carry them — a checkpoint, an
+attempt and a decision carry the same object, not a similar one.
+`contracts/ticfac-run-state.json` places the file and pins how it is written
+(§10.4) and *references* this schema by its `schema_id` rather than describing
+the record a second time; bundle 2.0.0 is the version that settled that, after
+1.2.0 shipped two shapes no single document could satisfy.
 
 Terminal output is useful diagnostic material, but it is not a completion
 contract. This preserves the current worker-collect.ts rule that durable Git
@@ -1185,6 +1238,35 @@ Rules:
   the project repository, because the coordination key is already
   repository + target ref.
 
+**Where this is frozen.** Everything in this section is pinned as a contract
+rather than left as prose, because two hosts implement it through different
+machinery and prose does not fail a build:
+
+| what | where |
+|---|---|
+| the layout, persistence policy, CAS rules, record schemas, golden and negative examples, the `.gitignore` fragment, and the CAS sequences | `contracts/ticfac-run-state.json` |
+| Go reader — schemas, policy, and `git check-ignore` against the real `.gitignore` | `internal/factory/runstate/contract_test.go` |
+| Go reader — the CAS sequences against an in-memory git fake | `internal/factory/runstate/cas_fake_test.go` |
+| TypeScript reader — the same sequences, the same golden examples, an independently written fake and schema validator | `cloud/factory/test/ticfac-run-state.test.ts`, `cloud/factory/test/git-cas-fake.ts`, `cloud/factory/test/json-schema.ts` |
+
+The record schemas cover `checkpoint.json`, `attempts/<n>.json` and
+`decisions/<n>.json` in full. For `evidence/<key>.json` the contract pins only
+the path, the compare-and-swap mode and the envelope every committed file
+carries; the record itself is §10.1's `ticfac.evidence.v1`, which
+`contracts/ticfac-run-state.json` names in `references.evidence` and does not
+redefine. `<key>` in the path is the record's own `key` field, so a filename, a
+citation in a JobResult and the record all name the same thing.
+
+The envelope's provenance is that same `$defs.provenance` object, copied into
+this contract so its local `$ref`s resolve — the schema subset both readers
+implement has no cross-file `$ref`. The copy is compared structurally by the
+readers rather than trusted: bundle 1.2.0 had two spellings of this record,
+each contract validated only its own examples, and both suites stayed green
+while no document could satisfy both. Two rules now cross that seam and are
+executable — each contract's golden evidence example is validated against the
+other contract's rule, and a `schema_id` appearing in more than one contract
+file must resolve to exactly one definition.
+
 The costs are known and bounded. Write cadence at roughly ten checkpoints per
 hour is negligible. A Worker pays GitHub API rate limits for these commits as
 it already does for `.tick/`; batch where possible and flush bulk evidence from
@@ -1253,17 +1335,31 @@ the reconciler plus two executors; runners are unchanged.
 1. Publish the tk --json command manifest and minimum version.
 2. Pin the cross-language contract bundle and run it from both repositories.
 3. Define JobSpec, JobHandle, JobStatus, JobResult, role-result, and evidence
-   schemas before moving code.
+   schemas before moving code —
+   [`contracts/job-protocol.json`](../../../contracts/job-protocol.json), read
+   from Go by `internal/factory/jobprotocol` and from TypeScript by
+   `cloud/factory/test/job-protocol.test.ts`.
 4. Record current cloud routes, D1/R2 keys, image tags, worker result semantics,
    and cleanup ordering as compatibility tests.
-5. Define credential ownership and ~/.ticfacrc migration.
+5. Define credential ownership and `~/.ticfacrc` migration (see
+   [`credentials.md`](credentials.md)).
 6. Define the `.ticfac/` layout, checkpoint, and compare-and-swap rules
    (§10.4) alongside the schemas; run state never lands in D1 as authority.
+   Frozen as `contracts/ticfac-run-state.json`, read from Go
+   (`internal/factory/runstate/`) and TypeScript
+   (`cloud/factory/test/ticfac-run-state.test.ts`); the compare-and-swap
+   sequences run as table tests against an in-memory git fake on both sides.
 7. Inventory the lifecycle invariants the current implementation earned from
    live failures (Appendix A) and encode each as a conformance test that the
    reconciler and every executor must pass, before any reconciler code exists.
    run-workflow.ts is 3,500 lines because of these orderings; §9.2 preserves
-   the symbols, this preserves the reasons.
+   the symbols, this preserves the reasons. Frozen as
+   [`contracts/lifecycle-invariants.json`](../../../contracts/lifecycle-invariants.json)
+   — thirteen named tests over a fake reconciler/executor harness, with a named
+   guard per invariant and a per-invariant negative control, read from Go by
+   `internal/factory/lifecycle/` and from TypeScript by
+   `cloud/factory/test/lifecycle-invariants.test.ts`. A new **executor** re-runs
+   the suite; a new runner on an existing executor does not.
 
 **Gate:** the contract bundle passes from both repositories; no behavior has
 changed. Small and boring on purpose.

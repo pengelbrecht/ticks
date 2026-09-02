@@ -1,0 +1,40 @@
+{
+  "$comment": "The versioned cross-language contract bundle. Read contracts/README.md for what the fixtures are and contracts/CHANGELOG.md for the rule that governs this file. `version` is pinned by exact value in cloud/factory/contracts.pin.json. Regenerate `files` and `digests` with `make contracts-bundle`; never regenerate them without bumping `version`. `version_digests` is the append-only ledger that makes that rule executable: each version records a sha256 over its own `version` + `digests`, written the first time it is cut and never rewritten, so a re-cut at an unchanged version contradicts it and both verifiers refuse. It begins at 2.1.1, the version that introduced it — 2.1.1 was cut on the epic integration branch and then superseded by 3.0.0 before either reached a release, and its entry stays because the ledger is append-only: it records what was cut, not what shipped.",
+  "version": "3.0.0",
+  "files": [
+    "collect-vocabulary.json",
+    "credential-ownership.json",
+    "job-protocol.json",
+    "lifecycle-invariants.json",
+    "message-context.json",
+    "runners-config-contract.json",
+    "sandbox-image-cases.json",
+    "signal-source-cases.json",
+    "sweep-policy-cases.json",
+    "sweep-selection-contract.json",
+    "ticfac-run-state.json",
+    "tk-json-manifest.json",
+    "tracker-layout.json",
+    "worker-boot-contract.json"
+  ],
+  "digests": {
+    "collect-vocabulary.json": "b2094cfbeec03ea2d6df78dab40eb6cbe8b0a9c256b7fe91c10ab679759e705e",
+    "credential-ownership.json": "2648e83088dfe42ab626ffed07985205996d9b317a5c0bfe6833bc44cc67a3ba",
+    "job-protocol.json": "349e8ff00f54051f17b0bcf0a7a007190b09240ab44e5ad00f513ca0f53ef02c",
+    "lifecycle-invariants.json": "ff6bd4f491307507ceebfe2c95a5b50f296061d0f406d57d9b6852a336f8c1ff",
+    "message-context.json": "9cceb63c00266692fc1938d60b7c61162d22794c2a64184167635938060581d5",
+    "runners-config-contract.json": "d852787a1b84389b02a1befef8ffc6ece950e0955b4094a0c591aa35f812e1da",
+    "sandbox-image-cases.json": "47bf74104bb6a682c9876c25177cd5ff4c31ec6dc477dd5f1182cb6d54e5d470",
+    "signal-source-cases.json": "1adf66c382edb9d5fd15cfc1cdf01eb35795d232a823d6060ff3f69e493ed6df",
+    "sweep-policy-cases.json": "7006ba3391618fdaf249084acf799f4fa67e49e3e89ac0baf89ba838b5641d0e",
+    "sweep-selection-contract.json": "3d2eafd42b93b7d6e0b1bf45379c3e4008f3757bea5e03d70d58d5f8625f05ef",
+    "ticfac-run-state.json": "05263478655a8273e74b430e76e2fe39f7bdcd2187ed8a285a619ace8e0e05fc",
+    "tk-json-manifest.json": "fc3627a6a3b8ed850bb7a92bb01675553f4ed15674a35ef077fae4e8b396cc81",
+    "tracker-layout.json": "6d12f0f67854e4c6de50150485c7b91e6e9087187a315e6bc919a243263857ef",
+    "worker-boot-contract.json": "7326ba972f6d8b16bd5f127d644586082da0cf2a8ff78281ff411c366df7ca27"
+  },
+  "version_digests": {
+    "2.1.1": "703f8f65f590cfb14662dcaf5bc159ab53844b4fe4bee113bf14d210456312b3",
+    "3.0.0": "af4ed00bc184cdc8a3835a95a1732285bcf3a74bc5c0d72b6676d1d6ae6c27fd"
+  }
+}

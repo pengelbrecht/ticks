@@ -12,10 +12,35 @@ how it relates to the earlier factory-extraction project.
   Phase 5a cut the last cross-repo edges. Its Phase 5 (5hm, "create ticfac and
   move") was gated on a planning session about what the factory should *be*.
 - **hzm** is the outcome of that session: the spec above, filed as eight phase
-  epics. Phase 0 is **692**. 5hm's four inherited move notes (embedded.go
+  epics. Phase 0 was **692** (closed 2026-09-02); Phase 1 is **4ik**. 5hm's four inherited move notes (embedded.go
   bundle pin, required-tk-commands scanner, cloud/worker stays, two binaries
   and `tk cloud` → `ticfac`) are copied onto hzm Phases 1 and 4. Closing
   5hm/krg as superseded is proposed, not done — roadmap changes are Peter's.
+
+## Phase 0 outcome (epic 692, closed 2026-09-02)
+
+Ran under herdr in one day: four waves plus two repair waves, ten implementation
+ticks, all closed after integrated gates. What exists now, all under `contracts/`
+as bundle **3.0.0** with a Go and a TypeScript reader each:
+
+| Step | Contract | Readers |
+|---|---|---|
+| 1 tk --json manifest | `tk-json-manifest.json` | `internal/tkcontract`, `cloud/factory/test/tk-json-manifest.test.ts` |
+| 2 versioned bundle | `bundle.json` + `CHANGELOG.md` (append-only `version_digests` ledger) | `internal/contracts`, `cloud/factory/scripts/contracts.mjs` |
+| 3 Job* / role-result / evidence | `job-protocol.json` | `internal/factory/jobprotocol`, `test/job-protocol.test.ts` |
+| 4 cloud compatibility | `cloud/factory/test/phase0-compat.test.ts` (reads worker.sh and wrangler.toml) | — |
+| 5 credential ownership | `credential-ownership.json` + `docs/.../credentials.md` (tied by a test) | `internal/factory/credentials`, `test/credential-ownership.test.ts` |
+| 6 `.ticfac/` run state + CAS | `ticfac-run-state.json` (7 executable CAS sequences over a git fake) | `internal/factory/runstate`, `test/ticfac-run-state.test.ts` |
+| 7 Appendix A invariants | `lifecycle-invariants.json` (13 invariants, fake harness, per-guard negative controls) | `internal/factory/lifecycle`, `test/lifecycle-invariants.test.ts` |
+
+Decisions logged during the run: the evidence record is defined once (nested
+provenance, closed) in job-protocol and referenced by run-state; the strict
+JSON-Schema subset (`internal/tkcontract/schema.go`, mirrored exactly by
+`cloud/factory/test/json-schema.ts`) is the only validator; the manifest
+records which SPEC §3.1 commands are not yet published (`tk sandbox … --json`,
+`tk ask --json`). Seams the run paid for: two same-wave ticks each cutting the
+bundle version (one owner per wave now, see `.tick/learnings.md`); the herd
+guard judging a repo-wide frontier (tick t62).
 
 ## Decisions made at review time
 
@@ -46,7 +71,11 @@ how it relates to the earlier factory-extraction project.
   the grant; `cancel` revokes first; a kill switch is a durable refusal to
   issue. A flat-rate subscription seat has no cost budget and says so.
 - **Appendix A** lists thirteen lifecycle invariants earned from live runs;
-  Phase 0 makes them a conformance suite that every executor must pass.
+  Phase 0 makes them a conformance suite that every executor must pass —
+  shipped in bundle `2.1.0` as `contracts/lifecycle-invariants.json`, run
+  against a fake harness so it exists before the reconciler does
+  ([[lifecycle-invariants-suite]]).
 
 See also: [[factory-ticks-boundary]], [[cross-language-contracts]],
-[[credential-split]], [[local-worker-durability]].
+[[credential-split]], [[local-worker-durability]],
+[[lifecycle-invariants-suite]].

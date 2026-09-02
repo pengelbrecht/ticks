@@ -1,0 +1,711 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/pengelbrecht/ticks/contracts/lifecycle-invariants.json",
+  "schema_version": 1,
+  "contract": "ticfac.lifecycle_invariants",
+  "spec": "docs/projects/2026-09-01-ticfac-architecture/SPEC.md",
+  "spec_sections": ["Appendix A", "§12 Phase 0 step 7"],
+  "why": [
+    "SPEC Appendix A lists thirteen lifecycle invariants, each paid for by a failed",
+    "live run before it was written down. §12 Phase 0 step 7 says to encode each one",
+    "as a conformance test that the reconciler and every executor must pass, BEFORE",
+    "any reconciler code exists. This file is that encoding.",
+    "",
+    "run-workflow.ts is 3,500 lines because of these orderings. SPEC §9.2 preserves",
+    "the symbols; this preserves the REASONS. Every invariant below names the",
+    "symbols it lives in today, so a reader of the new code can find the old one and",
+    "a reader of the old code can find the rule it was obeying.",
+    "",
+    "The sequences run against a fake harness — a tiny model of a reconciler, an",
+    "executor and the durable layer — so they are executable with no reconciler, no",
+    "container, no git and no network. That is what lets them exist in Phase 0 and",
+    "be inherited unchanged by ticfac in Phase 1.",
+    "",
+    "Every invariant names one or more GUARDS in that harness. Turning a guard off",
+    "must change what its invariant's sequences observe: a guard nothing has ever",
+    "seen refuse is not known to be a guard. Both readers carry that negative",
+    "control, exactly as contracts/ticfac-run-state.json's CAS fake does."
+  ],
+  "gate": {
+    "statement": "Passing every invariant below is the required gate for any reconciler and any executor. An executor that has not run this suite is not a supported executor.",
+    "applies_to": [
+      "the reconciler (SPEC §12 Phase 1 step 2)",
+      "the local subprocess executor (Phase 1 step 3)",
+      "the Herdr executor (Phase 2 step 1)",
+      "the Cloudflare / Computer executor (Phase 4)"
+    ],
+    "not_a_style_guide": "A reconciler or executor that violates one of these is wrong regardless of what the rest of the SPEC says (Appendix A preamble). None of them may be waived by a profile, a deployment var, or a prompt.",
+    "why_one_suite": "SPEC §12 Phase 1 step 3: claude, codex and pi are RUNNERS on one worktree-per-attempt executor, so Appendix A is tested once rather than once per runner. A new EXECUTOR is what re-runs this suite."
+  },
+  "harness": {
+    "why": [
+      "A model of exactly the behaviour these thirteen rules depend on and nothing",
+      "else, so the sequences below are executable in any language with no",
+      "repository, no container substrate and no clock. Both readers implement it",
+      "independently; a copy nothing compares is how contract drift starts.",
+      "",
+      "It is not an executor and it is not a reconciler. It is the smallest state",
+      "machine in which the difference between obeying an invariant and violating",
+      "one is observable."
+    ],
+    "state": [
+      "now_ms — a clock nothing advances but `advance_clock`.",
+      "stop — the durable stop record, or absent. Written once, never unwritten.",
+      "credentials — per job: issued, and whether revoked.",
+      "jobs — per job: whether it booted, whether it was torn down, when it last pushed.",
+      "liveness — per job, as last OBSERVED from outside: live, dead or unknown.",
+      "origin — the durable layer: path -> content. Only a push or a landed write reaches it.",
+      "step — the open host step: its cap, and the time already spent inside it.",
+      "last_polled_ms — per job, when the reconciler last addressed it.",
+      "reports — every failure reported to the operator, as (class, message).",
+      "holds — per unit: struck out, and who released it.",
+      "budget — requested, ceiling, effective, and what was reported.",
+      "evidence — per key: the fingerprint it was recorded with.",
+      "claims — per path: who claimed it in flight, and whether it has been settled.",
+      "boundary_reports — every refused write outside the caller's boundary."
+    ],
+    "thresholds": {
+      "$comment": "Appendix A #4 says the relationship between the poll interval and the substrate's wipe threshold is pinned by a constant or a test, not by arithmetic in two files. This is that one place — and `substrate` below is what stops it from being a THIRD copy of numbers the substrate already holds. Bundle 2.1.0 shipped wipe_threshold_ms as 600000, which is WORKFLOW_STEP_TIMEOUT_MS: nothing tied the fixture to the substrate, so the number was wrong and both readers agreed with it. Every value here is now equal to a named constant in a named file, and `substrate` says which. The TypeScript reader IMPORTS the three TypeScript constants and asserts the numbers above equal them (parsing SANDBOX_SLEEP_AFTER's duration string), which is the only assertion that can catch the substrate moving. The Go reader cannot import TypeScript, so it reads the shell default for push_interval_ms, checks every named symbol still exists in its named file, and asserts the RELATION Appendix A #4 is about.",
+      "wipe_threshold_ms": 1200000,
+      "max_poll_ms": 300000,
+      "push_interval_ms": 60000,
+      "step_cap_ms": 480000,
+      "substrate": {
+        "wipe_threshold_ms": {
+          "file": "cloud/factory/src/sandbox.ts",
+          "symbol": "SANDBOX_SLEEP_AFTER",
+          "form": "duration string",
+          "note": "The Cloudflare Sandbox sleeps a container this long after its last request; a job addressed less often than this is gone. This is the real wipe threshold — not the Workflow step cap it was confused with."
+        },
+        "max_poll_ms": {
+          "file": "cloud/factory/src/run-workflow.ts",
+          "symbol": "MAX_POLL_MS",
+          "form": "milliseconds",
+          "note": "The longest the supervisor's backoff will ever wait before addressing a job again. Polling IS the keepalive, so this is the number that has to stay well under the wipe threshold."
+        },
+        "step_cap_ms": {
+          "file": "cloud/factory/src/workflow-limits.ts",
+          "symbol": "STEP_WORK_BUDGET_MS",
+          "form": "milliseconds",
+          "note": "What one Workflow step's own work may be SIZED to spend: eight of the platform's ten minutes, the other two being the margin a step cannot plan for."
+        },
+        "push_interval_ms": {
+          "file": "cloud/sandbox/entrypoint.sh",
+          "symbol": "TICKS_KEEPER_INTERVAL",
+          "form": "seconds, shell default",
+          "note": "How often the in-container keeper pushes partial work to origin. Read from the shell default rather than imported, because this half of the substrate is a shell script."
+        }
+      }
+    },
+    "protected_prefixes": {
+      "$comment": "A10's boundary, in the fixture rather than in the two harnesses. Both copies used to hard-code `.tick/` and `.ticfac/` in code, which meant the fixture described a boundary it did not define: the prefixes could drift apart between Go and TypeScript, or drift away from the repository's real boundary, with the sequences still green in both. `attempt_boundary_write` refuses exactly a path under one of these and reports it; anything else is permitted.",
+      "prefixes": [".tick/", ".ticfac/"],
+      "why": [
+        ".tick/ — the tracker. A worker committed tracker state although its prompt forbade it in as many words; compliance is a property of the model, so the substrate refuses the write and REPORTS the attempt.",
+        ".ticfac/ — the run state. Same rule, other authority: a job may not rewrite the record of its own run."
+      ]
+    },
+    "rules": [
+      "A refused operation changes nothing: origin does not move, no job boots, no credential is issued.",
+      "Only `advance_clock` moves now_ms. Nothing in this model has a wall clock of its own.",
+      "Only `push_partial` and a landed `write_record` reach origin. A local effect is not durable.",
+      "Nothing a job or a supervisor SAYS about itself sets liveness. It is set by a boot, by an observation made from outside, by a kill, or by a substrate wipe — never by a self-report.",
+      "A guard that is off never refuses: the operation returns its permitted outcome and the effect happens.",
+      "Every op is total: it returns exactly one of its declared outcomes for any state."
+    ],
+    "ops": [
+      { "op": "advance_clock", "does": "moves now_ms forward by `ms`", "args": ["ms"], "outcomes": ["advanced"] },
+      { "op": "request_stop", "does": "writes the durable stop record", "args": ["by"], "outcomes": ["stop_recorded"] },
+      { "op": "issue_credential", "does": "issues a credential for a job, checked against the stop record first", "args": ["job"], "outcomes": ["issued", "refused_stopped"] },
+      { "op": "boot", "does": "starts a job; a job with no live credential cannot boot", "args": ["job"], "outcomes": ["booted", "refused_no_credential"] },
+      { "op": "revoke_credential", "does": "revokes a job's credential", "args": ["job"], "outcomes": ["revoked"] },
+      { "op": "teardown", "does": "disposes a job's executor", "args": ["job"], "outcomes": ["torn_down", "refused_credential_live"] },
+      { "op": "supervisor_reports_liveness", "does": "the supervisor writes a record asserting it is itself alive", "args": ["job"], "outcomes": ["refused_self_report", "recorded"] },
+      { "op": "observe_liveness", "does": "an observation made from OUTSIDE the job, which is the only thing that sets liveness", "args": ["job", "as"], "outcomes": ["live", "dead", "unknown"] },
+      { "op": "open_step", "does": "opens a host step with a cap", "args": ["cap_ms"], "outcomes": ["opened"] },
+      { "op": "spend_in_step", "does": "spends `ms` inside the open step", "args": ["ms"], "outcomes": ["within_cap", "exceeded_cap"] },
+      { "op": "poll", "does": "addresses a live job, which is what keeps the substrate from wiping it", "args": ["job"], "outcomes": ["polled", "wiped"] },
+      { "op": "push_partial", "does": "pushes a job's in-progress work to origin on its timer", "args": ["job", "path", "content"], "outcomes": ["pushed", "not_due"] },
+      { "op": "kill_job", "does": "ends a job's process without warning", "args": ["job"], "outcomes": ["killed"] },
+      { "op": "collect", "does": "reads what a job left behind, from the durable layer only", "args": ["job", "path"], "outcomes": ["partial_on_origin", "work_lost"] },
+      { "op": "dispatch", "does": "decides what to do about a tick, from the liveness of the attempt already out there", "args": ["tick", "job"], "outcomes": ["dispatched", "adopted", "refused_live"] },
+      { "op": "write_record", "does": "writes a record; `silently_drops` models a write the writer believes landed and which did not", "args": ["path", "content", "silently_drops"], "outcomes": ["written"] },
+      { "op": "read_back", "does": "re-reads a written record from the durable layer", "args": ["path"], "outcomes": ["confirmed", "write_did_not_land"] },
+      { "op": "act_on", "does": "acts on a record — dispatches the wave it names, closes the epic it declares", "args": ["path"], "outcomes": ["acted", "refused_unconfirmed"] },
+      { "op": "claim", "does": "marks a path as in flight by an actor that may die holding it", "args": ["path", "actor"], "outcomes": ["claimed"] },
+      { "op": "find_in_flight", "does": "a second actor finds the in-flight claim and settles it from durable evidence", "args": ["path", "actor", "evidence_path"], "outcomes": ["settled_from_evidence", "stuck_awaiting_claimer"] },
+      { "op": "report_failure", "does": "reports one failure to the operator", "args": ["class", "message"], "outcomes": ["reported", "collapsed"] },
+      { "op": "attempt_boundary_write", "does": "a job writes a path; the substrate, not the job, decides", "args": ["path"], "outcomes": ["refused_and_reported", "permitted"] },
+      { "op": "strike_out", "does": "strikes out a unit and hands it to a person", "args": ["unit"], "outcomes": ["struck"] },
+      { "op": "clock_release", "does": "time passing, asking for the unit back", "args": ["unit"], "outcomes": ["refused_clock_release", "released"] },
+      { "op": "person_release", "does": "a person taking a struck-out unit back", "args": ["unit", "by"], "outcomes": ["released"] },
+      { "op": "may_dispatch", "does": "the READ site: may this unit buy another attempt?", "args": ["unit"], "outcomes": ["permitted", "held"] },
+      { "op": "set_budget", "does": "resolves a requested budget against a deployment ceiling", "args": ["requested", "ceiling"], "outcomes": ["clamped", "as_requested"] },
+      { "op": "report_budget", "does": "tells the operator the number that will govern at submission", "args": [], "outcomes": ["reported_effective", "reported_requested"] },
+      { "op": "record_evidence", "does": "records an evidence record under a key", "args": ["key", "fingerprint"], "outcomes": ["recorded", "refused_unfingerprinted"] },
+      { "op": "publish_evidence", "does": "publishes an evidence record against the current target", "args": ["key", "target"], "outcomes": ["published", "refused_stale"] }
+    ],
+    "guards": [
+      { "guard": "stop_refuses_issue", "enforces": "A stop is checked before a credential is ISSUED, not only before work is started.", "off": "issue_credential always issues." },
+      { "guard": "revoke_before_teardown", "enforces": "The credential dies before the executor does.", "off": "teardown never refuses." },
+      { "guard": "liveness_from_outside", "enforces": "A record written by the thing that may be gone is not evidence of its liveness.", "off": "supervisor_reports_liveness is recorded and sets the job live." },
+      { "guard": "step_cap", "enforces": "No single step spends more than the host's cap.", "off": "spend_in_step never exceeds; the step grows without bound." },
+      { "guard": "poll_under_wipe", "enforces": "A job addressed less often than the wipe threshold is gone.", "off": "poll always reports polled." },
+      { "guard": "push_on_timer", "enforces": "In-progress work reaches origin on a timer, not when a job remembers to.", "off": "push_partial writes nothing to origin." },
+      { "guard": "never_redispatch_live", "enforces": "A live or unanswerable attempt is adopted or held, never redispatched.", "off": "dispatch always dispatches." },
+      { "guard": "read_back_after_write", "enforces": "A write is confirmed by re-reading it before anything acts on it.", "off": "act_on always acts." },
+      { "guard": "settle_from_evidence", "enforces": "Whoever finds an in-flight claim settles it from durable evidence.", "off": "find_in_flight waits for the claimer to return." },
+      { "guard": "distinct_failure_classes", "enforces": "Two failure classes never share one message.", "off": "report_failure never notices a collision." },
+      { "guard": "substrate_enforces_boundary", "enforces": "The substrate refuses an out-of-boundary write and reports the attempt.", "off": "every write is permitted." },
+      { "guard": "release_by_person", "enforces": "Only a person releases a struck-out unit.", "off": "clock_release releases it." },
+      { "guard": "report_after_clamping", "enforces": "The number reported is the number that will govern.", "off": "report_budget reports what was asked for." },
+      { "guard": "evidence_fingerprinted", "enforces": "An evidence record carries every fingerprint field or is not evidence.", "off": "record_evidence accepts anything." },
+      { "guard": "publication_checks_freshness", "enforces": "Publication compares the record's fingerprint against the current target.", "off": "publish_evidence always publishes." }
+    ],
+    "fingerprint_fields": {
+      "$comment": "Appendix A #13 names four: source SHA, integration SHA, config digest, profile digest. The bundle's one evidence record (contracts/job-protocol.json, records.evidence -> $defs.provenance) already carries all four, under its own spellings. This block is the mapping, and both readers CHECK it against job-protocol.json rather than trusting the copy — the same cross-file rule bundle 2.0.0 added after two contracts described one record and disagreed.",
+      "defined_by": {
+        "contract": "ticfac.job-protocol",
+        "file": "job-protocol.json",
+        "pointer": "#/$defs/provenance",
+        "schema_id": "ticfac.evidence.v1"
+      },
+      "fields": [
+        { "appendix_a": "source SHA", "provenance_field": "source_sha" },
+        { "appendix_a": "integration SHA", "provenance_field": "integration_ref" },
+        { "appendix_a": "config digest", "provenance_field": "context_manifest_digest" },
+        { "appendix_a": "profile digest", "provenance_field": "profile_digest" }
+      ]
+    }
+  },
+  "invariants": [
+    {
+      "id": "A1",
+      "number": 1,
+      "name": "a-stop-is-a-durable-refusal-to-issue-credentials",
+      "title": "A stop is a durable refusal to issue credentials, checked before every boot",
+      "statement": "A stop is a durable refusal to issue credentials, checked before every boot — not a revocation a restart can undo. Revoke before teardown: the money dies first, then the work is rescued.",
+      "earned_from": "A closeout pass enforced no budgets and therefore read no stop record at all: an operator killing a run mid-closeout was talking to nobody, and every closeout reboot minted a fresh credential over their revocation. The ordering half was earned separately (tick gyl): a cancelled wave that tore its containers down before revoking left them able to spend on the way out.",
+      "guards": ["stop_refuses_issue", "revoke_before_teardown"],
+      "today": [
+        {
+          "file": "cloud/factory/src/run-workflow.ts",
+          "symbols": ["hardStopTrip", "hardStopRecord", "detectTrip", "tripRevokeReason", "drainAndKill", "runWaveBatch"],
+          "note": "hardStopTrip is read at every observation of every pass, budgets or no — the closeout pass deliberately enforces no budgets, and a hard stop is not a budget, so it is not on that switch. runWaveBatch revokes before any teardown."
+        },
+        { "file": "cloud/factory/src/gateway.ts", "symbols": ["issueRunToken", "revokeRunTokens", "revokeRunGatewayTokens"], "note": "the issue site the stop has to reach" },
+        { "file": "contracts/credential-ownership.json", "symbols": ["lifecycle.stop"], "note": "the bundle already pins 'a kill switch is a durable refusal to issue'" }
+      ],
+      "sequences": [
+        {
+          "id": "a-stop-refuses-the-NEXT-boot-not-only-the-live-one",
+          "why": "The reboot is the case that matters. A stop that only kills the running container is undone by the very next boot, which mints a fresh credential and resumes spending.",
+          "steps": [
+            { "op": "issue_credential", "job": "orchestrator-1", "expect": "issued" },
+            { "op": "boot", "job": "orchestrator-1", "expect": "booted" },
+            { "op": "request_stop", "by": "operator", "expect": "stop_recorded" },
+            { "op": "issue_credential", "job": "orchestrator-2", "expect": "refused_stopped" },
+            { "op": "boot", "job": "orchestrator-2", "expect": "refused_no_credential" }
+          ],
+          "final": { "booted_jobs": ["orchestrator-1"], "issued_credentials": ["orchestrator-1"] }
+        },
+        {
+          "id": "revoke-before-teardown-the-money-dies-first",
+          "why": "Tick gyl's ordering. A container torn down while its credential still works can spend on the way out, and the teardown is what destroys the evidence of it.",
+          "steps": [
+            { "op": "issue_credential", "job": "worker-mrq", "expect": "issued" },
+            { "op": "boot", "job": "worker-mrq", "expect": "booted" },
+            { "op": "request_stop", "by": "operator", "expect": "stop_recorded" },
+            { "op": "teardown", "job": "worker-mrq", "expect": "refused_credential_live" },
+            { "op": "revoke_credential", "job": "worker-mrq", "expect": "revoked" },
+            { "op": "teardown", "job": "worker-mrq", "expect": "torn_down" }
+          ],
+          "final": { "booted_jobs": ["worker-mrq"], "issued_credentials": ["worker-mrq"], "torn_down": ["worker-mrq"] }
+        }
+      ]
+    },
+    {
+      "id": "A2",
+      "number": 2,
+      "name": "a-supervisor-cannot-report-its-own-death",
+      "title": "A supervisor cannot report its own death",
+      "statement": "A supervisor cannot report its own death. A record written by the thing that may be gone is not evidence of its liveness. Liveness is observed from outside; the run record is not it.",
+      "earned_from": "Runs whose supervisor died mid-wave left the index row frozen at `running` with the containers orphaned and still spending. The row said the run was alive because the last thing able to write it believed so; nothing outside was asked.",
+      "guards": ["liveness_from_outside"],
+      "today": [
+        {
+          "file": "cloud/factory/src/run-workflow.ts",
+          "symbols": ["observe", "renewRunLease", "LeaseRenewal", "leaseLostTrip", "updateRunState", "finalize"],
+          "note": "the run record (updateRunState / writeRunRecord) is written BY the supervisor and is never read as liveness; `observe` asks the sandbox binding, and the lease is renewed against a Durable Object that outlives the isolate."
+        },
+        { "file": "cloud/factory/src/reconcile.ts", "symbols": ["probeLiveness", "NOT_ASKED", "classifyWorker"], "note": "every failure to ask is `known: false` — 'nobody can say' is a different answer from 'nothing is running'" },
+        { "file": "cloud/factory/src/progress.ts", "symbols": ["snapshotRefs", "compareSnapshots"], "note": "whether the epic MOVED is decided against the remote's refs, not against anything the run said" }
+      ],
+      "sequences": [
+        {
+          "id": "the-run-record-is-not-liveness",
+          "why": "The supervisor's own record is written and is then not allowed to answer the liveness question. The answer comes from an observation made outside the job.",
+          "steps": [
+            { "op": "issue_credential", "job": "orchestrator-1", "expect": "issued" },
+            { "op": "boot", "job": "orchestrator-1", "expect": "booted" },
+            { "op": "write_record", "path": "runs/r-2f9c/run.json", "content": { "state": "running" }, "expect": "written" },
+            { "op": "supervisor_reports_liveness", "job": "orchestrator-1", "expect": "refused_self_report" },
+            { "op": "observe_liveness", "job": "orchestrator-1", "as": "dead", "expect": "dead" },
+            { "op": "dispatch", "tick": "mrq", "job": "orchestrator-1", "expect": "dispatched" }
+          ],
+          "final": { "liveness": { "orchestrator-1": "dead" } }
+        }
+      ]
+    },
+    {
+      "id": "A3",
+      "number": 3,
+      "name": "no-step-outlives-the-hosts-cap",
+      "title": "No step outlives the host's cap",
+      "statement": "No step outlives the host's cap. Long waits are spread across bounded steps that re-derive state from durable facts on each leg.",
+      "earned_from": "dispatchWave blocked until every container settled — up to ninety-one minutes — inside one Workflow step that may execute for ten. Every real wave killed its own supervisor at minute ten: `status: errored, \"Execution timed out after 600000ms\"`, run record frozen at `running`, lease unrenewed, containers orphaned and still spending. Both live fan-out runs died exactly there.",
+      "guards": ["step_cap"],
+      "today": [
+        {
+          "file": "cloud/factory/src/run-workflow.ts",
+          "symbols": ["WAVE_LEG_MS", "MAX_WAVE_LEGS", "runWaveBatch", "superviseWaveLoop", "waveSpawnBudget"],
+          "note": "a batch is a sequence of LEGS, each its own step sized to fit inside the cap; every leg re-establishes the wave from the durable layer rather than from a closure, because a step that was in flight when the isolate died runs again from the top."
+        },
+        { "file": "cloud/factory/src/workflow-limits.ts", "symbols": ["WORKFLOW_STEP_TIMEOUT_MS", "STEP_BUDGET_FRACTION", "STEP_WORK_BUDGET_MS", "stepBudget", "shareStepBudget", "fitsInStep"], "note": "the cap and the clamp; a deployment var that would name a longer leg is clamped, never trusted" }
+      ],
+      "sequences": [
+        {
+          "id": "a-long-wait-is-spread-across-bounded-legs",
+          "why": "The wait is longer than one step may execute for, so it becomes two legs. The second leg is a fresh step, not a continuation of the first.",
+          "steps": [
+            { "op": "open_step", "cap_ms": 480000, "expect": "opened" },
+            { "op": "spend_in_step", "ms": 300000, "expect": "within_cap" },
+            { "op": "spend_in_step", "ms": 300000, "expect": "exceeded_cap" },
+            { "op": "open_step", "cap_ms": 480000, "expect": "opened" },
+            { "op": "spend_in_step", "ms": 300000, "expect": "within_cap" }
+          ],
+          "final": { "step_spent_ms": 300000 }
+        },
+        {
+          "id": "each-leg-re-derives-state-from-durable-facts",
+          "why": "A resumed step has none of the previous attempt's memory. What the next leg knows, it re-reads.",
+          "steps": [
+            { "op": "write_record", "path": "runs/r-2f9c/wave.json", "content": { "ticks": ["mrq", "x1w"] }, "expect": "written" },
+            { "op": "open_step", "cap_ms": 480000, "expect": "opened" },
+            { "op": "read_back", "path": "runs/r-2f9c/wave.json", "expect": "confirmed" },
+            { "op": "spend_in_step", "ms": 400000, "expect": "within_cap" },
+            { "op": "open_step", "cap_ms": 480000, "expect": "opened" },
+            { "op": "read_back", "path": "runs/r-2f9c/wave.json", "expect": "confirmed" },
+            { "op": "act_on", "path": "runs/r-2f9c/wave.json", "expect": "acted" }
+          ],
+          "final": { "step_spent_ms": 0 }
+        }
+      ]
+    },
+    {
+      "id": "A4",
+      "number": 4,
+      "name": "polling-is-the-keepalive",
+      "title": "Polling is the keepalive",
+      "statement": "Polling is the keepalive. The interval at which a live job is addressed stays well under the substrate's sleep/wipe threshold, and that relationship is pinned by a constant or a test, not by arithmetic in two files.",
+      "earned_from": "A backed-off cadence widened the unwatched window to five minutes exactly when a run was long-lived and expensive. On run_62c289d1 the cost ceiling was 5, syncRunCost recorded 5.86 correctly, and the run was still `running` with no trip — the accounting was right and the cadence was not. On run a1f87597 a wall-clock ceiling was crossed at 11:29:52 and the token revoked at 11:31:59, two minutes late, because the crossing happened partway through a sleep.",
+      "guards": ["poll_under_wipe"],
+      "today": [
+        {
+          "file": "cloud/factory/src/run-workflow.ts",
+          "symbols": ["MIN_POLL_MS", "MAX_POLL_MS", "POLL_BACKOFF", "pollDelay", "deadlineCap", "spendCap", "BUDGET_POLL_HEADROOM", "renewalTtl", "waveLeaseHeartbeat"],
+          "note": "renewalTtl is the one place the cadence and the lease ttl are related — `pollMs * 3`, clamped — rather than two files each doing the arithmetic."
+        },
+        { "file": "cloud/factory/src/worker-dispatch.ts", "symbols": ["DEFAULT_WAIT_POLL_MS", "probeTimeoutMs"], "note": "the executor's own addressing interval, inside a leg" }
+      ],
+      "sequences": [
+        {
+          "id": "a-job-addressed-under-the-threshold-survives-and-one-over-it-does-not",
+          "why": "The keepalive is not a separate mechanism. It is the poll, and the only thing that makes it a keepalive is that its interval is under the threshold.",
+          "steps": [
+            { "op": "issue_credential", "job": "worker-mrq", "expect": "issued" },
+            { "op": "boot", "job": "worker-mrq", "expect": "booted" },
+            { "op": "advance_clock", "ms": 300000, "expect": "advanced" },
+            { "op": "poll", "job": "worker-mrq", "expect": "polled" },
+            { "op": "advance_clock", "ms": 300000, "expect": "advanced" },
+            { "op": "poll", "job": "worker-mrq", "expect": "polled" },
+            { "op": "advance_clock", "ms": 1500000, "expect": "advanced" },
+            { "op": "poll", "job": "worker-mrq", "expect": "wiped" }
+          ],
+          "final": { "liveness": { "worker-mrq": "dead" } }
+        }
+      ]
+    },
+    {
+      "id": "A5",
+      "number": 5,
+      "name": "in-progress-work-is-pushed-on-a-timer",
+      "title": "In-progress work is pushed on a timer",
+      "statement": "In-progress work is pushed on a timer. Durability that depends on a job remembering to push is not durability. A process exit or a missing handle is never proof of completion, and a job that dies leaves its partial work on origin.",
+      "earned_from": "A worker died mid-turn holding 643 uncommitted lines and settled looking finished. Separately, tick ehy: the first run whose boot chain fully succeeded printed 271 bytes, dispatched no wave, pushed no branch, left the epic's ticks open — and was recorded COMPLETED and charged for, because a harness exits 0 when it has nothing left to say.",
+      "guards": ["push_on_timer"],
+      "today": [
+        {
+          "file": "cloud/sandbox/entrypoint.sh",
+          "symbols": ["start_keeper", "keeper_interval", "TICKS_KEEPER_INTERVAL", "run_branch"],
+          "note": "the run keeper: pushes the run branch and prints a heartbeat every keeper_interval seconds, so a run that dies leaves its work on origin. Not pinned by any test today (see repo-wiki/phase0-compat-suite.md)."
+        },
+        { "file": "cloud/factory/src/run-workflow.ts", "symbols": ["assessProgress", "applyProgress", "isTerminalExit", "finalize"], "note": "tick ehy: the exit status only decides whether to reboot; whether the epic MOVED is decided against the durable layer." },
+        { "file": "cloud/factory/src/progress.ts", "symbols": ["snapshotRefs", "compareSnapshots", "unverifiedProgress"], "note": "the remote's refs before and after — the only completion evidence" },
+        { "file": "cloud/factory/src/worker-dispatch.ts", "symbols": ["DEFAULT_SALVAGE_GRACE_MS"], "note": "the push margin a cancelled container is given before teardown" }
+      ],
+      "sequences": [
+        {
+          "id": "a-job-that-dies-leaves-its-partial-work-on-origin",
+          "why": "The job is killed without warning and never gets to push at exit. What is on origin is what the timer already pushed.",
+          "steps": [
+            { "op": "issue_credential", "job": "worker-mrq", "expect": "issued" },
+            { "op": "boot", "job": "worker-mrq", "expect": "booted" },
+            { "op": "advance_clock", "ms": 60000, "expect": "advanced" },
+            { "op": "push_partial", "job": "worker-mrq", "path": "refs/heads/tick/mrq", "content": { "commits": 1 }, "expect": "pushed" },
+            { "op": "advance_clock", "ms": 60000, "expect": "advanced" },
+            { "op": "push_partial", "job": "worker-mrq", "path": "refs/heads/tick/mrq", "content": { "commits": 2 }, "expect": "pushed" },
+            { "op": "kill_job", "job": "worker-mrq", "expect": "killed" },
+            { "op": "collect", "job": "worker-mrq", "path": "refs/heads/tick/mrq", "expect": "partial_on_origin" }
+          ],
+          "final": { "origin": { "refs/heads/tick/mrq": { "commits": 2 } } }
+        },
+        {
+          "id": "a-push-before-the-timer-is-due-is-not-durability",
+          "why": "The timer is the mechanism. A job that has not reached its interval has pushed nothing, and a kill there loses the work — which is the case the interval is chosen to bound, not to eliminate.",
+          "steps": [
+            { "op": "issue_credential", "job": "worker-x1w", "expect": "issued" },
+            { "op": "boot", "job": "worker-x1w", "expect": "booted" },
+            { "op": "advance_clock", "ms": 30000, "expect": "advanced" },
+            { "op": "push_partial", "job": "worker-x1w", "path": "refs/heads/tick/x1w", "content": { "commits": 1 }, "expect": "not_due" },
+            { "op": "kill_job", "job": "worker-x1w", "expect": "killed" },
+            { "op": "collect", "job": "worker-x1w", "path": "refs/heads/tick/x1w", "expect": "work_lost" }
+          ],
+          "final": { "origin": {} }
+        }
+      ]
+    },
+    {
+      "id": "A6",
+      "number": 6,
+      "name": "a-live-job-is-never-redispatched",
+      "title": "A live job is never redispatched",
+      "statement": "A live job is never redispatched. Adopt by stable identity; a fresh attempt is created only when the previous one is proven dead.",
+      "earned_from": "A branch with no commits is exactly what a worker that has not committed yet looks like. Phase 1 hit this for real: a worker died mid-turn holding 643 uncommitted lines and its branch settled looking finished, so git evidence would have said redispatch while the process was still running. The rule that came out of it is that git evidence never overrules the live process list, and a container that cannot be ASKED what is running in it is `unknown`, never a redispatch.",
+      "guards": ["never_redispatch_live"],
+      "today": [
+        {
+          "file": "cloud/factory/src/reconcile.ts",
+          "symbols": ["reconcileWave", "classifyWorker", "probeLiveness", "NOT_ASKED", "dispatchable", "adoptable", "adoptions", "settled"],
+          "note": "the evidence order — manifests, then git, then the live sandbox list — and the classification that makes 'nobody can say' its own class."
+        },
+        { "file": "cloud/factory/src/run-workflow.ts", "symbols": ["runWaveBatch", "MAX_WORKER_DISPATCHES", "MAX_SANDBOX_BOOTS"], "note": "a leg that finds a tick's container gone redispatches it; bounded at two — the first attempt and the recovery." }
+      ],
+      "sequences": [
+        {
+          "id": "live-is-adopted-unknown-is-held-dead-is-redispatched",
+          "why": "All three answers, in the order a reconcile meets them. Only the third creates a fresh attempt.",
+          "steps": [
+            { "op": "issue_credential", "job": "worker-mrq-1", "expect": "issued" },
+            { "op": "boot", "job": "worker-mrq-1", "expect": "booted" },
+            { "op": "observe_liveness", "job": "worker-mrq-1", "as": "live", "expect": "live" },
+            { "op": "dispatch", "tick": "mrq", "job": "worker-mrq-1", "expect": "adopted" },
+            { "op": "observe_liveness", "job": "worker-mrq-1", "as": "unknown", "expect": "unknown" },
+            { "op": "dispatch", "tick": "mrq", "job": "worker-mrq-1", "expect": "refused_live" },
+            { "op": "observe_liveness", "job": "worker-mrq-1", "as": "dead", "expect": "dead" },
+            { "op": "dispatch", "tick": "mrq", "job": "worker-mrq-1", "expect": "dispatched" }
+          ],
+          "final": { "dispatches": { "mrq": 1 } }
+        }
+      ]
+    },
+    {
+      "id": "A7",
+      "number": 7,
+      "name": "read-back-after-write",
+      "title": "Read back after write",
+      "statement": "Read back after write. A recorded decision or wave is confirmed by re-reading it before anything acts on it; a write that silently did not land must not look like a finished epic.",
+      "earned_from": "A wave request was written and the Workflow read back a request stamped with a different pass number, re-consuming an earlier pass's wave: a Workflow step that completes is checkpointed, but the R2 object beside it is not versioned by the replay. The general shape is worse — a decision write that quietly did not land leaves an epic that looks finished and is not.",
+      "guards": ["read_back_after_write"],
+      "today": [
+        {
+          "file": "cloud/factory/src/run-workflow.ts",
+          "symbols": ["readWaveRequest", "writeRunRecord", "recordRunProgress", "manifestRecorder", "finalize"],
+          "note": "the Workflow reads back exactly the request stamped with the pass number it asked for (src/sandbox.ts, `pass`), rather than trusting the write it just made."
+        },
+        { "file": "cloud/factory/src/artifacts.ts", "symbols": ["readWaveRequest", "writeWaveOutcomes", "writeReconcileRecord"], "note": "the write sites the read-back covers" },
+        { "file": "contracts/ticfac-run-state.json", "symbols": ["cas.modes", "cas.sequences"], "note": "the compare-and-swap that makes a refused write observable rather than silent — the other half of this invariant" }
+      ],
+      "sequences": [
+        {
+          "id": "a-write-that-did-not-land-must-not-look-like-a-finished-epic",
+          "why": "The writer believes the write succeeded. Only the read-back knows otherwise, and nothing acts until it has answered.",
+          "steps": [
+            { "op": "write_record", "path": "runs/r-2f9c/decisions/1.json", "content": { "closed": true }, "silently_drops": true, "expect": "written" },
+            { "op": "read_back", "path": "runs/r-2f9c/decisions/1.json", "expect": "write_did_not_land" },
+            { "op": "act_on", "path": "runs/r-2f9c/decisions/1.json", "expect": "refused_unconfirmed" },
+            { "op": "write_record", "path": "runs/r-2f9c/decisions/1.json", "content": { "closed": true }, "expect": "written" },
+            { "op": "read_back", "path": "runs/r-2f9c/decisions/1.json", "expect": "confirmed" },
+            { "op": "act_on", "path": "runs/r-2f9c/decisions/1.json", "expect": "acted" }
+          ],
+          "final": { "origin": { "runs/r-2f9c/decisions/1.json": { "closed": true } } }
+        }
+      ]
+    },
+    {
+      "id": "A8",
+      "number": 8,
+      "name": "an-in-flight-state-is-settled-by-whoever-finds-it-next",
+      "title": "An in-flight state is settled by whoever finds it next",
+      "statement": "An in-flight state is settled by whoever finds it next, from durable evidence (does the thing exist?), never by trusting the claimer to return.",
+      "earned_from": "A row was set to `committing` before an await; a death there left it stuck forever and reported as already decided. A human button press has no source that retries it.",
+      "guards": ["settle_from_evidence"],
+      "today": [
+        {
+          "file": "cloud/factory/src/run-workflow.ts",
+          "symbols": ["finalize", "updateRunState", "superviseRun"],
+          "note": "finalize ALWAYS runs — whatever happened, the lease is released and the index row reaches a terminal state; a run that ends without releasing its lease wedges the project until the lease ttl expires."
+        },
+        { "file": "cloud/factory/src/reconcile.ts", "symbols": ["classifyWorker", "settled", "settledOutcome"], "note": "the replacement supervisor settles from manifests, git and the live process list — never from what the dead one intended" },
+        { "file": "cloud/factory/src/run-room.ts", "symbols": ["renewDispatchLease", "releaseDispatchLease", "alarm"], "note": "an abandoned lease expires on a DO alarm rather than waiting for its holder to come back and release it" }
+      ],
+      "sequences": [
+        {
+          "id": "the-next-actor-settles-the-claim-from-durable-evidence",
+          "why": "Both directions. A claim with nothing on origin behind it settles as not-done; a claim whose artifact IS on origin settles as done. Either way it settles, and the claimer is never waited for.",
+          "steps": [
+            { "op": "claim", "path": "runs/r-2f9c/attempts/1.json", "actor": "A", "expect": "claimed" },
+            { "op": "find_in_flight", "path": "runs/r-2f9c/attempts/1.json", "actor": "B", "evidence_path": "refs/heads/tick/mrq", "expect": "settled_from_evidence" },
+            { "op": "claim", "path": "runs/r-2f9c/attempts/2.json", "actor": "A", "expect": "claimed" },
+            { "op": "write_record", "path": "refs/heads/tick/x1w", "content": { "commits": 3 }, "expect": "written" },
+            { "op": "find_in_flight", "path": "runs/r-2f9c/attempts/2.json", "actor": "B", "evidence_path": "refs/heads/tick/x1w", "expect": "settled_from_evidence" }
+          ],
+          "final": { "settled": ["runs/r-2f9c/attempts/1.json", "runs/r-2f9c/attempts/2.json"] }
+        }
+      ]
+    },
+    {
+      "id": "A9",
+      "number": 9,
+      "name": "never-collapse-distinct-failure-classes",
+      "title": "Never collapse distinct failure classes into one message",
+      "statement": "Never collapse distinct failure classes into one message. An expired lease and a stolen one; an absent report and landed work; a record that is unreadable and one that is outside the epic — each reports differently.",
+      "earned_from": "run_659b7cf2 read \"the dispatch lease was lost to another run\" when no other run existed: its ten-minute lease had simply lapsed under an eighty-eight-minute container wave that renewed nothing. That message sent the diagnosis looking for a competing run for as long as it stood. Separately, a caught exception was reported as \"record is not valid\", sending diagnosis after a format bug when the fault was crypto.",
+      "guards": ["distinct_failure_classes"],
+      "today": [
+        {
+          "file": "cloud/factory/src/run-workflow.ts",
+          "symbols": ["leaseLostTrip", "LeaseRenewal", "renewRunLease", "cloudWaveLoss", "describeCloudWaveLoss", "tripFromCancellation"],
+          "note": "`null` from renewRunLease is 'the renewal could not be made' and is NOT a lost lease; `ok: false` is a verdict carrying WHICH of the two ways the lease went."
+        },
+        { "file": "cloud/factory/src/gateway.ts", "symbols": ["spendFailureRemedy", "modelRoutingComplaint"], "note": "an expired token, a revoked one and a run that is over are three answers; collapsing them would hide the kill switch" },
+        { "file": "cloud/factory/src/worker-collect.ts", "symbols": ["workerCollector"], "note": "an absent report and landed work are different verdicts (contracts/collect-vocabulary.json)" }
+      ],
+      "sequences": [
+        {
+          "id": "an-expired-lease-and-a-stolen-one-do-not-share-a-message",
+          "why": "Four classes, four messages. The fifth reuses the first's wording and is refused — which is the whole rule, stated as something a test can see.",
+          "steps": [
+            { "op": "report_failure", "class": "lease_expired", "message": "the dispatch lease expired before it was renewed — no other run has taken it", "expect": "reported" },
+            { "op": "report_failure", "class": "lease_taken", "message": "the dispatch lease was taken by another run", "expect": "reported" },
+            { "op": "report_failure", "class": "report_absent", "message": "the worker pushed no RESULT report", "expect": "reported" },
+            { "op": "report_failure", "class": "work_landed_without_report", "message": "the branch carries commits and no RESULT report", "expect": "reported" },
+            { "op": "report_failure", "class": "renewal_unreachable", "message": "the dispatch lease expired before it was renewed — no other run has taken it", "expect": "collapsed" }
+          ],
+          "final": { "reported_classes": ["lease_expired", "lease_taken", "report_absent", "work_landed_without_report"] }
+        }
+      ]
+    },
+    {
+      "id": "A10",
+      "number": 10,
+      "name": "boundaries-are-enforced-by-the-substrate",
+      "title": "Boundaries are enforced by the substrate, not requested of the model",
+      "statement": "Boundaries are enforced by the substrate, not requested of the model. Compliance is a property of the model. The `.tick/` and `.ticfac/` rules are made impossible to break, and every attempt is reported.",
+      "earned_from": "A worker committed tracker state although its prompt forbade it in as many words. A boundary the substrate can enforce must not rest on instruction-following.",
+      "guards": ["substrate_enforces_boundary"],
+      "today": [
+        {
+          "file": "extensions/ticks-runner/boundary.ts",
+          "symbols": ["boundary check", "authority.ts"],
+          "note": "the local half: a worker's commit is checked against the boundary after the fact and the attempt is reported, not merely disallowed in prose."
+        },
+        { "file": "cloud/factory/src/run-workflow.ts", "symbols": ["acquireContext", "planSandboxGit", "orchestratorEnv"], "note": "the credential a job is booted with is the enforcement point — a read-only grade cannot push whatever the prompt says" },
+        { "file": "cloud/factory/src/credentials.ts", "symbols": ["credentialGrade", "planSandboxGit", "containerGitToken"], "note": "grades, and the refusal rather than the downgrade" },
+        { "file": "cloud/factory/src/branch-ownership.ts", "symbols": ["branch ownership"], "note": "which branches a run may move at all" }
+      ],
+      "sequences": [
+        {
+          "id": "an-out-of-boundary-write-is-refused-and-the-attempt-is-reported",
+          "why": "Two refusals and one permitted write. The reporting half matters as much as the refusal: a boundary that silently refuses tells nobody the model tried.",
+          "steps": [
+            { "op": "attempt_boundary_write", "path": ".tick/issues/mrq.json", "expect": "refused_and_reported" },
+            { "op": "attempt_boundary_write", "path": ".ticfac/runs/r-2f9c/checkpoint.json", "expect": "refused_and_reported" },
+            { "op": "attempt_boundary_write", "path": "internal/factory/lifecycle/doc.go", "expect": "permitted" }
+          ],
+          "final": { "boundary_reports": [".tick/issues/mrq.json", ".ticfac/runs/r-2f9c/checkpoint.json"] }
+        }
+      ]
+    },
+    {
+      "id": "A11",
+      "number": 11,
+      "name": "a-struck-out-unit-is-released-by-a-person",
+      "title": "A struck-out unit is released by a person, never by the clock",
+      "statement": "A struck-out unit is released by a person, never by the clock. A rolling window bounds the window, not the subject; a table with writes and no reads is not a guard.",
+      "earned_from": "A table recording \"this branch was given up on\" had two write sites and ZERO reads, so a rolling window re-opened it a day later and the human paged once was never told again. The branch the factory had already handed to a person silently resumed spending the moment its oldest strike aged out.",
+      "guards": ["release_by_person"],
+      "today": [
+        {
+          "file": "cloud/factory/src/ci-remediation.ts",
+          "symbols": ["strikeBudget", "escalationFor", "clearEscalation", "escalate", "STRIKE_BUDGET", "STRIKE_WINDOW_MS"],
+          "note": "ONE function answers 'may this branch buy a remediation run?', and it reads the escalation FIRST: an open escalation refuses, full stop — no window, no arithmetic, because 'time passes' is the answer that caused the bug."
+        },
+        { "file": "cloud/factory/src/ci-escalations.ts", "symbols": ["ciEscalationsRoute", "CI_ESCALATIONS_CLEAR_PATH"], "note": "the person's release door" },
+        { "file": "cloud/factory/src/run-workflow.ts", "symbols": ["MAX_SANDBOX_BOOTS", "MAX_WORKER_DISPATCHES"], "note": "the related-but-different case: these bound attempts WITHIN one run, which then ends — there is no rolling window that could reopen them, and so no release to get wrong." }
+      ],
+      "sequences": [
+        {
+          "id": "time-passing-does-not-reopen-a-struck-out-unit",
+          "why": "The read site is the point. `may_dispatch` is asked before and after a day of clock, and only a person changes its answer.",
+          "steps": [
+            { "op": "strike_out", "unit": "project/branch-a", "expect": "struck" },
+            { "op": "may_dispatch", "unit": "project/branch-a", "expect": "held" },
+            { "op": "advance_clock", "ms": 86400000, "expect": "advanced" },
+            { "op": "clock_release", "unit": "project/branch-a", "expect": "refused_clock_release" },
+            { "op": "may_dispatch", "unit": "project/branch-a", "expect": "held" },
+            { "op": "person_release", "unit": "project/branch-a", "by": "operator", "expect": "released" },
+            { "op": "may_dispatch", "unit": "project/branch-a", "expect": "permitted" }
+          ],
+          "final": { "released_by": { "project/branch-a": "operator" } }
+        }
+      ]
+    },
+    {
+      "id": "A12",
+      "number": 12,
+      "name": "effective-budgets-are-reported-after-clamping",
+      "title": "Effective budgets are reported after clamping",
+      "statement": "Effective budgets are reported after clamping. An operator's number silently replaced by a deployment ceiling is discovered from a cancelled run; say the number that will govern at submission.",
+      "earned_from": "An operator asked for `--max-cost 40` and got $8, because `RUN_MAX_COST_USD` was 8 and a submission may only lower a budget. That is the correct policy and it was applied silently: `tk cloud run` printed nothing about $8, and the first place the real number appeared was the cancellation that ended the run. It was the third time in one epic a deployment ceiling replaced an operator's number with no line anywhere saying so.",
+      "guards": ["report_after_clamping"],
+      "today": [
+        {
+          "file": "cloud/factory/src/run-workflow.ts",
+          "symbols": ["boundedBudget", "runConfig", "effectiveRunBudget", "EffectiveRunBudget", "positiveVar", "hasPositiveVar"],
+          "note": "runConfig is still the one clamp; effectiveRunBudget only REPORTS its result, at the one moment an operator is still reading. `cost_clamped` / `wall_clock_clamped` say when the ceiling lowered what was asked for."
+        }
+      ],
+      "sequences": [
+        {
+          "id": "an-operator-asking-for-40-under-an-8-ceiling-is-told-8",
+          "why": "The clamp is correct and stays. What changes is that the number reported is the number that will govern, and the submission says so while it can still be cancelled cheaply.",
+          "steps": [
+            { "op": "set_budget", "requested": 40, "ceiling": 8, "expect": "clamped" },
+            { "op": "report_budget", "expect": "reported_effective" }
+          ],
+          "final": { "budget": { "requested": 40, "ceiling": 8, "effective": 8, "reported": 8, "clamped": true } }
+        },
+        {
+          "id": "a-budget-under-the-ceiling-is-honoured-and-reported-unchanged",
+          "why": "The reporting rule is not 'always say the ceiling'. It is 'say what will govern', which under the ceiling is what was asked for.",
+          "steps": [
+            { "op": "set_budget", "requested": 5, "ceiling": 25, "expect": "as_requested" },
+            { "op": "report_budget", "expect": "reported_effective" }
+          ],
+          "final": { "budget": { "requested": 5, "ceiling": 25, "effective": 5, "reported": 5, "clamped": false } }
+        }
+      ]
+    },
+    {
+      "id": "A13",
+      "number": 13,
+      "name": "evidence-is-fingerprinted-to-what-it-evaluated",
+      "title": "Evidence is fingerprinted to what it evaluated",
+      "statement": "Evidence is fingerprinted to what it evaluated — source SHA, integration SHA, config digest, profile digest — and publication checks freshness against the current target.",
+      "earned_from": "A green gate was reported for a target it had not evaluated: parallel ticks were each green alone and only the INTEGRATED gate saw the break, which landed in the innocent tick. Evidence with no fingerprint cannot say which of those it ran against, so a stale pass reads exactly like a fresh one.",
+      "guards": ["evidence_fingerprinted", "publication_checks_freshness"],
+      "today": [
+        {
+          "file": "contracts/job-protocol.json",
+          "symbols": ["records.evidence", "$defs.provenance", "$defs.check_result", "$defs.acceptance"],
+          "note": "the bundle's ONE evidence record, and the four fingerprint fields under their own spellings — see harness.fingerprint_fields, which both readers check against this file rather than restating it."
+        },
+        { "file": "cloud/factory/src/run-workflow.ts", "symbols": ["superviseReview", "assessProgress", "acquireContext"], "note": "the run's source snapshot, and the review whose evidence is read from the durable record rather than from an exit status" },
+        { "file": "cloud/factory/src/pr-review.ts", "symbols": ["reviewEvidence", "getReviewForRun", "ReviewTarget"], "note": "tick ehy applied to a run that changes no branch: for a review run the evidence is a posted comment, read back from the record" },
+        { "file": "cloud/factory/src/progress.ts", "symbols": ["snapshotRefs", "compareSnapshots", "RefSnapshot"], "note": "the before/after the fingerprint is drawn from" },
+        { "file": "contracts/ticfac-run-state.json", "symbols": ["references.evidence", "layout.entries"], "note": "where the fingerprinted record is placed, and the create-if-absent that writes it" }
+      ],
+      "sequences": [
+        {
+          "id": "a-record-missing-a-fingerprint-field-is-not-evidence",
+          "why": "All four fields or none of it. A record that omits one cannot say what it evaluated, and 'omitted' and 'null' are different claims — only the second is evidence.",
+          "steps": [
+            {
+              "op": "record_evidence",
+              "key": "go-test",
+              "fingerprint": {
+                "source_sha": "a1b2c3d4",
+                "integration_ref": "refs/heads/epic/692",
+                "context_manifest_digest": "sha256:cfg",
+                "profile_digest": "sha256:prof"
+              },
+              "expect": "recorded"
+            },
+            {
+              "op": "record_evidence",
+              "key": "pnpm-test",
+              "fingerprint": {
+                "source_sha": "a1b2c3d4",
+                "integration_ref": "refs/heads/epic/692",
+                "profile_digest": "sha256:prof"
+              },
+              "expect": "refused_unfingerprinted"
+            }
+          ],
+          "final": { "evidence_keys": ["go-test"] }
+        },
+        {
+          "id": "publication-checks-freshness-against-the-current-target",
+          "why": "The target moved between the check and the publication. The record is still true about what it evaluated and is no longer true about what is being published.",
+          "steps": [
+            {
+              "op": "record_evidence",
+              "key": "go-test",
+              "fingerprint": {
+                "source_sha": "a1b2c3d4",
+                "integration_ref": "refs/heads/epic/692",
+                "context_manifest_digest": "sha256:cfg",
+                "profile_digest": "sha256:prof"
+              },
+              "expect": "recorded"
+            },
+            {
+              "op": "publish_evidence",
+              "key": "go-test",
+              "target": {
+                "source_sha": "a1b2c3d4",
+                "integration_ref": "refs/heads/epic/692",
+                "context_manifest_digest": "sha256:cfg",
+                "profile_digest": "sha256:prof"
+              },
+              "expect": "published"
+            },
+            {
+              "op": "publish_evidence",
+              "key": "go-test",
+              "target": {
+                "source_sha": "e5f6a7b8",
+                "integration_ref": "refs/heads/epic/692",
+                "context_manifest_digest": "sha256:cfg",
+                "profile_digest": "sha256:prof"
+              },
+              "expect": "refused_stale"
+            }
+          ],
+          "final": { "published_keys": ["go-test"] }
+        }
+      ]
+    }
+  ]
+}

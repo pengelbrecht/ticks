@@ -1,0 +1,984 @@
+{
+  "why": [
+    "ticfac keeps its run state in the repository it executes against, under",
+    ".ticfac/ (SPEC 10.4). This file pins three things that two implementations",
+    "have to agree on before either exists: the LAYOUT (which record lives at",
+    "which path, and which paths are gitignored exhaust), the PERSISTENCE POLICY",
+    "(durable means pushed on origin; churn stays on the run branch; the terminal",
+    "record lands once at publish; the run branch is tagged at terminal state),",
+    "and the COMPARE-AND-SWAP RULES that make an effect idempotent (SPEC 4.2:",
+    "create-if-absent for a dispatch, SHA-guarded update for a checkpoint, both",
+    "against the ORIGIN ref).",
+    "",
+    "Why it needs two readers rather than a paragraph in the spec: the same rules",
+    "are reached through two entirely different mechanisms. A local host does",
+    "create-if-absent and SHA-guarded update with `git push --force-with-lease`;",
+    "a Cloudflare Worker does them through the GitHub contents API, which is a",
+    "compare-and-swap on the branch ref. Two mechanisms implementing one rule is",
+    "exactly the shape that drifts silently, and the failure is invisible in the",
+    "worst way: a CAS that has quietly stopped guarding does not error, it lets a",
+    "second reconciler dispatch the same attempt twice and pays for both.",
+    "",
+    "So the cas.sequences below are not prose. They are executable table tests,",
+    "run on both sides against an in-memory git fake, and a fake that disagrees",
+    "with the fixture is a reconciler that would disagree with git."
+  ],
+  "schema_version": 1,
+  "contract": "ticfac.run_state",
+  "spec": "docs/projects/2026-09-01-ticfac-architecture/SPEC.md",
+  "spec_sections": ["4.2", "10.1", "10.4", "12 Phase 0 step 6"],
+
+  "layout": {
+    "root": ".ticfac",
+    "mirrors": ".tick",
+    "mirrors_in": ["location", "boundary rules"],
+    "differs_in": ["persistence policy"],
+    "run_dir": ".ticfac/runs/<run-id>",
+    "one_file_per_record": true,
+    "why_one_file_per_record": "Concurrent EpicRuns writing different runs/<id>/ directories merge cleanly — the same argument ticks makes for one file per tick.",
+    "entries": [
+      {
+        "path": ".ticfac/runs/<run-id>/checkpoint.json",
+        "record": "checkpoint",
+        "committed": true,
+        "cardinality": "exactly one per run",
+        "cas": "sha_guarded_update",
+        "first_write": "create_if_absent",
+        "written_on": "state change",
+        "why": "One commit per state change. Recovery is a fetch; audit is the log of this path."
+      },
+      {
+        "path": ".ticfac/runs/<run-id>/attempts/<n>.json",
+        "record": "attempt",
+        "committed": true,
+        "cardinality": "one per dispatch",
+        "cas": "create_if_absent",
+        "name_is": "<n> is the 1-based attempt number for the tick",
+        "written_on": "dispatch",
+        "why": "Existence IS the idempotency marker: a second reconciler racing the same attempt is refused by the repository, not by a lock it might have lost."
+      },
+      {
+        "path": ".ticfac/runs/<run-id>/evidence/<key>.json",
+        "record": "evidence",
+        "record_defined_in": "job-protocol.json",
+        "schema_id": "ticfac.evidence.v1",
+        "committed": true,
+        "cardinality": "one per evidence key",
+        "cas": "create_if_absent",
+        "name_is": "<key> is the record's own `key` field, and names the evidence: stable for the same check on the same source ref",
+        "written_on": "a configured command or check producing a result",
+        "why": "Evidence is a bounded, redacted record of something that already happened (SPEC 10.1). A record that can be overwritten is not evidence."
+      },
+      {
+        "path": ".ticfac/runs/<run-id>/decisions/<n>.json",
+        "record": "decision",
+        "committed": true,
+        "cardinality": "one per role-job exchange",
+        "cas": "create_if_absent",
+        "name_is": "<n> is the 1-based decision number within the run",
+        "written_on": "a validated role-job response",
+        "why": "The request and the validated response land together, with provenance, so a decision can be re-read without re-asking a model."
+      },
+      {
+        "path": ".ticfac/.index.json",
+        "record": null,
+        "committed": false,
+        "rebuildable": true,
+        "hosted_equivalent": "D1",
+        "why": "A derived index over the run directories. Rebuildable from the committed records, so it is never the authority and never merged."
+      },
+      {
+        "path": ".ticfac/logs/",
+        "record": null,
+        "committed": false,
+        "rebuildable": false,
+        "why": "Exhaust. Useful while a run is live, worthless afterwards, and far too noisy to commit at a run's write cadence."
+      }
+    ]
+  },
+
+  "authority": {
+    "durable_authority": "the committed records under .ticfac/runs/<run-id>/, on origin",
+    "d1_is_authority": false,
+    "hosted_index_is_derived": true,
+    "why": "SPEC 12 Phase 0 step 6: run state never lands in D1 as authority. A hosted index is a cache that a fetch can rebuild; if it were the authority, a run's record would be unreadable from the repository it ran against."
+  },
+
+  "boundary": {
+    "only_writer": "the reconciler",
+    "workers_write": false,
+    "ticks_reads_ticfac": false,
+    "is_configuration": false,
+    "configuration_lives_in": [
+      "the ticfac repository (decision profiles, SPEC 11)",
+      ".tick/runners.toml (run configuration, SPEC 2.1)"
+    ],
+    "relocatable_to_sibling_repository": true,
+    "default_location": "the project repository",
+    "why_default": "The coordination key is already repository + target ref."
+  },
+
+  "persistence": {
+    "durable_means": "pushed on origin",
+    "local_commit_is_durable": false,
+    "write_commit_push_is_one_operation": true,
+    "cas_ref": "origin",
+    "churn_branch": "the EpicRun integration branch",
+    "audit_command": "git log -- .ticfac/runs/<run-id>/",
+    "checkpoint_on": "state change",
+    "checkpoint_on_observation": false,
+    "why_origin": "The writer is a sandbox that can be wiped. A container that dies leaves its work on origin or nowhere.",
+    "terminal_record": {
+      "lands_on": "the target ref",
+      "times": 1,
+      "through": "the epic's PR",
+      "form": "final form only: the last checkpoint, all attempts, evidence and decisions",
+      "intermediate_commits_land_on_target": false,
+      "collapsed_by": "squash merge"
+    },
+    "tag": {
+      "pattern": "ticfac/run-<run-id>",
+      "placed_at": "terminal state",
+      "placed_before": "run branch deletion",
+      "placed_on_unpublished_runs": true,
+      "why": "The full history stays reachable for a post-mortem without living in the target's log — and a failed or cancelled run's history is as reachable as a successful one's."
+    },
+    "gc": {
+      "command": "ticfac gc",
+      "prunes": ["run tags", "terminal run directories"],
+      "by": ["age", "terminal state"],
+      "modeled_on": ".tick/activity/ pruning"
+    },
+    "conflict_is": "the signal",
+    "conflict_retry_blindly": false
+  },
+
+  "gitignore": {
+    "target": ".gitignore",
+    "begin_marker": "# BEGIN ticfac run state",
+    "end_marker": "# END ticfac run state",
+    "fragment": [
+      "# BEGIN ticfac run state",
+      "# .ticfac/runs/** is COMMITTED — it is the run's durable record (SPEC 10.4),",
+      "# and durable means pushed on origin. Only these two are exhaust:",
+      ".ticfac/.index.json",
+      ".ticfac/logs/",
+      "# END ticfac run state"
+    ],
+    "ignored_examples": [
+      ".ticfac/.index.json",
+      ".ticfac/logs/reconcile-2026-09-02.log"
+    ],
+    "tracked_examples": [
+      ".ticfac/runs/r-x1w/checkpoint.json",
+      ".ticfac/runs/r-x1w/attempts/1.json",
+      ".ticfac/runs/r-x1w/evidence/gate-integrated.json",
+      ".ticfac/runs/r-x1w/decisions/1.json"
+    ]
+  },
+
+  "envelope": {
+    "why": "SPEC 10.4: every committed file carries a schema_version and the provenance fields of an evidence record. That is what makes one loose JSON file readable years later by something that did not write it.",
+    "required_on_every_committed_record": ["schema_version", "provenance"],
+    "provenance_is": "the $defs.provenance object of contracts/job-protocol.json, copied here field for field so the local $refs resolve. It is the SAME object, not a compatible one: the cross-file readers compare the two definitions structurally, because two spellings of one shape is what bundle 1.2.0 shipped."
+  },
+
+  "references": {
+    "evidence": {
+      "record": "evidence",
+      "why": "A record this contract PLACES but does not DEFINE. Bundle 1.2.0 defined the evidence record twice — flat and closed there, nested and open here — and no document could satisfy both; neither suite saw it, because each validated its own examples against its own schema. There is now one definition, and this is the pointer to it.",
+      "schema_id": "ticfac.evidence.v1",
+      "contract": "ticfac.job-protocol",
+      "file": "job-protocol.json",
+      "pointer": "#/records/evidence",
+      "division_of_labour": "This contract owns WHERE the file goes (.ticfac/runs/<run-id>/evidence/<key>.json), HOW it is written (create-if-absent against origin) and that it carries the envelope; job-protocol.json owns WHAT IS IN IT. The golden and invalid examples below are validated against that definition, from both readers.",
+      "key_is": "the <key> in the path is the record's own `key` field, so a filename and a citation in a JobResult name the same thing"
+    }
+  },
+
+  "$defs": {
+    "provenance": {
+      "type": "object",
+      "description": "Where a record came from: which run, which refs, which phase, and what produced it — SPEC §10.1's provenance fields. This is the ONE definition of them in the bundle. The evidence record below carries it, and so does every committed .ticfac/ record (contracts/ticfac-run-state.json, SPEC §10.4: 'every committed file carries a schema_version and the provenance fields of an evidence record'). Every field is REQUIRED, nullable where it can be genuinely absent: a record that omits integration_ref and one that states it as null are different claims, and only the second is evidence.",
+      "required": [
+        "run_id",
+        "tick_id",
+        "attempt",
+        "source_ref",
+        "source_sha",
+        "integration_ref",
+        "phase",
+        "executor",
+        "workspace_id",
+        "backend",
+        "role",
+        "profile_digest",
+        "model",
+        "context_manifest_digest"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "run_id": { "type": "string" },
+        "tick_id": { "type": ["string", "null"], "description": "Null for epic-level or run-level records." },
+        "attempt": { "type": ["integer", "null"], "description": "Null for a record that belongs to no single dispatch — a run checkpoint, say." },
+        "source_ref": { "type": "string" },
+        "source_sha": { "type": "string" },
+        "integration_ref": {
+          "type": ["string", "null"],
+          "description": "Null before integration. Required-and-null rather than omitted, because 'this ran before integration' and 'nobody recorded where it ran' are different claims."
+        },
+        "phase": { "$ref": "#/$defs/phase" },
+        "executor": {
+          "anyOf": [{ "$ref": "#/$defs/executor" }, { "type": "null" }],
+          "description": "Null for a record no executor produced — a reconciler-side decision, say."
+        },
+        "workspace_id": { "type": ["string", "null"] },
+        "backend": {
+          "type": ["string", "null"],
+          "description": "The concrete backend, e.g. container-shell. Backend names do not cross the JobSpec seam; a record names them AFTER the fact, which is how a run is explained without the reconciler ever choosing one."
+        },
+        "role": {
+          "anyOf": [{ "$ref": "#/$defs/role" }, { "type": "null" }],
+          "description": "Null for a deterministic check with no LLM behind it — a test command is evidence too."
+        },
+        "profile_digest": { "type": ["string", "null"] },
+        "model": { "type": ["string", "null"] },
+        "context_manifest_digest": { "type": ["string", "null"] }
+      }
+    },
+    "phase": {
+      "type": "string",
+      "enum": ["worker", "post-wave", "integrated", "review", "closeout"],
+      "$comment": "The gate vocabulary the current implementation already runs (SPEC §6.1 Gates: 'configured worker/post-wave/integrated/review commands'), plus closeout. Naming the phase is what makes a record reproducible: the same command against the same ref at a different phase answers a different question. Reached through $defs.provenance, so a checkpoint, an attempt, a decision and an evidence record all name their phase from this one closed vocabulary."
+    },
+    "executor": {
+      "type": "string",
+      "enum": ["local-subprocess", "herdr", "cloudflare-sandbox", "cloudflare-computer"],
+      "$comment": "SPEC §4.3 initial executors. An executor NAME crosses this seam; a concrete backend name does not — that is the difference between `cloudflare-computer` here and `container-shell` in an evidence record, which explains a run after the fact."
+    },
+    "role": {
+      "type": "string",
+      "enum": [
+        "plan-epic",
+        "implement-tick",
+        "review-epic",
+        "triage-failure",
+        "plan-repair",
+        "resolve-conflict",
+        "closeout-epic",
+        "evaluate-goal"
+      ],
+      "description": "SPEC §4.4. There is no universal Decision Agent: every LLM call is a bounded job with a role-specific contract, so the role is a closed vocabulary rather than free text."
+    },
+    "tick_state": {
+      "type": "object",
+      "required": ["tick_id", "state"],
+      "additionalProperties": false,
+      "properties": {
+        "tick_id": { "type": "string" },
+        "state": {
+          "type": "string",
+          "enum": ["ready", "dispatched", "reported", "integrated", "rejected", "closed"]
+        },
+        "attempt": { "type": "integer" }
+      }
+    }
+  },
+
+  "schemas": {
+    "checkpoint": {
+      "$comment": "One per run, at .ticfac/runs/<run-id>/checkpoint.json. Updated under a SHA guard; written on state change, never on observation.",
+      "type": "object",
+      "required": ["schema_version", "run_id", "epic_id", "sequence", "state", "reason", "updated_at", "provenance"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": { "type": "integer" },
+        "run_id": { "type": "string" },
+        "epic_id": { "type": "string" },
+        "sequence": {
+          "type": "integer",
+          "description": "Monotonic within the run, incremented on each state change. A checkpoint whose sequence did not move is an observation, and an observation writes nothing."
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "admitted",
+            "dispatching",
+            "running",
+            "collecting",
+            "gating",
+            "integrating",
+            "publishing",
+            "completed",
+            "failed",
+            "cancelled"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "description": "What changed. Present because a checkpoint is written on a state change, so there is always something to name."
+        },
+        "updated_at": { "type": "string" },
+        "ticks": { "type": "array", "items": { "$ref": "#/$defs/tick_state" } },
+        "provenance": { "$ref": "#/$defs/provenance" }
+      }
+    },
+    "attempt": {
+      "$comment": "One per dispatch, at .ticfac/runs/<run-id>/attempts/<n>.json. Created if absent — its existence is the idempotency marker for the dispatch.",
+      "type": "object",
+      "required": ["schema_version", "attempt", "tick_id", "dispatched_at", "job_handle", "provenance"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": { "type": "integer" },
+        "attempt": { "type": "integer" },
+        "tick_id": { "type": "string" },
+        "dispatched_at": { "type": "string" },
+        "job_handle": {
+          "$comment": "The JobHandle returned by the executor's start (SPEC 4.3). Its shape is owned by the executor-protocol contract, not by this one — this contract only requires that the handle a dispatch was made with is recorded beside the marker that proves the dispatch happened.",
+          "type": "object",
+          "additionalProperties": true
+        },
+        "provenance": { "$ref": "#/$defs/provenance" }
+      }
+    },
+    "decision": {
+      "$comment": "One per role-job exchange, at .ticfac/runs/<run-id>/decisions/<n>.json. Created if absent.",
+      "type": "object",
+      "required": ["schema_version", "decision", "role", "request", "response", "validated", "requested_at", "answered_at", "provenance"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": { "type": "integer" },
+        "decision": { "type": "integer" },
+        "role": { "type": "string" },
+        "request": { "type": "object", "additionalProperties": true },
+        "response": {
+          "$comment": "The role-result record. Its shape is owned by the role-result contract; what this contract pins is that the VALIDATED response is what lands, with provenance, so the decision can be re-read without re-asking a model.",
+          "type": "object",
+          "additionalProperties": true
+        },
+        "validated": { "type": "boolean" },
+        "requested_at": { "type": "string" },
+        "answered_at": { "type": "string" },
+        "provenance": { "$ref": "#/$defs/provenance" }
+      }
+    }
+  },
+
+  "golden": {
+    "checkpoint": {
+      "schema_version": 1,
+      "run_id": "r-2f9c",
+      "epic_id": "692",
+      "sequence": 7,
+      "state": "gating",
+      "reason": "wave 1 fan-in complete: 4 of 4 ticks reported",
+      "updated_at": "2026-09-02T10:14:33Z",
+      "ticks": [
+        { "tick_id": "hym", "state": "integrated", "attempt": 1 },
+        { "tick_id": "rs2", "state": "integrated", "attempt": 1 },
+        { "tick_id": "mrq", "state": "reported", "attempt": 2 },
+        { "tick_id": "uzq", "state": "integrated", "attempt": 1 }
+      ],
+      "provenance": {
+        "run_id": "r-2f9c",
+        "tick_id": null,
+        "attempt": null,
+        "source_ref": "refs/heads/main",
+        "source_sha": "acb08b9493dd8647918efbebac27079c64339946",
+        "integration_ref": "refs/heads/epic/692",
+        "phase": "post-wave",
+        "executor": null,
+        "workspace_id": null,
+        "backend": null,
+        "role": null,
+        "profile_digest": null,
+        "model": null,
+        "context_manifest_digest": null
+      }
+    },
+    "attempt": {
+      "schema_version": 1,
+      "attempt": 2,
+      "tick_id": "mrq",
+      "dispatched_at": "2026-09-02T09:41:02Z",
+      "job_handle": {
+        "executor": "local-subprocess",
+        "workspace_id": "wt-mrq-2",
+        "handle": "pid:48211"
+      },
+      "provenance": {
+        "run_id": "r-2f9c",
+        "tick_id": "mrq",
+        "attempt": 2,
+        "source_ref": "refs/heads/epic/692",
+        "source_sha": "8ce085870a1d4e1f9c2b6a0d7e4f3c1b5a908d62",
+        "integration_ref": "refs/heads/epic/692",
+        "phase": "worker",
+        "executor": "local-subprocess",
+        "workspace_id": "wt-mrq-2",
+        "backend": "subprocess",
+        "role": "implement-tick",
+        "profile_digest": "sha256:3f1c0a",
+        "model": "claude-opus-5",
+        "context_manifest_digest": "sha256:9b22de"
+      }
+    },
+    "decision": {
+      "schema_version": 1,
+      "decision": 1,
+      "role": "review-epic",
+      "request": {
+        "question": "wave 1 is green; is the frontier ready for wave 2?",
+        "epic_id": "692",
+        "open_ticks": ["q8j", "x1w", "8jz"]
+      },
+      "response": {
+        "verdict": "proceed",
+        "wave": ["q8j", "x1w"],
+        "reason": "8jz depends on the Phase 0 schemas landing first"
+      },
+      "validated": true,
+      "requested_at": "2026-09-02T10:15:01Z",
+      "answered_at": "2026-09-02T10:15:44Z",
+      "provenance": {
+        "run_id": "r-2f9c",
+        "tick_id": null,
+        "attempt": null,
+        "source_ref": "refs/heads/epic/692",
+        "source_sha": "acb08b9493dd8647918efbebac27079c64339946",
+        "integration_ref": "refs/heads/epic/692",
+        "phase": "review",
+        "executor": null,
+        "workspace_id": null,
+        "backend": null,
+        "role": "review-epic",
+        "profile_digest": "sha256:3f1c0a",
+        "model": "claude-opus-5",
+        "context_manifest_digest": "sha256:71aa04"
+      }
+    },
+    "evidence": {
+      "schema_version": 1,
+      "key": "gate-integrated-go-test",
+      "provenance": {
+        "run_id": "r-2f9c",
+        "tick_id": null,
+        "attempt": null,
+        "source_ref": "refs/heads/epic/692",
+        "source_sha": "acb08b9493dd8647918efbebac27079c64339946",
+        "integration_ref": "refs/heads/epic/692",
+        "phase": "integrated",
+        "executor": "local-subprocess",
+        "workspace_id": "wt-gate-1",
+        "backend": "subprocess",
+        "role": null,
+        "profile_digest": null,
+        "model": null,
+        "context_manifest_digest": null
+      },
+      "check": { "id": "gate-integrated-go-test", "kind": "command", "command": ["go", "test", "./..."] },
+      "started_at": "2026-09-02T10:16:00Z",
+      "finished_at": "2026-09-02T10:19:12Z",
+      "exit_code": 0,
+      "output": {
+        "mode": "artifact",
+        "uri": "ticfac://runs/r-2f9c/logs/gate-integrated-go-test.txt",
+        "content_digest": "sha256:c41e7b",
+        "redacted": true,
+        "bytes": 4096
+      },
+      "result": "pass",
+      "acceptance": "required",
+      "content_digest": "sha256:c41e7b",
+      "persistence_uri": "ticfac://runs/r-2f9c/evidence/gate-integrated-go-test.json"
+    }
+  },
+
+  "invalid": [
+    {
+      "record": "checkpoint",
+      "why": "no provenance — SPEC 10.4 requires it on every committed file, and a checkpoint that does not name the source sha it reconciled cannot be replayed",
+      "expect_error_contains": "$: missing required property \"provenance\"",
+      "document": {
+        "schema_version": 1,
+        "run_id": "r-2f9c",
+        "epic_id": "692",
+        "sequence": 1,
+        "state": "admitted",
+        "reason": "epic admitted",
+        "updated_at": "2026-09-02T09:00:00Z"
+      }
+    },
+    {
+      "record": "checkpoint",
+      "why": "a state nobody agreed to: 'in_flight' is not in the enum, and a state meaning 'in flight' that no other reconciler can settle is the exact failure this vocabulary is closed to prevent",
+      "expect_error_contains": "$.state: in_flight is not one of the permitted values",
+      "document": {
+        "schema_version": 1,
+        "run_id": "r-2f9c",
+        "epic_id": "692",
+        "sequence": 2,
+        "state": "in_flight",
+        "reason": "dispatching wave 1",
+        "updated_at": "2026-09-02T09:01:00Z",
+        "provenance": {
+          "run_id": "r-2f9c",
+          "tick_id": null,
+          "attempt": null,
+          "source_ref": "refs/heads/main",
+          "source_sha": "acb08b94",
+          "integration_ref": "refs/heads/epic/692",
+          "phase": "worker",
+          "executor": null,
+          "workspace_id": null,
+          "backend": null,
+          "role": null,
+          "profile_digest": null,
+          "model": null,
+          "context_manifest_digest": null
+        }
+      }
+    },
+    {
+      "record": "attempt",
+      "why": "no job_handle — the marker proves a dispatch happened, and without the handle nothing can inspect, cancel or collect the job it started",
+      "expect_error_contains": "$: missing required property \"job_handle\"",
+      "document": {
+        "schema_version": 1,
+        "attempt": 1,
+        "tick_id": "mrq",
+        "dispatched_at": "2026-09-02T09:41:02Z",
+        "provenance": {
+          "run_id": "r-2f9c",
+          "tick_id": "mrq",
+          "attempt": 1,
+          "source_ref": "refs/heads/epic/692",
+          "source_sha": "8ce08587",
+          "integration_ref": "refs/heads/epic/692",
+          "phase": "worker",
+          "executor": "local-subprocess",
+          "workspace_id": "wt-mrq-1",
+          "backend": "subprocess",
+          "role": "implement-tick",
+          "profile_digest": null,
+          "model": null,
+          "context_manifest_digest": null
+        }
+      }
+    },
+    {
+      "record": "attempt",
+      "why": "attempt is a string — <n> in the path is a number and a record whose attempt is \"2\" cannot be compared to one whose attempt is 2",
+      "expect_error_contains": "$.attempt: expected type integer, got string",
+      "document": {
+        "schema_version": 1,
+        "attempt": "2",
+        "tick_id": "mrq",
+        "dispatched_at": "2026-09-02T09:41:02Z",
+        "job_handle": { "executor": "local-subprocess" },
+        "provenance": {
+          "run_id": "r-2f9c",
+          "tick_id": "mrq",
+          "attempt": 1,
+          "source_ref": "refs/heads/epic/692",
+          "source_sha": "8ce08587",
+          "integration_ref": "refs/heads/epic/692",
+          "phase": "worker",
+          "executor": "local-subprocess",
+          "workspace_id": "wt-mrq-1",
+          "backend": "subprocess",
+          "role": "implement-tick",
+          "profile_digest": null,
+          "model": null,
+          "context_manifest_digest": null
+        }
+      }
+    },
+    {
+      "record": "decision",
+      "why": "no validated flag — an unvalidated model response landing as a decision is how a hallucinated wave gets dispatched",
+      "expect_error_contains": "$: missing required property \"validated\"",
+      "document": {
+        "schema_version": 1,
+        "decision": 1,
+        "role": "frontier_review",
+        "request": { "question": "ready?" },
+        "response": { "verdict": "proceed" },
+        "requested_at": "2026-09-02T10:15:01Z",
+        "answered_at": "2026-09-02T10:15:44Z",
+        "provenance": {
+          "run_id": "r-2f9c",
+          "tick_id": null,
+          "attempt": null,
+          "source_ref": "refs/heads/epic/692",
+          "source_sha": "acb08b94",
+          "integration_ref": "refs/heads/epic/692",
+          "phase": "review",
+          "executor": null,
+          "workspace_id": null,
+          "backend": null,
+          "role": "review-epic",
+          "profile_digest": null,
+          "model": null,
+          "context_manifest_digest": null
+        }
+      }
+    },
+    {
+      "record": "evidence",
+      "validated_against": "ticfac.evidence.v1",
+      "why": "provenance without integration_ref — evidence that does not name the ref it was produced against proves nothing about the ref being gated. Refused by the referenced definition (references.evidence), not by a second schema kept here.",
+      "expect_error_contains": "$.provenance: missing required property \"integration_ref\"",
+      "document": {
+        "schema_version": 1,
+        "key": "gate-integrated-go-test",
+        "provenance": {
+          "run_id": "r-2f9c",
+          "tick_id": null,
+          "attempt": null,
+          "source_ref": "refs/heads/epic/692",
+          "source_sha": "acb08b94",
+          "phase": "integrated",
+          "executor": "local-subprocess",
+          "workspace_id": "wt-gate-1",
+          "backend": "subprocess",
+          "role": null,
+          "profile_digest": null,
+          "model": null,
+          "context_manifest_digest": null
+        },
+        "check": { "id": "gate-integrated-go-test", "kind": "command", "command": ["go", "test", "./..."] },
+        "started_at": "2026-09-02T10:16:00Z",
+        "finished_at": "2026-09-02T10:19:12Z",
+        "exit_code": 0,
+        "output": { "mode": "inline", "stdout": "ok\n", "stderr": "", "truncated": false, "redacted": true, "max_bytes": 65536 },
+        "result": "pass",
+        "acceptance": "required",
+        "content_digest": "sha256:c41e7b",
+        "persistence_uri": "ticfac://runs/r-2f9c/evidence/gate-integrated-go-test.json"
+      }
+    },
+    {
+      "record": "evidence",
+      "validated_against": "ticfac.evidence.v1",
+      "why": "THE DOCUMENT BUNDLE 1.2.0 SHIPPED AS THIS CONTRACT'S GOLDEN EVIDENCE EXAMPLE. It carried a bare `command` string, an `output_uri`, no `check` and an acceptance of \"accepted\", and it validated here because this contract's envelope was open past schema_version, key and provenance — while job-protocol.json's records.evidence refused it 22 ways. Kept as the negative control for the reconciliation: the open envelope is gone, and the shape that only ever validated against half the bundle is now refused by the half that defines the record.",
+      "expect_error_contains": "$: unexpected property \"command\"",
+      "document": {
+        "schema_version": 1,
+        "key": "gate-integrated-go-test",
+        "command": "go test ./...",
+        "started_at": "2026-09-02T10:16:00Z",
+        "finished_at": "2026-09-02T10:19:12Z",
+        "exit_code": 0,
+        "result": "pass",
+        "acceptance": "accepted",
+        "output_uri": "ticfac://runs/r-2f9c/logs/gate-integrated-go-test.txt",
+        "content_digest": "sha256:c41e7b",
+        "provenance": {
+          "run_id": "r-2f9c",
+          "source_ref": "refs/heads/epic/692",
+          "source_sha": "acb08b9493dd8647918efbebac27079c64339946",
+          "integration_ref": "refs/heads/epic/692",
+          "phase": "gate",
+          "executor": "local-subprocess",
+          "workspace_id": "wt-gate-1",
+          "backend": "subprocess"
+        }
+      }
+    }
+  ],
+
+  "cas": {
+    "why": [
+      "SPEC 4.2: an effect is idempotent when the compare-and-swap that precedes",
+      "it proves it has not already happened. Two modes, and each record kind",
+      "gets exactly one of them.",
+      "",
+      "The guard is against the ORIGIN ref. A local host reaches it with",
+      "`git push --force-with-lease`; a Worker reaches it through the GitHub",
+      "contents API, which is a compare-and-swap on the branch ref. The signal",
+      "funnel already relies on the second of those."
+    ],
+    "ref": "origin",
+    "local_ref_is_authority": false,
+    "mechanisms": {
+      "local_host": "git push --force-with-lease",
+      "worker": "the GitHub contents API (a compare-and-swap on the branch ref)"
+    },
+    "modes": [
+      {
+        "mode": "create_if_absent",
+        "guard": "the path must not exist on the origin ref",
+        "on_conflict": "conflict_exists",
+        "effect_permitted_on_conflict": false,
+        "records": ["attempt", "evidence", "decision"],
+        "why": "The file's existence is the proof the effect already happened. A refused create means another reconciler already dispatched, so this one must not."
+      },
+      {
+        "mode": "sha_guarded_update",
+        "guard": "the blob sha on the origin ref must equal the one the writer fetched",
+        "on_conflict": "conflict_stale_sha",
+        "effect_permitted_on_conflict": false,
+        "records": ["checkpoint"],
+        "why": "A conflict means the writer's view of the run is stale — someone else advanced it. Re-fetch and reconcile from what is actually there; never retry blindly."
+      }
+    ],
+    "fake": {
+      "why": "A tiny in-memory model of the one git behaviour these rules depend on, so the sequences below are executable in any language without a repository. Origin is shared; each actor has its own fetched VIEW of it, which is the only thing its SHA guard may use.",
+      "ops": [
+        { "op": "fetch", "does": "actor.view := the current origin path->sha map", "outcomes": ["fetched"] },
+        { "op": "observe", "does": "a poll that learns nothing: refreshes the view and writes nothing", "outcomes": ["no_change"] },
+        { "op": "commit_local", "does": "write into the actor's local tree only; origin is untouched", "outcomes": ["local_only"] },
+        { "op": "create_if_absent", "does": "commit and push in one operation, guarded on the path being absent from origin", "outcomes": ["created", "conflict_exists"] },
+        { "op": "update_if_sha", "does": "commit and push in one operation, guarded on origin's sha for the path equalling the actor's fetched sha", "outcomes": ["updated", "conflict_stale_sha", "conflict_missing_base"] }
+      ],
+      "rules": [
+        "A successful push refreshes the WRITER's view of the path it wrote, and no other actor's.",
+        "A refused push writes nothing: origin_writes does not move.",
+        "update_if_sha with no fetched sha for the path is conflict_missing_base — a writer that never read origin cannot compare against it.",
+        "commit_local never changes origin. Durable means pushed."
+      ]
+    },
+    "sequences": [
+      {
+        "id": "dispatch-attempt-is-create-if-absent",
+        "why": "Two reconcilers race the same dispatch. The second is refused by the repository, not by a lock it might have lost — and the loser must NOT start a job.",
+        "steps": [
+          { "actor": "A", "op": "fetch", "expect": "fetched" },
+          { "actor": "B", "op": "fetch", "expect": "fetched" },
+          {
+            "actor": "A",
+            "op": "create_if_absent",
+            "path": ".ticfac/runs/r-2f9c/attempts/1.json",
+            "content": { "attempt": 1, "tick_id": "mrq", "dispatched_by": "A" },
+            "expect": "created",
+            "effect_permitted": true
+          },
+          {
+            "actor": "B",
+            "op": "create_if_absent",
+            "path": ".ticfac/runs/r-2f9c/attempts/1.json",
+            "content": { "attempt": 1, "tick_id": "mrq", "dispatched_by": "B" },
+            "expect": "conflict_exists",
+            "effect_permitted": false
+          }
+        ],
+        "final": {
+          "origin_writes": 1,
+          "files": {
+            ".ticfac/runs/r-2f9c/attempts/1.json": { "attempt": 1, "tick_id": "mrq", "dispatched_by": "A" }
+          }
+        }
+      },
+      {
+        "id": "a-retry-is-a-new-file-and-a-replay-is-refused",
+        "why": "Attempt 2 is a different path, so a retry is never blocked by attempt 1. And a reconciler that died after dispatching and restarts replays the same create — which is refused, so the job is not started twice.",
+        "steps": [
+          { "actor": "A", "op": "fetch", "expect": "fetched" },
+          {
+            "actor": "A",
+            "op": "create_if_absent",
+            "path": ".ticfac/runs/r-2f9c/attempts/1.json",
+            "content": { "attempt": 1, "tick_id": "mrq" },
+            "expect": "created",
+            "effect_permitted": true
+          },
+          {
+            "actor": "A",
+            "op": "create_if_absent",
+            "path": ".ticfac/runs/r-2f9c/attempts/2.json",
+            "content": { "attempt": 2, "tick_id": "mrq" },
+            "expect": "created",
+            "effect_permitted": true
+          },
+          {
+            "actor": "A",
+            "op": "create_if_absent",
+            "path": ".ticfac/runs/r-2f9c/attempts/2.json",
+            "content": { "attempt": 2, "tick_id": "mrq", "dispatched_by": "restarted A" },
+            "expect": "conflict_exists",
+            "effect_permitted": false
+          }
+        ],
+        "final": {
+          "origin_writes": 2,
+          "files": {
+            ".ticfac/runs/r-2f9c/attempts/1.json": { "attempt": 1, "tick_id": "mrq" },
+            ".ticfac/runs/r-2f9c/attempts/2.json": { "attempt": 2, "tick_id": "mrq" }
+          }
+        }
+      },
+      {
+        "id": "checkpoint-update-is-sha-guarded",
+        "why": "The first checkpoint is a create; every later one is guarded on the sha the writer fetched. A reconciler holding a stale view is refused, re-fetches, and reconciles from what is actually there.",
+        "steps": [
+          { "actor": "A", "op": "fetch", "expect": "fetched" },
+          {
+            "actor": "A",
+            "op": "create_if_absent",
+            "path": ".ticfac/runs/r-2f9c/checkpoint.json",
+            "content": { "sequence": 1, "state": "admitted" },
+            "expect": "created"
+          },
+          { "actor": "B", "op": "fetch", "expect": "fetched" },
+          {
+            "actor": "A",
+            "op": "update_if_sha",
+            "path": ".ticfac/runs/r-2f9c/checkpoint.json",
+            "content": { "sequence": 2, "state": "dispatching" },
+            "expect": "updated"
+          },
+          {
+            "actor": "B",
+            "op": "update_if_sha",
+            "path": ".ticfac/runs/r-2f9c/checkpoint.json",
+            "content": { "sequence": 2, "state": "cancelled" },
+            "expect": "conflict_stale_sha",
+            "effect_permitted": false
+          },
+          { "actor": "B", "op": "fetch", "expect": "fetched" },
+          {
+            "actor": "B",
+            "op": "update_if_sha",
+            "path": ".ticfac/runs/r-2f9c/checkpoint.json",
+            "content": { "sequence": 3, "state": "cancelled" },
+            "expect": "updated"
+          }
+        ],
+        "final": {
+          "origin_writes": 3,
+          "files": {
+            ".ticfac/runs/r-2f9c/checkpoint.json": { "sequence": 3, "state": "cancelled" }
+          }
+        }
+      },
+      {
+        "id": "the-guard-is-against-origin-not-the-local-ref",
+        "why": "A reconciler that never fetched has no origin sha to compare against, so its update is refused rather than silently overwriting. This is the rule that makes 'the compare-and-swap is against the origin ref, not the local one' testable.",
+        "steps": [
+          { "actor": "A", "op": "fetch", "expect": "fetched" },
+          {
+            "actor": "A",
+            "op": "create_if_absent",
+            "path": ".ticfac/runs/r-2f9c/checkpoint.json",
+            "content": { "sequence": 1, "state": "admitted" },
+            "expect": "created"
+          },
+          {
+            "actor": "B",
+            "op": "update_if_sha",
+            "path": ".ticfac/runs/r-2f9c/checkpoint.json",
+            "content": { "sequence": 2, "state": "failed" },
+            "expect": "conflict_missing_base",
+            "effect_permitted": false
+          }
+        ],
+        "final": {
+          "origin_writes": 1,
+          "files": {
+            ".ticfac/runs/r-2f9c/checkpoint.json": { "sequence": 1, "state": "admitted" }
+          }
+        }
+      },
+      {
+        "id": "a-local-commit-is-not-durable",
+        "why": "The lesson of the sandbox keeper: a container that dies leaves its work on origin or nowhere. A checkpoint that exists only in a working tree or a local commit does not exist.",
+        "steps": [
+          { "actor": "A", "op": "fetch", "expect": "fetched" },
+          {
+            "actor": "A",
+            "op": "commit_local",
+            "path": ".ticfac/runs/r-2f9c/checkpoint.json",
+            "content": { "sequence": 1, "state": "admitted" },
+            "expect": "local_only"
+          },
+          {
+            "actor": "A",
+            "op": "create_if_absent",
+            "path": ".ticfac/runs/r-2f9c/checkpoint.json",
+            "content": { "sequence": 1, "state": "admitted" },
+            "expect": "created"
+          }
+        ],
+        "final": {
+          "origin_writes": 1,
+          "files": {
+            ".ticfac/runs/r-2f9c/checkpoint.json": { "sequence": 1, "state": "admitted" }
+          }
+        }
+      },
+      {
+        "id": "observation-without-state-change-writes-nothing",
+        "why": "Checkpoint on state change, not on observation. A poll that learns nothing writes nothing — at ten checkpoints an hour the cost is negligible, and at one commit per poll it is not.",
+        "steps": [
+          { "actor": "A", "op": "fetch", "expect": "fetched" },
+          {
+            "actor": "A",
+            "op": "create_if_absent",
+            "path": ".ticfac/runs/r-2f9c/checkpoint.json",
+            "content": { "sequence": 1, "state": "running" },
+            "expect": "created"
+          },
+          { "actor": "A", "op": "observe", "expect": "no_change" },
+          { "actor": "A", "op": "observe", "expect": "no_change" },
+          { "actor": "B", "op": "observe", "expect": "no_change" }
+        ],
+        "final": {
+          "origin_writes": 1,
+          "files": {
+            ".ticfac/runs/r-2f9c/checkpoint.json": { "sequence": 1, "state": "running" }
+          }
+        }
+      },
+      {
+        "id": "evidence-and-decisions-land-once",
+        "why": "Evidence is a record of something that already happened, and a validated decision is a thing a model was paid for once. Both are create-if-absent, so a replay after a restart cannot overwrite either.",
+        "steps": [
+          { "actor": "A", "op": "fetch", "expect": "fetched" },
+          {
+            "actor": "A",
+            "op": "create_if_absent",
+            "path": ".ticfac/runs/r-2f9c/evidence/gate-integrated-go-test.json",
+            "content": { "key": "gate-integrated-go-test", "exit_code": 0 },
+            "expect": "created"
+          },
+          {
+            "actor": "A",
+            "op": "create_if_absent",
+            "path": ".ticfac/runs/r-2f9c/evidence/gate-integrated-go-test.json",
+            "content": { "key": "gate-integrated-go-test", "exit_code": 1 },
+            "expect": "conflict_exists",
+            "effect_permitted": false
+          },
+          {
+            "actor": "A",
+            "op": "create_if_absent",
+            "path": ".ticfac/runs/r-2f9c/decisions/1.json",
+            "content": { "decision": 1, "verdict": "proceed" },
+            "expect": "created"
+          },
+          {
+            "actor": "B",
+            "op": "fetch",
+            "expect": "fetched"
+          },
+          {
+            "actor": "B",
+            "op": "create_if_absent",
+            "path": ".ticfac/runs/r-2f9c/decisions/1.json",
+            "content": { "decision": 1, "verdict": "hold" },
+            "expect": "conflict_exists",
+            "effect_permitted": false
+          }
+        ],
+        "final": {
+          "origin_writes": 2,
+          "files": {
+            ".ticfac/runs/r-2f9c/evidence/gate-integrated-go-test.json": { "key": "gate-integrated-go-test", "exit_code": 0 },
+            ".ticfac/runs/r-2f9c/decisions/1.json": { "decision": 1, "verdict": "proceed" }
+          }
+        }
+      }
+    ]
+  }
+}

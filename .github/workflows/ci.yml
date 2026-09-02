@@ -43,6 +43,38 @@ jobs:
       - name: Build
         run: go build ./...
 
+      # The Go half of the cross-language contract bundle, named so that a
+      # contract failure is legible in the CI log instead of being one line in
+      # a full-suite run. This step is the reason a deliberate fixture break
+      # fails a build: internal/contracts re-hashes contracts/ against the
+      # manifest and refuses a version re-cut with different bytes, and every
+      # contract/parity test below executes the behavioural fixtures
+      # themselves. Go never reads cloud/factory/contracts.pin.json — the pin
+      # is the CONSUMER's statement and only the TypeScript half checks it,
+      # which is the whole point of there being two halves. That half runs in
+      # the `factory` and `ticks-runner` jobs against the SAME files
+      # (contracts/README.md).
+      #
+      # Every Go package with a reader of contracts/ belongs in this list. A
+      # reader missing from it still runs in the full `Test` step below, but
+      # its failure stops being legible, which is the only thing this step buys.
+      - name: Contract bundle and parity fixtures
+        run: |
+          go test -short \
+            ./internal/contracts/... \
+            ./internal/tkcontract/... \
+            ./internal/factory/credentials/... \
+            ./internal/factory/jobprotocol/... \
+            ./internal/factory/runstate/... \
+            ./internal/factory/lifecycle/... \
+            ./internal/herd/config/... \
+            ./internal/herd/collect/... \
+            ./internal/cloud/collect/... \
+            ./internal/sandbox/... \
+            ./internal/operator/... \
+            ./internal/tick/... \
+            ./cmd/tk/cmd/...
+
       - name: Test
         # -short skips live-API/CLI integration tests (internal/agent), which
         # also self-skip when the claude CLI is absent.
@@ -221,6 +253,16 @@ jobs:
       # be the only place it runs.
       - name: Verify the contracts pin
         run: pnpm contracts:check
+
+      # The negative controls: each deliberately breaks the bundle in a
+      # throwaway copy and asserts the check refuses it. Mirrors
+      # internal/contracts/bundle_test.go. Without these, `contracts:check`
+      # passing proves only that it ran — not that it can fail.
+      #
+      # Plain `node --test`, not vitest: the factory suite executes inside
+      # workerd, which has no filesystem to build a broken bundle in.
+      - name: Prove the contracts check fails on a broken bundle
+        run: pnpm contracts:test
 
       - name: Typecheck
         run: pnpm typecheck

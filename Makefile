@@ -8,7 +8,7 @@ SCHEMAS_DIR := schemas
 GO_GENERATED_DIR := internal/types/generated
 GO_JSONSCHEMA := $(shell go env GOPATH)/bin/go-jsonschema
 
-.PHONY: help build install codegen codegen-ts codegen-go clean-generated
+.PHONY: help build install codegen codegen-ts codegen-go clean-generated contracts-bundle contracts-bundle-check
 
 help:
 	@echo "Available targets:"
@@ -18,6 +18,8 @@ help:
 	@echo "  codegen-ts   - Generate TypeScript types"
 	@echo "  codegen-go   - Generate Go types"
 	@echo "  clean-generated - Remove all generated files"
+	@echo "  contracts-bundle - Re-cut contracts/bundle.json after a contract change"
+	@echo "  contracts-bundle-check - Verify contracts/bundle.json is not stale"
 
 # Development build.
 #
@@ -77,3 +79,21 @@ clean-generated:
 	@echo "Removing generated files..."
 	rm -rf $(GO_GENERATED_DIR)
 	rm -rf internal/tickboard/ui/src/types/generated
+
+# Cross-language contract bundle.
+#
+# contracts/ is versioned so a consumer OUTSIDE this repository can pin it by
+# exact value — cloud/factory does today (contracts.pin.json "bundleVersion"),
+# ticfac will from its own repository. The version is only meaningful if it
+# always names the same bytes, so bundle.json records a sha256 per file and
+# both sides re-hash: internal/contracts (Go) and
+# cloud/factory/scripts/contracts.mjs (TypeScript).
+#
+# This target never bumps the version. Bump it by hand, write the
+# contracts/CHANGELOG.md entry, then run this and move the factory pin — see
+# contracts/CHANGELOG.md for the rule.
+contracts-bundle:
+	node scripts/contracts-bundle.mjs
+
+contracts-bundle-check:
+	node scripts/contracts-bundle.mjs --check

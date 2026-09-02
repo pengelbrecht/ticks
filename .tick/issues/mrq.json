@@ -1,15 +1,17 @@
 {
   "id": "mrq",
   "title": "Cloud compatibility tests: routes, D1/R2 keys, image tags, worker result semantics, cleanup ordering",
-  "description": "SPEC \u00a712 Phase 0 step 4. Record the current cloud factory's externally observable behavior as tests so Phase 4 can move it without silent drift: HTTP routes and their auth grades, D1 table/key shapes, R2 key layout, image tags and the deployment vars that select model/route, worker RESULT semantics (fallback report, timer push, exit is not proof), and the revoke-before-teardown cleanup ordering. Tests only; no behavior change.",
-  "notes": "2026-09-02 13:34 - From legacy 5qj: cloud/factory vitest (run-workflow.test.ts) is load-flaky with workerd hung-context exceptions; CI and local can invert. The compatibility tests this tick adds must not inherit that \u2014 no timing dependence on workerd, and a flake is a defect, never a rerun.",
-  "status": "open",
+  "description": "SPEC §12 Phase 0 step 4. Record the current cloud factory's externally observable behavior as tests so Phase 4 can move it without silent drift: HTTP routes and their auth grades, D1 table/key shapes, R2 key layout, image tags and the deployment vars that select model/route, worker RESULT semantics (fallback report, timer push, exit is not proof), and the revoke-before-teardown cleanup ordering. Tests only; no behavior change.",
+  "notes": "2026-09-02 13:34 - From legacy 5qj: cloud/factory vitest (run-workflow.test.ts) is load-flaky with workerd hung-context exceptions; CI and local can invert. The compatibility tests this tick adds must not inherit that — no timing dependence on workerd, and a flake is a defect, never a rerun.\n2026-09-02 13:39 - runner-state: substrate=herdr kind=claude branch=tick/mrq worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-mrq workspace=wHY base=c0496c1dce72cd7a1892044bb9779fb97a9512a5 agent=tick-mrq pane=wHY:p1 session=c54f2b7f-025a-4f14-937c-edff349ecf67",
+  "status": "closed",
   "priority": 2,
   "type": "task",
+  "owner": "noreply@anthropic.com",
   "parent": "692",
   "acceptance_criteria": "A compatibility test file (or files) under cloud/factory exercises each listed surface against the current implementation and is green; each test names the SPEC section or Appendix A invariant it protects; the suite is registered in the existing factory CI job.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-02T11:28:24.701203Z",
-  "updated_at": "2026-09-02T11:34:32.715632Z",
-  "owner": "noreply@anthropic.com"
+  "updated_at": "2026-09-02T12:20:08.833048Z",
+  "closed_at": "2026-09-02T12:20:08.833048Z",
+  "closed_reason": "Completed: cloud/factory/test/phase0-compat.test.ts pins routes+auth grades, D1 shapes, R2 key layout, image/deployment vars, worker RESULT semantics and cleanup ordering (36 tests, each naming its SPEC section or Appendix A invariant); wiki page phase0-compat-suite.md"
 }

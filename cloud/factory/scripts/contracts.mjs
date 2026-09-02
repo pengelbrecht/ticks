@@ -13,8 +13,8 @@
  *   module proxy.
  *
  *   The copy always lands at the CONSUMING REPOSITORY'S ROOT `contracts/`.
- *   That is why the thirteen test imports read `../../../contracts/<name>.json`
- *   in both worlds and why the extraction phase does not touch a test file.
+ *   That is why every test import reads `../../../contracts/<name>.json` in
+ *   both worlds and why the extraction phase does not touch a test file.
  *
  * Two commands, and the split between them is the whole safety argument:
  *
@@ -54,6 +54,15 @@ const PIN_PATH = join(FACTORY_DIR, "contracts.pin.json");
 const REPO_ROOT = resolve(FACTORY_DIR, "..", "..");
 const CONTRACTS_DIR = join(REPO_ROOT, "contracts");
 const TEST_DIR = join(FACTORY_DIR, "test");
+
+/**
+ * The bundle manifest and its changelog. These travel WITH the contracts —
+ * `sync` vendors them alongside the fixtures — because a vendored copy that
+ * cannot say which bundle version it is has not been pinned, only copied.
+ */
+const BUNDLE_FILE = "bundle.json";
+const CHANGELOG_FILE = "CHANGELOG.md";
+const VERSION_PATTERN = /^\d+\.\d+\.\d+$/;
 
 class Fatal extends Error {}
 
@@ -101,6 +110,287 @@ function readPin() {
   }
 
   return pin;
+}
+
+/**
+ * Verify the contract BUNDLE in `contractsDir` against `pin`.
+ *
+ * This is the half of the check that survives the extraction with its meaning
+ * intact. `checkPinMatchesImports` and `checkDigests` are about the vendoring
+ * mechanism — did the copy arrive, is it the copy ticks published. This is
+ * about the pin itself: **does the version this package claims to be built
+ * against still name the bytes on disk — and the bytes it named when it was
+ * cut?** The second half is `version_digests`, the manifest's append-only
+ * ledger; without it a re-cut at an unchanged version is invisible to exactly
+ * the consumer the version exists for.
+ *
+ * It runs in BOTH modes, which reverses an earlier decision recorded in
+ * CONTRACTS.md ("deliberately NO digest check" in workspace mode). The reason
+ * that decision was right and is now wrong: it was made when nothing but the
+ * vendored copy needed hashing, and in workspace mode there is no vendored
+ * copy. A *versioned* bundle changes the question. `bundleVersion` is a pin by
+ * exact value, and a pin is a lie unless the same version always means the
+ * same bytes — including here, in the repository that authors them, where the
+ * temptation to edit a fixture and move on is strongest. So the digests are
+ * checked in place, and the cost is the one thing this is trying to buy: you
+ * cannot change a contract without bumping the version and saying so.
+ *
+ * Exported so `scripts/contracts.test.mjs` can point it at a deliberately
+ * broken copy. A gate nothing has ever seen fail is not known to be a gate.
+ */
+export function verifyBundle(contractsDir, pin) {
+  const bundlePath = join(contractsDir, BUNDLE_FILE);
+
+  if (!existsSync(bundlePath)) {
+    fail(
+      `${bundlePath} is missing.\n` +
+        "It is the bundle manifest: the version, the file list and a sha256 per file.\n" +
+        "Without it there is no such thing as a pinned contract bundle version and the\n" +
+        '"bundleVersion" in contracts.pin.json pins nothing.',
+    );
+  }
+
+  let bundle;
+  try {
+    bundle = JSON.parse(readFileSync(bundlePath, "utf8"));
+  } catch (err) {
+    fail(`${bundlePath} is not valid JSON: ${err.message}`);
+  }
+
+  if (!VERSION_PATTERN.test(bundle.version ?? "")) {
+    fail(`${bundlePath}: version ${JSON.stringify(bundle.version)} is not MAJOR.MINOR.PATCH.`);
+  }
+
+  if (typeof pin.bundleVersion !== "string" || !VERSION_PATTERN.test(pin.bundleVersion)) {
+    fail(
+      `${PIN_PATH}: "bundleVersion" must be the exact contract bundle version this package\n` +
+        `is built against — MAJOR.MINOR.PATCH, currently ${JSON.stringify(bundle.version)} on disk.\n` +
+        "The ticfac SPEC (3.2) requires the consumer to pin the exact contract version;\n" +
+        "an absent or loose pin is the thing that requirement exists to forbid.",
+    );
+  }
+
+  if (bundle.version !== pin.bundleVersion) {
+    fail(
+      "contract bundle version mismatch:\n" +
+        `  contracts/${BUNDLE_FILE} is ${bundle.version}\n` +
+        `  contracts.pin.json "bundleVersion" is ${pin.bundleVersion}\n\n` +
+        "This package is pinned to a bundle version it is not being tested against. If\n" +
+        "ticks cut a new bundle, read contracts/CHANGELOG.md, make the TypeScript side\n" +
+        "follow whatever the entry says changed, and then move the pin — moving the pin\n" +
+        "first is adopting a contract change without reading it.",
+    );
+  }
+
+  const listed = new Set(Array.isArray(bundle.files) ? bundle.files : []);
+  if (listed.size === 0) {
+    fail(`${bundlePath}: "files" is empty — a bundle with no contracts pins nothing.`);
+  }
+
+  const problems = [];
+
+  // The pin's list and the bundle's list are two independently maintained
+  // statements about the same set. They must agree, or one of them is stale.
+  for (const name of pin.files) {
+    if (!listed.has(name)) {
+      problems.push(`${name}: pinned in contracts.pin.json but not in bundle ${bundle.version}`);
+    }
+  }
+  for (const name of listed) {
+    if (!pin.files.includes(name)) {
+      problems.push(`${name}: in bundle ${bundle.version} but not pinned in contracts.pin.json`);
+    }
+  }
+
+  // A fixture on disk that the bundle does not list is unversioned: nothing
+  // downstream vendors it and no digest covers it.
+  for (const entry of readdirSync(contractsDir)) {
+    if (!entry.endsWith(".json") || entry === BUNDLE_FILE) continue;
+    if (!listed.has(entry)) {
+      problems.push(`${entry}: present in contracts/ but not listed in ${BUNDLE_FILE}`);
+    }
+  }
+
+  const digests = bundle.digests ?? {};
+  for (const name of listed) {
+    const path = join(contractsDir, name);
+    if (!existsSync(path)) {
+      problems.push(`${name}: listed in ${BUNDLE_FILE} but missing from contracts/`);
+      continue;
+    }
+    const raw = readFileSync(path);
+    try {
+      JSON.parse(raw.toString("utf8"));
+    } catch (err) {
+      problems.push(`${name}: not valid JSON (${err.message})`);
+      continue;
+    }
+    const expected = digests[name];
+    if (typeof expected !== "string" || !/^[0-9a-f]{64}$/.test(expected)) {
+      problems.push(`${name}: no sha256 recorded in ${BUNDLE_FILE}`);
+      continue;
+    }
+    const actual = sha256(raw);
+    if (actual !== expected) {
+      problems.push(`${name}: sha256 ${actual}\n      bundle ${bundle.version} says ${expected}`);
+    }
+  }
+
+  if (problems.length > 0) {
+    fail(
+      `contract bundle ${bundle.version} does not match ${contractsDir}:\n` +
+        problems.map((line) => `  ${line}`).join("\n") +
+        "\n\nA contract changed without the bundle being re-cut, so the version no longer\n" +
+        'names the bytes it claims to. Bump "version" in contracts/bundle.json, add the\n' +
+        "contracts/CHANGELOG.md entry, run `make contracts-bundle` in the ticks repository,\n" +
+        'and move "bundleVersion" here in the same commit.',
+    );
+  }
+
+  // The changelog travels with the bundle, so a consumer can always read what
+  // the version it is pinned to actually means.
+  const changelogPath = join(contractsDir, CHANGELOG_FILE);
+  if (!existsSync(changelogPath)) {
+    fail(`${changelogPath} is missing — the bundle version has nothing explaining it.`);
+  }
+  const heading = `## ${bundle.version}`;
+  const documented = readFileSync(changelogPath, "utf8")
+    .split("\n")
+    .some((line) => line.trim() === heading);
+  if (!documented) {
+    fail(
+      `contracts/${CHANGELOG_FILE} has no \`${heading}\` entry for bundle ${bundle.version}.\n` +
+        "A version with no entry tells a pinned consumer nothing about what adopting it\n" +
+        "costs, which is the only reason the version exists.",
+    );
+  }
+
+  // The manifest agrees with the fixtures on disk. That leaves the one
+  // question the per-file digests structurally cannot answer, because a
+  // re-cut makes them agree again: does this VERSION still name the bytes it
+  // named when it was cut? `version_digests` is the append-only ledger that
+  // answers it — each version mapped to a sha256 over its own `version` +
+  // `digests`, written once by `make contracts-bundle` and never rewritten.
+  // Re-cut a fixture without bumping the version and the digest of the cut
+  // contradicts the ledger entry, here and in Go (contracts.Verify).
+  //
+  // The canonical form is reproduced byte for byte on the Go side
+  // (`(*Bundle).ContentDigest`): `<version>\n` then `<file> <sha256>\n` per
+  // file, sorted by name.
+  const ledger = bundle.version_digests ?? {};
+  const recorded = ledger[bundle.version];
+  if (typeof recorded !== "string" || !/^[0-9a-f]{64}$/.test(recorded)) {
+    fail(
+      `${bundlePath}: version ${bundle.version} has no "version_digests" entry.\n` +
+        "Every cut version records the digest of its own digests map, so that re-cutting\n" +
+        "one at an unchanged version is visible to a consumer pinned by exact value.\n" +
+        "Run `make contracts-bundle` in the ticks repository — it adds the entry for a\n" +
+        "version it has not cut before, and never rewrites one it has.",
+    );
+  }
+  const canonical =
+    `${bundle.version}\n` +
+    [...listed]
+      .sort()
+      .map((name) => `${name} ${digests[name]}\n`)
+      .join("");
+  const cut = sha256(Buffer.from(canonical, "utf8"));
+  if (cut !== recorded) {
+    fail(
+      `contract bundle ${bundle.version} was cut before with different bytes:\n` +
+        `  digest of this cut       ${cut}\n` +
+        `  version_digests[${bundle.version}]  ${recorded}\n\n` +
+        'A fixture changed and the manifest was re-cut WITHOUT bumping "version". The\n' +
+        "per-file digests agree again, so nothing else can see it — and this package,\n" +
+        "which pins the version by exact value, could not see it at all. That is the one\n" +
+        "drift the version exists to make loud. In the ticks repository: bump `version`,\n" +
+        "add the contracts/CHANGELOG.md entry, re-run `make contracts-bundle`, and move\n" +
+        '"bundleVersion" here in the same commit. If the re-cut was a mistake, revert it.',
+    );
+  }
+  return bundle;
+}
+
+/**
+ * THE CROSS-CONTRACT RULE: a `schema_id` that appears in more than one contract
+ * file resolves to exactly ONE definition.
+ *
+ * Bundle 1.2.0 broke it and nothing in the bundle could see that. Two contracts
+ * described the same file — .ticfac/runs/<run-id>/evidence/<key>.json — with
+ * incompatible shapes: `job-protocol.json` published `ticfac.evidence.v1` flat
+ * and closed, `ticfac-run-state.json` carried its own open `evidence_envelope`.
+ * No document satisfied both, and both suites stayed green, because each
+ * validated its own examples against its own schema. Nobody was looking ACROSS
+ * files, so this looks across.
+ *
+ * An object that carries a `schema_id` AND a `schema` defines the record; one
+ * that carries only the id references it. An id confined to a single contract
+ * is that contract's own business — the rule is about the seam.
+ *
+ * Exported so `scripts/contracts.test.mjs` can point it at a bundle that has
+ * been broken back into the 1.2.0 shape. A gate nothing has ever seen fail is
+ * not known to be a gate.
+ */
+export function verifySchemaIds(contractsDir) {
+  const uses = new Map();
+
+  const collect = (node, file, pointer) => {
+    if (Array.isArray(node)) {
+      node.forEach((item, i) => collect(item, file, `${pointer}[${i}]`));
+      return;
+    }
+    if (node === null || typeof node !== "object") return;
+
+    const id = node.schema_id;
+    if (typeof id === "string" && id.length > 0) {
+      if (!uses.has(id)) uses.set(id, []);
+      uses.get(id).push({ file, pointer, defines: Object.hasOwn(node, "schema") });
+    }
+    for (const [key, value] of Object.entries(node)) {
+      collect(value, file, pointer === "" ? key : `${pointer}.${key}`);
+    }
+  };
+
+  for (const entry of readdirSync(contractsDir)) {
+    if (!entry.endsWith(".json") || entry === BUNDLE_FILE) continue;
+    let document;
+    try {
+      document = JSON.parse(readFileSync(join(contractsDir, entry), "utf8"));
+    } catch (err) {
+      fail(`${entry}: not valid JSON (${err.message})`);
+    }
+    collect(document, entry, "");
+  }
+
+  const problems = [];
+  for (const [id, appearances] of uses) {
+    const files = [...new Set(appearances.map((use) => use.file))].sort();
+    if (files.length < 2) continue;
+
+    const definitions = appearances.filter((use) => use.defines);
+    if (definitions.length === 1) continue;
+
+    if (definitions.length === 0) {
+      problems.push(`${id}: referenced by ${files.join(", ")} and defined nowhere — a pointer at nothing`);
+    } else {
+      const where = definitions.map((use) => `${use.file} ${use.pointer}`).sort();
+      problems.push(`${id} is defined ${definitions.length} times: ${where.join(", ")}`);
+    }
+  }
+
+  if (problems.length > 0) {
+    problems.sort();
+    fail(
+      `the contract bundle in ${contractsDir} has schema ids that do not resolve to one definition:\n` +
+        problems.map((line) => `  ${line}`).join("\n") +
+        "\n\nOne record, one schema. Two contracts describing the same record is the drift\n" +
+        "this bundle exists to catch and cannot catch from inside either file: each suite\n" +
+        "validates its own examples against its own schema and both stay green. Define the\n" +
+        "record in ONE contract and have the other name it by schema_id.",
+    );
+  }
+
+  return uses;
 }
 
 /**
@@ -222,16 +512,22 @@ function commandCheck() {
   checkPinMatchesImports(pin);
   checkFilesPresentAndParse(pin);
 
+  // The bundle check runs in BOTH modes: it is what makes "bundleVersion" an
+  // exact pin rather than a comment. See verifyBundle for why this supersedes
+  // the earlier workspace-mode carve-out.
+  const bundle = verifyBundle(CONTRACTS_DIR, pin);
+
+  // And the rule that spans the files rather than living inside one of them.
+  verifySchemaIds(CONTRACTS_DIR);
+
   if (pin.mode === "workspace") {
-    // Deliberately NO digest check here. In workspace mode there is exactly one
-    // copy of each contract on disk and the Go parity tests read those same
-    // bytes by relative path. A digest would add nothing a second reader does
-    // not already provide, and would force a re-pin commit alongside every
-    // legitimate contract edit — turning a real rule into a ritual, which is
-    // the same objection contracts/README.md raises against filing these under
-    // schemas/.
+    // No pin.digests check here. Those record what the module proxy served for
+    // a given ticks version, and in workspace mode nothing was fetched — the
+    // contracts are authored in this repository and the Go parity tests read
+    // these same bytes. The bundle digests above already cover the files.
     console.log(
-      `contracts: ok — ${pin.files.length} contract(s) read in place from ${CONTRACTS_DIR} (mode: workspace)`,
+      `contracts: ok — ${pin.files.length} contract(s) at bundle ${bundle.version} ` +
+        `read in place from ${CONTRACTS_DIR} (mode: workspace)`,
     );
     return;
   }
@@ -246,7 +542,8 @@ function commandCheck() {
 
   checkDigests(pin);
   console.log(
-    `contracts: ok — ${pin.files.length} contract(s) verified against ${pin.module}@${pin.ref}`,
+    `contracts: ok — ${pin.files.length} contract(s) at bundle ${bundle.version} ` +
+      `verified against ${pin.module}@${pin.ref}`,
   );
 }
 
@@ -384,7 +681,11 @@ async function commandSync() {
   const staged = new Map();
   const absent = [];
 
-  for (const name of pin.files) {
+  // The manifest and the changelog travel with the fixtures. Without the
+  // manifest the vendored copy cannot say which bundle version it is, and
+  // `bundleVersion` would pin a number nothing on disk answers to; without the
+  // changelog the version cannot be read for what adopting it costs.
+  for (const name of [BUNDLE_FILE, CHANGELOG_FILE, ...pin.files]) {
     const content = entries.get(prefix + name);
     if (!content) {
       absent.push(name);

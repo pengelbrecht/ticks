@@ -1,0 +1,17 @@
+{
+  "id": "ep3",
+  "title": "Close out ticfac Phase 1: retro, then flesh out Phase 2 (Herdr executor)",
+  "description": "Run the epic-close retro against 4ik acceptance item by item, then flesh out Phase 2 (jrj) per SPEC §12 and the required-gate-tests note on jrj.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "421"
+  ],
+  "parent": "4ik",
+  "role": "closeout",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-02T15:14:08.562069Z",
+  "updated_at": "2026-09-02T15:14:08.562069Z"
+}

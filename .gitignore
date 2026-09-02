@@ -25,3 +25,10 @@ bin/
 # Python bytecode from scripts/ (the benchmark harness is a module when imported)
 __pycache__/
 *.pyc
+
+# BEGIN ticfac run state
+# .ticfac/runs/** is COMMITTED — it is the run's durable record (SPEC 10.4),
+# and durable means pushed on origin. Only these two are exhaust:
+.ticfac/.index.json
+.ticfac/logs/
+# END ticfac run state

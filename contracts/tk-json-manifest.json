@@ -1,0 +1,365 @@
+{
+  "$comment": "The tk --json command contract. This file is the published surface a consumer (ticfac, the cloud factory Worker, any other orchestrator) is allowed to call, and nothing else in tk is API. Read contracts/README.md before editing; the Go reader is cmd/tk/cmd/tk_json_contract_test.go, which runs every command listed here and validates its real output against the schema below. SPEC \u00a73.1 sketches an illustrative call list; five of its invocations are deliberately NOT published here, because the flag does not exist or does not mean what the list implies. `tk sandbox image|setup|substrate|worker-prompt --json`: no `sandbox` subcommand registers a `--json` flag at all, and those commands already emit machine-readable output of their own (an image digest, a setup plan, a substrate name, a rendered prompt), so a consumer passing `--json` gets a usage error, not JSON. `tk ask <id> --json`: the flag exists but means READ THE QUESTION FROM STDIN as JSON, not 'print the answer as JSON' \u2014 a consumer reading \u00a73.1's list as an output-format flag blocks on an empty stdin. `tk graph --json` also needs its `<epic-id>` argument, which the SPEC list omitted and the `graph` entry below carries. A command is published here when it is a JSON surface a consumer may call, not when a design document sketched it: adding any of the five means adding the flag first and then an entry here, in one commit. \u00a73.1's list has been corrected to this manifest rather than the reverse (tick wh8).",
+
+  "contract": 1,
+  "supported_contracts": [1],
+  "min_tk_version": "0.32.0",
+
+  "request": {
+    "$comment": "How a caller pins the contract it was built against, and what happens when this tk cannot serve it. Fail closed: tk refuses BEFORE running the command, so a consumer never parses output shaped by a contract it did not ask for. Enforcement lives in tk's root PersistentPreRunE, so it runs for EVERY command including the git merge drivers tk registers: a bad TK_JSON_CONTRACT exported into a shell makes `git merge` exit 11, which is by design — a contract this build cannot serve is refused everywhere rather than in the commands a caller remembered to check.",
+    "flag": "--json-contract <n>",
+    "env": "TK_JSON_CONTRACT",
+    "placement": "The flag is persistent and must follow the subcommand (`tk show a1 --json --json-contract 1`); tk's argv dispatch reads argv[1] as the command name, so a leading global flag is an unknown command. The environment variable has no such restriction.",
+    "unsupported_exit_code": 11,
+    "unsupported_behavior": "Exit 11 with a message naming the requested contract and the ones this build serves. 11 is its own slot because the next action — install a different tk — is neither a retry nor a fix to the command line, and a consumer must be able to tell it from a routing refusal (1) or a usage error (2) without parsing stderr."
+  },
+
+  "hosts": {
+    "$comment": "SPEC §3.1. tk --json defines the tracker contract; it does not require that every host shell out to tk.",
+    "runs_tk": "Every host that can execute the tk binary runs tk. It does not reimplement any command below, and it never imports ticks' internal/ packages — the CLI is the API.",
+    "cannot_run_tk": "A Cloudflare Workflow or isolate cannot execute a Go binary, so on that host the reconciler cannot shell out to tk. Such a host implements this same contract in its own language — reading .tick/ records through the contents API and writing tracker commits the same way — and performs ONLY the reads and controlled writes listed below. It is a consumer of the contract, not a second tracker.",
+    "proof": "A reimplementation proves conformance with the pinned cross-language bundle in this directory, not by inspection: contracts/tracker-layout.json pins the on-disk record layout and field order it must write, and its sibling fixtures pin the rest. A deliberate fixture break MUST fail that host's build. A copied JSON file with no executable check is not a contract."
+  },
+
+  "$defs": {
+    "tick": {
+      "description": "One tick record, exactly as tk writes it to .tick/issues/<id>.json and prints it from every command that returns a single tick. Optional fields are omitted rather than emitted as null, so a consumer must treat absence as the empty value. additionalProperties stays open on purpose: tk may add fields within a contract version, and only a REMOVAL or a type change is a break.",
+      "type": "object",
+      "required": ["id", "title", "status", "priority", "type", "owner", "created_by", "created_at", "updated_at"],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "notes": { "type": "string" },
+        "status": { "type": "string", "enum": ["open", "in_progress", "closed"] },
+        "priority": { "type": "integer" },
+        "type": { "type": "string", "enum": ["bug", "feature", "task", "epic", "chore"] },
+        "owner": { "type": "string" },
+        "labels": { "type": "array", "items": { "type": "string" } },
+        "blocked_by": { "type": "array", "items": { "type": "string" } },
+        "after": { "type": "array", "items": { "type": "string" } },
+        "parent": { "type": "string" },
+        "target_date": { "type": "string" },
+        "role": { "type": "string", "enum": ["review", "closeout"] },
+        "discovered_from": { "type": "string" },
+        "acceptance_criteria": { "type": "string" },
+        "defer_until": { "type": "string" },
+        "external_ref": { "type": "string" },
+        "trace_id": { "type": "string" },
+        "manual": { "type": "boolean" },
+        "base_branch": { "type": "string" },
+        "requires": { "type": "string" },
+        "awaiting": { "type": "string" },
+        "verdict": { "type": "string", "enum": ["approved", "rejected"] },
+        "created_by": { "type": "string" },
+        "created_at": { "type": "string" },
+        "updated_at": { "type": "string" },
+        "started_at": { "type": "string" },
+        "closed_at": { "type": "string" },
+        "closed_reason": { "type": "string" }
+      }
+    },
+
+    "tick_list": {
+      "description": "The envelope tk list and tk ready share. `ticks` is null, not [], when nothing matches — a Go nil slice marshals to null and consumers must accept both.",
+      "type": "object",
+      "required": ["ticks"],
+      "properties": {
+        "ticks": { "type": ["array", "null"], "items": { "$ref": "#/$defs/tick" } },
+        "filters": {
+          "type": "object",
+          "properties": {
+            "title_contains": { "type": "string" },
+            "desc_contains": { "type": "string" },
+            "notes_contains": { "type": "string" },
+            "label_any": { "type": ["array", "null"], "items": { "type": "string" } }
+          }
+        }
+      }
+    },
+
+    "graph_task": {
+      "type": "object",
+      "required": ["id", "title", "priority", "status", "agent_ready"],
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "acceptance_criteria": { "type": "string" },
+        "priority": { "type": "integer" },
+        "type": { "type": "string" },
+        "labels": { "type": ["array", "null"], "items": { "type": "string" } },
+        "status": { "type": "string" },
+        "role": { "type": "string" },
+        "blocked_by": { "type": ["array", "null"], "items": { "type": "string" } },
+        "blocks": { "type": ["array", "null"], "items": { "type": "string" } },
+        "awaiting": { "type": "string" },
+        "deferred_until": { "type": "string" },
+        "agent_ready": { "type": "boolean" },
+        "owner": { "type": "string" },
+        "parent": { "type": "string" },
+        "verdict": { "type": "string" },
+        "requires": { "type": "string" },
+        "manual": { "type": "boolean" },
+        "base_branch": { "type": "string" },
+        "target_date": { "type": "string" },
+        "external_ref": { "type": "string" },
+        "trace_id": { "type": "string" },
+        "notes": { "type": "string" },
+        "discovered_from": { "type": "string" },
+        "created_at": { "type": "string" },
+        "updated_at": { "type": "string" },
+        "started_at": { "type": "string" },
+        "closed_at": { "type": "string" },
+        "closed_reason": { "type": "string" },
+        "created_by": { "type": "string" },
+        "after": { "type": ["array", "null"], "items": { "type": "string" } }
+      }
+    }
+  },
+
+  "commands": [
+    {
+      "id": "version",
+      "command": "version",
+      "kind": "read",
+      "argv": ["version", "--json"],
+      "output": "json",
+      "since": 1,
+      "description": "Report this build's tk version and the JSON contract it serves. The one command a consumer may call before it knows whether the rest of this manifest applies.",
+      "schema": {
+        "type": "object",
+        "required": ["tk", "contract", "supported_contracts", "min_tk_version", "manifest"],
+        "properties": {
+          "tk": { "type": "string", "description": "The tk build's version string; \"dev\" for an untagged build." },
+          "contract": { "type": "integer", "description": "The contract version this build serves natively." },
+          "supported_contracts": { "type": "array", "items": { "type": "integer" }, "description": "Every contract number this build can serve, including `contract`." },
+          "min_tk_version": { "type": "string", "description": "The oldest tk release that serves `contract`." },
+          "manifest": { "type": "string", "description": "Repository path of this manifest, so a consumer can find the schemas from the binary alone." }
+        }
+      }
+    },
+    {
+      "id": "show",
+      "command": "show",
+      "kind": "read",
+      "argv": ["show", "<tick-id>", "--json"],
+      "output": "json",
+      "since": 1,
+      "description": "Read one tick.",
+      "schema": { "$ref": "#/$defs/tick" }
+    },
+    {
+      "id": "list",
+      "command": "list",
+      "kind": "read",
+      "argv": ["list", "--all", "--json"],
+      "output": "json",
+      "since": 1,
+      "description": "Read many ticks. Filter flags (--status, --owner, --parent, --label, --awaiting, …) narrow the same envelope.",
+      "schema": { "$ref": "#/$defs/tick_list" }
+    },
+    {
+      "id": "ready",
+      "command": "ready",
+      "kind": "read",
+      "argv": ["ready", "--all", "--json"],
+      "output": "json",
+      "since": 1,
+      "description": "The unblocked, agent-eligible work pool, sorted by priority then creation. Same envelope as list. Without --all the pool is filtered to the detected owner, which is not what an orchestrator dispatching across workers wants.",
+      "schema": { "$ref": "#/$defs/tick_list" }
+    },
+    {
+      "id": "next",
+      "command": "next",
+      "kind": "read",
+      "argv": ["next", "--all", "--json"],
+      "output": "json",
+      "since": 1,
+      "description": "The single next tick to work on, with an action annotation. Without --all the search is filtered to the detected owner. Emits the bare literal null when nothing is ready — a consumer MUST handle that before indexing fields.",
+      "schema": {
+        "type": ["object", "null"],
+        "anyOf": [
+          { "type": "null" },
+          {
+            "$ref": "#/$defs/tick",
+            "required": ["action"],
+            "properties": {
+              "action": { "type": "string", "enum": ["implement", "plan", "await"], "description": "implement: a ready work tick. plan: an epic with no children. await: human-gated work, returned only in --awaiting mode." }
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "deps",
+      "command": "deps",
+      "kind": "read",
+      "argv": ["deps", "<tick-id>", "--json"],
+      "output": "json",
+      "since": 1,
+      "description": "The dependency edges touching one tick. Both members are null, not [], when empty.",
+      "schema": {
+        "type": "object",
+        "required": ["blocked_by", "blocks"],
+        "properties": {
+          "blocked_by": { "type": ["array", "null"], "items": { "type": "string" }, "description": "Tick IDs this tick waits on, as stored." },
+          "blocks": { "type": ["array", "null"], "items": { "$ref": "#/$defs/tick" }, "description": "Full tick records that name this tick in their blocked_by." }
+        }
+      }
+    },
+    {
+      "id": "graph",
+      "command": "graph",
+      "kind": "read",
+      "argv": ["graph", "<epic-id>", "--json"],
+      "output": "json",
+      "since": 1,
+      "description": "An epic's wave plan and its dispatch-now answer. `dispatch.now` — never `stats.max_parallel` — is how many implementers may be launched right now; conflating them over-dispatches a wave.",
+      "schema": {
+        "type": "object",
+        "required": ["epic", "needs_planning", "missing_process_ticks", "unjustified_gates", "stats", "dispatch", "waves", "critical_path"],
+        "properties": {
+          "epic": {
+            "type": "object",
+            "required": ["id", "title"],
+            "properties": { "id": { "type": "string" }, "title": { "type": "string" } }
+          },
+          "needs_planning": { "type": "boolean" },
+          "missing_process_ticks": { "type": ["array", "null"], "items": { "type": "string" } },
+          "unjustified_gates": { "type": ["array", "null"], "items": { "type": "string" } },
+          "stats": {
+            "type": "object",
+            "required": ["total_tasks", "wave_count", "max_parallel", "ready_for_agent", "awaiting_human", "deferred"],
+            "properties": {
+              "total_tasks": { "type": "integer" },
+              "wave_count": { "type": "integer" },
+              "max_parallel": { "type": "integer", "description": "Graph shape: the widest wave. NOT a dispatch budget." },
+              "ready_for_agent": { "type": "integer" },
+              "awaiting_human": { "type": "integer" },
+              "deferred": { "type": "integer" }
+            }
+          },
+          "dispatch": {
+            "type": "object",
+            "required": ["max_parallel", "in_flight", "in_flight_ids", "free", "now"],
+            "properties": {
+              "max_parallel": { "type": "integer", "description": "[orchestration].max_parallel; 0 when unset." },
+              "source": { "type": "string" },
+              "in_flight": { "type": "integer" },
+              "in_flight_ids": { "type": ["array", "null"], "items": { "type": "string" } },
+              "free": { "type": "integer", "description": "Slots left, or -1 for no configured width." },
+              "now": { "type": ["array", "null"], "items": { "type": "string" }, "description": "Launch exactly these and no more; a claim beyond the width exits 8." }
+            }
+          },
+          "waves": {
+            "type": ["array", "null"],
+            "items": {
+              "type": "object",
+              "required": ["wave", "parallel", "ready", "tasks"],
+              "properties": {
+                "wave": { "type": "integer" },
+                "parallel": { "type": "integer" },
+                "ready": { "type": "boolean" },
+                "tasks": { "type": ["array", "null"], "items": { "$ref": "#/$defs/graph_task" } }
+              }
+            }
+          },
+          "critical_path": { "type": "integer" }
+        }
+      }
+    },
+    {
+      "id": "status",
+      "command": "status",
+      "kind": "read",
+      "argv": ["status", "--json"],
+      "output": "json",
+      "since": 1,
+      "description": "Uncommitted changes under .tick/, as git porcelain short lines. null, not [], when the tracker is clean.",
+      "schema": {
+        "type": "object",
+        "required": ["changes"],
+        "properties": {
+          "changes": { "type": ["array", "null"], "items": { "type": "string" } }
+        }
+      }
+    },
+    {
+      "id": "claim",
+      "command": "update",
+      "kind": "write",
+      "argv": ["update", "<tick-id>", "--status", "in_progress", "--owner", "<owner>", "--json"],
+      "output": "json",
+      "since": 1,
+      "description": "Claim a tick for a worker. There is no separate `tk claim` verb — a claim IS update --status in_progress, and it is the command the wave-width gate runs on: a claim past [orchestration].max_parallel is refused with exit 8 (ExitWaveFull), which is a retry-when-a-slot-frees, not a failure. Re-claiming an already in_progress tick is idempotent and keeps its started_at.",
+      "schema": { "$ref": "#/$defs/tick" }
+    },
+    {
+      "id": "update",
+      "command": "update",
+      "kind": "write",
+      "argv": ["update", "<tick-id>", "--notes", "<text>", "--json"],
+      "output": "json",
+      "since": 1,
+      "description": "Set fields on a tick. Only flags actually passed are applied; a flag given an empty value clears the field.",
+      "schema": { "$ref": "#/$defs/tick" }
+    },
+    {
+      "id": "note",
+      "command": "note",
+      "kind": "write",
+      "argv": ["note", "<tick-id>", "<text>", "--json"],
+      "output": "json",
+      "since": 1,
+      "description": "Append a timestamped note. --from human is a durable provenance boundary: it records the actor as human regardless of TK_ACTOR, so an orchestrator must never pass it for its own notes.",
+      "schema": { "$ref": "#/$defs/tick" }
+    },
+    {
+      "id": "close",
+      "command": "close",
+      "kind": "write",
+      "argv": ["close", "<tick-id>", "--json"],
+      "output": "json",
+      "since": 1,
+      "description": "Close a tick. A tick with an unmet gate (--requires, or awaiting) is refused rather than closed.",
+      "schema": { "$ref": "#/$defs/tick" }
+    },
+    {
+      "id": "reopen",
+      "command": "reopen",
+      "kind": "write",
+      "argv": ["reopen", "<tick-id>", "--json"],
+      "output": "json",
+      "since": 1,
+      "description": "Reopen a closed tick, clearing closed_at and closed_reason.",
+      "schema": { "$ref": "#/$defs/tick" }
+    },
+    {
+      "id": "merge-file",
+      "command": "merge-file",
+      "kind": "write",
+      "argv": ["merge-file", "<base>", "<ours>", "<theirs>", "<path>"],
+      "output": "exit-code",
+      "since": 1,
+      "description": "The git custom merge driver for .tick/issues/*.json. Its contract is the merged file it writes and the code it exits with, not stdout: git invokes it with %O %A %B %P and reads no output. Listed here because a host that merges tracker branches must produce the same resolution tk does — see contracts/tracker-layout.json.",
+      "exit_codes": {
+        "0": "Merged; the result was written to <path>.",
+        "1": "Could not read an input or write the result. Git falls back to conflict markers."
+      }
+    },
+    {
+      "id": "merge-activity",
+      "command": "merge-activity",
+      "kind": "write",
+      "argv": ["merge-activity", "<ancestor>", "<current>", "<other>", "<path>"],
+      "output": "exit-code",
+      "since": 1,
+      "description": "The git custom merge driver for .tick/activity/activity.jsonl. Union merge, written back over <current>. Same shape as merge-file: exit code and file effect, no stdout.",
+      "exit_codes": {
+        "0": "Merged; the union was written back over <current>.",
+        "1": "Could not read an input or write the result. Git falls back to conflict markers."
+      }
+    }
+  ]
+}

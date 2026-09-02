@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -44,11 +45,13 @@ Note: tk reject <id> "feedback" automatically adds a human-marked note.`,
 var (
 	noteEdit bool
 	noteFrom string
+	noteJSON bool
 )
 
 func init() {
 	noteCmd.Flags().BoolVar(&noteEdit, "edit", false, "edit notes in $EDITOR")
 	noteCmd.Flags().StringVar(&noteFrom, "from", "agent", "note author: agent or human")
+	noteCmd.Flags().BoolVar(&noteJSON, "json", false, "output the updated tick as JSON")
 	rootCmd.AddCommand(noteCmd)
 }
 
@@ -111,7 +114,7 @@ func runNote(cmd *cobra.Command, args []string) error {
 		if err := store.WriteAs(t, resolveActor("")); err != nil {
 			return fmt.Errorf("failed to update tick: %w", err)
 		}
-		return nil
+		return printNoteResult(t)
 	}
 
 	if len(args) < 2 {
@@ -149,6 +152,20 @@ func runNote(cmd *cobra.Command, args []string) error {
 	}
 	if err := store.WriteAs(t, actor); err != nil {
 		return fmt.Errorf("failed to update tick: %w", err)
+	}
+	return printNoteResult(t)
+}
+
+// printNoteResult echoes the updated tick when --json is set. A controlled
+// write in the tk --json contract returns the record it wrote, so a consumer
+// never has to follow a write with a read to learn what it produced.
+func printNoteResult(t tick.Tick) error {
+	if !noteJSON {
+		return nil
+	}
+	enc := json.NewEncoder(os.Stdout)
+	if err := enc.Encode(t); err != nil {
+		return fmt.Errorf("failed to encode json: %w", err)
 	}
 	return nil
 }

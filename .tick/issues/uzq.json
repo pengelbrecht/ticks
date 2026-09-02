@@ -1,15 +1,17 @@
 {
   "id": "uzq",
   "title": "Credential ownership and ~/.ticfacrc: definition and migration path",
-  "description": "SPEC \u00a73.3, \u00a74.3 / \u00a712 Phase 0 step 5. Define which credentials belong to ticfac (model access, gateway, subscription brokers, GitHub App/install tokens, run tokens) versus ticks (none beyond git), the ~/.ticfacrc file schema, and how today's Factory credentials in ticks migrate. Include the stop-as-durable-refusal-to-issue rule and the flat-rate-seat (no cost budget) case. Document only, plus a schema fixture in the bundle.",
-  "notes": "2026-09-02 13:29 - Builds on a4n Phase 3 (9hu, credential file split, closed except docs tick c2b). Start from the decision recorded there; do not re-decide ownership of the thirty KeyFactory* keys.",
-  "status": "open",
+  "description": "SPEC §3.3, §4.3 / §12 Phase 0 step 5. Define which credentials belong to ticfac (model access, gateway, subscription brokers, GitHub App/install tokens, run tokens) versus ticks (none beyond git), the ~/.ticfacrc file schema, and how today's Factory credentials in ticks migrate. Include the stop-as-durable-refusal-to-issue rule and the flat-rate-seat (no cost budget) case. Document only, plus a schema fixture in the bundle.",
+  "notes": "2026-09-02 13:29 - Builds on a4n Phase 3 (9hu, credential file split, closed except docs tick c2b). Start from the decision recorded there; do not re-decide ownership of the thirty KeyFactory* keys.\n2026-09-02 13:40 - runner-state: substrate=herdr kind=codex branch=tick/uzq worktree=/Users/peterengelbrecht/.herdr/worktrees/ticks/tick-uzq workspace=wHZ base=c0496c1dce72cd7a1892044bb9779fb97a9512a5 agent=tick-uzq pane=wHZ:p1 session=01a061eb-3673-78f1-bd0c-876c6625f3b3",
+  "status": "closed",
   "priority": 2,
   "type": "task",
+  "owner": "noreply@anthropic.com",
   "parent": "692",
   "acceptance_criteria": "A doc section or file defines ownership per credential type and the ~/.ticfacrc schema; the schema is a bundle fixture with a validating example; the migration steps from current tk factory credentials are listed; the security posture (never print tokens, read-only grades) is preserved.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-02T11:28:24.726034Z",
-  "updated_at": "2026-09-02T11:29:06.182472Z",
-  "owner": "noreply@anthropic.com"
+  "updated_at": "2026-09-02T12:20:08.877598Z",
+  "closed_at": "2026-09-02T12:20:08.877598Z",
+  "closed_reason": "Completed: docs/projects/.../credentials.md defines ownership per credential type, the ~/.ticfacrc schema, grant grades, stop-as-refusal and metered vs flat-rate rules, and the migration from tk factory credentials; contracts/credential-ownership.json fixture with Go and TS readers"
 }
