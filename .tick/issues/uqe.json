@@ -2,6 +2,7 @@
   "id": "uqe",
   "title": "tk self-invocation pays the update check",
   "description": "FOUND BY TICK 7o5. cmd/tk/main.go runs update.CheckPeriodically for most subcommands, including show and list. Now that tk cloud spawn invokes 'tk show --json' and 'tk list --all --json' as subprocesses, a tk self-invocation pays a network-shaped code path.\n\nNot urgent: the check is cached and it is two calls per spawn, off any hot path. But a process invoking itself to read local state should not be consulting a release feed, and inside a sandbox with restricted egress it is a latency or failure surface for no benefit.\n\nA TK_NO_UPDATE_CHECK-style suppression set on the child would be small and self-contained. Worth checking whether an env var for this already exists before adding one.",
+  "notes": "2026-09-08 12:25 - ticfac run gate-cia-2: attempt 2 merged into epic/cia as 04e753ac872b; the integrated gate (go, pi-runner) passed.",
   "status": "in_progress",
   "priority": 3,
   "type": "task",
@@ -10,6 +11,6 @@
   "acceptance_criteria": "A tk subprocess spawned by tk does not run the update check. Any existing suppression mechanism is reused rather than duplicated. go test ./... green.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-27T09:46:22.176137Z",
-  "updated_at": "2026-09-08T10:10:25.518436Z",
+  "updated_at": "2026-09-08T10:25:45.380281Z",
   "started_at": "2026-09-08T10:10:25.518435Z"
 }
