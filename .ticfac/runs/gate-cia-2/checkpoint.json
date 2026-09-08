@@ -2,10 +2,10 @@
   "schema_version": 1,
   "run_id": "gate-cia-2",
   "epic_id": "cia",
-  "sequence": 24,
-  "state": "publishing",
-  "reason": "closing uqe behind the integrated gate on 04e753ac872b",
-  "updated_at": "2026-09-08T10:25:39Z",
+  "sequence": 25,
+  "state": "running",
+  "reason": "uqe is closed",
+  "updated_at": "2026-09-08T10:25:56Z",
   "ticks": [
     {
       "tick_id": "uhw",
@@ -14,7 +14,7 @@
     },
     {
       "tick_id": "uqe",
-      "state": "integrated",
+      "state": "closed",
       "attempt": 2
     },
     {
