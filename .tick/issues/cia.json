@@ -2,6 +2,7 @@
   "id": "cia",
   "title": "Guard and frontier hygiene",
   "description": "Phase 1 gate epic for ticfac (ticfac tick cc5): three existing independent Go-only tasks run through ticfac run-epic with a claude runner, killed and restarted after dispatch, after collection and before closure. Wave 1: uhw + uqe (disjoint files); wave 2: t62.",
+  "notes": "2026-09-08 13:06 - ticfac gate run gate-cia-2 completed 2026-09-08 11:04Z: uhw, uqe, t62 implemented and closed behind the integrated gate; review (brp) DONE_WITH_CONCERNS with findings filed as m9j (F1) and l5w (F2); closeout (glo) done. PR #80 epic/cia -\u003e main opened by the run operator; merging it is the operator's call.",
   "status": "open",
   "priority": 2,
   "type": "epic",
@@ -10,5 +11,5 @@
   "base_branch": "main",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-08T08:42:20.765731Z",
-  "updated_at": "2026-09-08T08:42:30.036389Z"
+  "updated_at": "2026-09-08T11:06:41.152482Z"
 }

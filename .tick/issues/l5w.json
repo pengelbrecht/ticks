@@ -1,0 +1,13 @@
+{
+  "id": "l5w",
+  "title": "Herd watch --clear leaves a permanent tombstone indistinguishable from never-armed",
+  "description": "Finding F2 of the review-epic job (tick brp) in ticfac gate run gate-cia-2 on epic cia: tk herd watch --clear writes a permanent repo-wide tombstone that --status reports identically to never-armed, and it also disables the once-per-run plugin-health check.",
+  "status": "open",
+  "priority": 3,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "--status distinguishes cleared from never-armed; a later spawn re-arms after a clear; the plugin-health check runs once per run regardless of an earlier clear.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-08T11:06:41.046667Z",
+  "updated_at": "2026-09-08T11:06:41.046667Z"
+}

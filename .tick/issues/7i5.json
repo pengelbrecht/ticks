@@ -1,0 +1,14 @@
+{
+  "id": "7i5",
+  "title": "uqe: TestResolveCloudTkBinarySuppressesUpdateCheck must not require tk on PATH",
+  "description": "Found by CI on PR #80 (ticfac gate run of epic cia): cmd/tk/cmd/cloud_tk_test.go:252 TestResolveCloudTkBinarySuppressesUpdateCheck fails on CI with \"resolveCloudTkBinary: cannot find a tk to read the tracker with: exec: tk: executable file not found in $PATH\". The test written for tick uqe (tk self-invocation skips the update check) assumes an installed tk. Make it self-sufficient: build tk into a temp dir (go build ./cmd/tk) or point resolveCloudTkBinary at a fake executable on a temp PATH, so the test proves the suppression without an installed binary. CI job: go / \"Contract bundle and parity fixtures\", run 34218832742.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "cia",
+  "acceptance_criteria": "go test ./cmd/tk/cmd/ -run TestResolveCloudTkBinarySuppressesUpdateCheck passes with an empty PATH (no installed tk); go test -short -count=1 ./... green",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-08T11:23:53.67128Z",
+  "updated_at": "2026-09-08T11:23:53.67128Z"
+}

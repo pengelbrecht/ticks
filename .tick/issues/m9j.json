@@ -1,0 +1,13 @@
+{
+  "id": "m9j",
+  "title": "Herd guard: the orchestrator watchdog is scoped to the run's first epic and never re-scoped",
+  "description": "Finding F1 of the review-epic job (tick brp) in ticfac gate run gate-cia-2 on epic cia: tk herd spawn scopes the orchestrator watchdog to the run FIRST epic and never re-scopes (cmd/tk/cmd/herd_spawn.go:346 + herd_watch.go:119), so once that epic closes the guard reads Done -\u003e at-rest and is silent for the rest of a multi-epic run — contradicting docs/design/orchestrator-continuation.md:56 and CHANGELOG.md:236. No test covers the epic boundary.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "A spawn under epic Y after epic X closed re-scopes the registered watch to Y (or the watch is scoped to the frontier of the run, not one epic); a table test crosses an epic boundary and asserts the guard still nudges; docs and CHANGELOG match the behaviour.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-08T11:06:41.022707Z",
+  "updated_at": "2026-09-08T11:06:41.022707Z"
+}
