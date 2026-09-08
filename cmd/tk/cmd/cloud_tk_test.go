@@ -246,10 +246,26 @@ func TestCloudSpawnOnAnUnrunnableTkSaysSo(t *testing.T) {
 // reading its own tracker, not a user checking for upgrades, and inside a
 // sandbox with restricted egress that check is a latency or failure surface
 // for no benefit.
+//
+// resolveCloudTkBinary's fast path only fires when the running process is
+// itself named tk (or tk.exe), which a `go test` binary never is, so this
+// test always exercises the exec.LookPath("tk") fallback. It must not depend
+// on an installed tk: PATH is pointed at a temp directory holding nothing but
+// a fake tk executable, so the test proves the suppression on its own.
 func TestResolveCloudTkBinarySuppressesUpdateCheck(t *testing.T) {
-	_, extraEnv, err := resolveCloudTkBinary()
+	binDir := t.TempDir()
+	fakeTk := filepath.Join(binDir, "tk")
+	if err := os.WriteFile(fakeTk, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
+		t.Fatalf("write fake tk: %v", err)
+	}
+	t.Setenv("PATH", binDir)
+
+	bin, extraEnv, err := resolveCloudTkBinary()
 	if err != nil {
 		t.Fatalf("resolveCloudTkBinary: %v", err)
+	}
+	if bin != fakeTk {
+		t.Errorf("resolveCloudTkBinary bin = %q, want the fake tk at %q", bin, fakeTk)
 	}
 	found := false
 	for _, kv := range extraEnv {
