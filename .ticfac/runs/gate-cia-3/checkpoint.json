@@ -2,10 +2,10 @@
   "schema_version": 1,
   "run_id": "gate-cia-3",
   "epic_id": "cia",
-  "sequence": 3,
-  "state": "running",
-  "reason": "7i5 is running as attempt 1",
-  "updated_at": "2026-09-08T11:32:00Z",
+  "sequence": 4,
+  "state": "collecting",
+  "reason": "collecting 7i5 attempt 1",
+  "updated_at": "2026-09-08T11:37:06Z",
   "ticks": [
     {
       "tick_id": "7i5",
