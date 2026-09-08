@@ -156,6 +156,43 @@ for (const [kind, value] of Object.entries(forbidden)) {
   });
 }
 
+test("ticfac run record digests do not read as account ids", async () => {
+  await withFixture(
+    {
+      ".ticfac/runs/gate-cia-2/checkpoint.json": JSON.stringify(
+        {
+          profile_digest: "sha256:ccc33c86815762a14ac758cacb1a532d",
+          context_manifest_digest: "sha256:0cf644d69158e095c78727ed089548d1",
+        },
+        null,
+        2
+      ),
+    },
+    (root) => {
+      const result = runGuard(root);
+      assert.equal(result.status, 0, result.output);
+    }
+  );
+});
+
+test("a real-looking account id outside a digest field still fails", async () => {
+  const realisticAccountId = "0123456789abcdef".repeat(2);
+  await withFixture(
+    {
+      ".ticfac/runs/gate-cia-2/checkpoint.json": JSON.stringify(
+        { cloudflare_account_id: realisticAccountId },
+        null,
+        2
+      ),
+    },
+    (root) => {
+      const result = runGuard(root);
+      assert.notEqual(result.status, 0, `guard unexpectedly passed:\n${result.output}`);
+      assert.match(result.output, /account/i);
+    }
+  );
+});
+
 test("legacy tracker metadata does not exempt the same identity in a note", async () => {
   const legacyIdentity = ["peter", "@", "engelbrecht.dk"].join("");
   await withFixture(

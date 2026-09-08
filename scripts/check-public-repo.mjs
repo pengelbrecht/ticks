@@ -144,6 +144,29 @@ function isLegacyTrackerIdentity(path, line, literal, column) {
   return false;
 }
 
+function isContentDigest(line, literal, matchIndex) {
+  // A 32-hex value directly prefixed by "sha256:" is a content digest, not an
+  // account id — ticfac run records (contracts/ticfac-run-state.json) write
+  // profile_digest/context_manifest_digest this way.
+  const prefixStart = matchIndex - "sha256:".length;
+  if (prefixStart >= 0 && line.slice(prefixStart, matchIndex) === "sha256:") {
+    return true;
+  }
+
+  // Same value, but reached through a JSON field named "*_digest" instead of
+  // a literal prefix on this occurrence (a digest recorded without the
+  // "sha256:" scheme prefix).
+  const digestField = /"[A-Za-z0-9_]*_digest"\s*:\s*"([^"\\]*)"/g;
+  for (const match of line.matchAll(digestField)) {
+    const value = match[1];
+    const valueStart = (match.index ?? 0) + match[0].indexOf(value);
+    const offset = matchIndex - valueStart;
+    if (offset < 0 || offset + literal.length > value.length) continue;
+    if (value.slice(offset, offset + literal.length) === literal) return true;
+  }
+  return false;
+}
+
 function isAllowed(path, kind, literal, line) {
   return PUBLIC_REPO_ALLOWLIST.some(
     (entry) =>
@@ -194,6 +217,12 @@ export function scanTrackedFiles(root) {
         for (const match of line.matchAll(rule.pattern)) {
           const literal = match[0];
           if (isSyntheticPlaceholder(literal)) continue;
+          if (
+            rule.kind === "account" &&
+            isContentDigest(line, literal, match.index ?? 0)
+          ) {
+            continue;
+          }
           if (rule.kind === "email" && isReservedEmail(literal)) continue;
           if (rule.kind === "email" && isNonEmailIdentifier(literal)) continue;
           if (
