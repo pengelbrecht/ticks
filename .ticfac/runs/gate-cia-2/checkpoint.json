@@ -2,10 +2,10 @@
   "schema_version": 1,
   "run_id": "gate-cia-2",
   "epic_id": "cia",
-  "sequence": 34,
-  "state": "running",
-  "reason": "brp is running as attempt 4",
-  "updated_at": "2026-09-08T10:47:52Z",
+  "sequence": 35,
+  "state": "collecting",
+  "reason": "collecting the review-epic job for brp",
+  "updated_at": "2026-09-08T10:58:01Z",
   "ticks": [
     {
       "tick_id": "uhw",
