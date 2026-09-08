@@ -1,0 +1,50 @@
+{
+  "schema_version": 1,
+  "decision": 2,
+  "role": "closeout-epic",
+  "request": {
+    "epic_id": "cia",
+    "job_id": "run-gate-cia-2/tick-glo/attempt-5",
+    "output_schema": "ticfac.job-result.closeout-epic.v1",
+    "profile": "closeout-epic@1.0.0 (local-subprocess/claude, sonnet)",
+    "profile_digest": "sha256:df1abd728258fa676912625ef1b16a355caef44de569074175f0dc0337604329",
+    "role": "closeout-epic",
+    "source_grade": "write",
+    "source_sha": "4b4ae9058fe404afdb78e6690c333098e1d01b77",
+    "tick_id": "glo"
+  },
+  "response": {
+    "result": {
+      "boundary_violations": [],
+      "branch": "tick/glo",
+      "commits": 0,
+      "needs_human": false,
+      "report_path": "/private/tmp/claude-501/-Users-peterengelbrecht-Development-ticfac/1687f85b-9680-4c8b-ad98-ebe61eb3bfb3/scratchpad/gate/exec-state/gate-cia-2/glo/5/e2770383b4467f3f/cb49bcb5e47e2b82/worktree/runs/gate-cia-2/glo/RESULT-glo.md",
+      "verdict": "no-commits"
+    },
+    "role": "closeout-epic",
+    "schema_id": "ticfac.job-result.closeout-epic.v1",
+    "schema_version": 1,
+    "status": "DONE_WITH_CONCERNS",
+    "summary": "verify (a) whether the epic/cia → main PR has since been opened/merged (it had not, as of this closeout), and (b) whether brp's F1/F2 findings get filed as follow-up ticks before this epic is considered fully closed."
+  },
+  "validated": true,
+  "requested_at": "2026-09-08T11:03:56Z",
+  "answered_at": "2026-09-08T11:03:56Z",
+  "provenance": {
+    "run_id": "gate-cia-2",
+    "tick_id": "glo",
+    "attempt": 5,
+    "source_ref": "refs/heads/epic/cia",
+    "source_sha": "4b4ae9058fe404afdb78e6690c333098e1d01b77",
+    "integration_ref": "refs/heads/epic/cia",
+    "phase": "closeout",
+    "executor": "local-subprocess",
+    "workspace_id": null,
+    "backend": null,
+    "role": "closeout-epic",
+    "profile_digest": "sha256:df1abd728258fa676912625ef1b16a355caef44de569074175f0dc0337604329",
+    "model": "sonnet",
+    "context_manifest_digest": "sha256:0cf644d69158e095c78727ed089548d1"
+  }
+}
