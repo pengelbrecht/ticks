@@ -2,10 +2,10 @@
   "schema_version": 1,
   "run_id": "gate-cia-2",
   "epic_id": "cia",
-  "sequence": 25,
-  "state": "running",
-  "reason": "uqe is closed",
-  "updated_at": "2026-09-08T10:25:56Z",
+  "sequence": 26,
+  "state": "dispatching",
+  "reason": "dispatching t62 as attempt 3",
+  "updated_at": "2026-09-08T10:26:08Z",
   "ticks": [
     {
       "tick_id": "uhw",
