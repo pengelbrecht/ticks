@@ -2,10 +2,10 @@
   "schema_version": 1,
   "run_id": "gate-cia-2",
   "epic_id": "cia",
-  "sequence": 38,
-  "state": "dispatching",
-  "reason": "dispatching glo as attempt 5",
-  "updated_at": "2026-09-08T10:58:34Z",
+  "sequence": 39,
+  "state": "running",
+  "reason": "glo is running as attempt 5",
+  "updated_at": "2026-09-08T10:58:46Z",
   "ticks": [
     {
       "tick_id": "uhw",
@@ -29,7 +29,8 @@
     },
     {
       "tick_id": "glo",
-      "state": "ready"
+      "state": "dispatched",
+      "attempt": 5
     }
   ],
   "provenance": {
