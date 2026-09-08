@@ -2,10 +2,10 @@
   "schema_version": 1,
   "run_id": "gate-cia-3",
   "epic_id": "cia",
-  "sequence": 14,
-  "state": "publishing",
-  "reason": "closing p7i behind the integrated gate on 05c30741f58b",
-  "updated_at": "2026-09-08T11:52:47Z",
+  "sequence": 15,
+  "state": "running",
+  "reason": "p7i is closed",
+  "updated_at": "2026-09-08T11:53:02Z",
   "ticks": [
     {
       "tick_id": "7i5",
@@ -14,7 +14,7 @@
     },
     {
       "tick_id": "p7i",
-      "state": "integrated",
+      "state": "closed",
       "attempt": 2
     }
   ],
