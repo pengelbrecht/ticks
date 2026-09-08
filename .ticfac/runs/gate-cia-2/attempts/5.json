@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "attempt": 5,
+  "tick_id": "glo",
+  "dispatched_at": "2026-09-08T10:58:36Z",
+  "job_handle": {
+    "attempt": 5,
+    "base_sha": "4b4ae9058fe404afdb78e6690c333098e1d01b77",
+    "executor": "local-subprocess",
+    "job_id": "run-gate-cia-2/tick-glo/attempt-5",
+    "model": "sonnet",
+    "prompt_digest": "sha256:76905ba38536b0a4a0a4343db6e4c80a",
+    "remote": "origin",
+    "repo": "/private/tmp/claude-501/-Users-peterengelbrecht-Development-ticfac/1687f85b-9680-4c8b-ad98-ebe61eb3bfb3/scratchpad/gate/clone8",
+    "role": "closeout-epic",
+    "state_root": "/private/tmp/claude-501/-Users-peterengelbrecht-Development-ticfac/1687f85b-9680-4c8b-ad98-ebe61eb3bfb3/scratchpad/gate/exec-state/gate-cia-2/glo/5",
+    "tick_id": "glo",
+    "write_ref": "refs/heads/tick/glo"
+  },
+  "provenance": {
+    "run_id": "gate-cia-2",
+    "tick_id": "glo",
+    "attempt": 5,
+    "source_ref": "refs/heads/epic/cia",
+    "source_sha": "4b4ae9058fe404afdb78e6690c333098e1d01b77",
+    "integration_ref": "refs/heads/epic/cia",
+    "phase": "closeout",
+    "executor": "local-subprocess",
+    "workspace_id": null,
+    "backend": null,
+    "role": "closeout-epic",
+    "profile_digest": "sha256:df1abd728258fa676912625ef1b16a355caef44de569074175f0dc0337604329",
+    "model": "sonnet",
+    "context_manifest_digest": "sha256:0cf644d69158e095c78727ed089548d1"
+  }
+}
