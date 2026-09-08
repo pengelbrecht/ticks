@@ -2,10 +2,10 @@
   "schema_version": 1,
   "run_id": "gate-cia-2",
   "epic_id": "cia",
-  "sequence": 33,
-  "state": "dispatching",
-  "reason": "dispatching brp as attempt 4",
-  "updated_at": "2026-09-08T10:47:37Z",
+  "sequence": 34,
+  "state": "running",
+  "reason": "brp is running as attempt 4",
+  "updated_at": "2026-09-08T10:47:52Z",
   "ticks": [
     {
       "tick_id": "uhw",
@@ -24,7 +24,8 @@
     },
     {
       "tick_id": "brp",
-      "state": "ready"
+      "state": "dispatched",
+      "attempt": 4
     },
     {
       "tick_id": "glo",
