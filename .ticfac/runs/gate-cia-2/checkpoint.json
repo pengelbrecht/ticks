@@ -2,10 +2,10 @@
   "schema_version": 1,
   "run_id": "gate-cia-2",
   "epic_id": "cia",
-  "sequence": 40,
-  "state": "collecting",
-  "reason": "collecting the closeout-epic job for glo",
-  "updated_at": "2026-09-08T11:03:52Z",
+  "sequence": 41,
+  "state": "publishing",
+  "reason": "closing glo behind its validated closeout-epic answer",
+  "updated_at": "2026-09-08T11:03:59Z",
   "ticks": [
     {
       "tick_id": "uhw",
@@ -29,7 +29,7 @@
     },
     {
       "tick_id": "glo",
-      "state": "dispatched",
+      "state": "reported",
       "attempt": 5
     }
   ],
