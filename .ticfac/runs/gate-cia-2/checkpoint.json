@@ -1,0 +1,47 @@
+{
+  "schema_version": 1,
+  "run_id": "gate-cia-2",
+  "epic_id": "cia",
+  "sequence": 1,
+  "state": "admitted",
+  "reason": "the epic graph is read and the run is admitted",
+  "updated_at": "2026-09-08T09:56:02Z",
+  "ticks": [
+    {
+      "tick_id": "uhw",
+      "state": "ready"
+    },
+    {
+      "tick_id": "uqe",
+      "state": "ready"
+    },
+    {
+      "tick_id": "t62",
+      "state": "ready"
+    },
+    {
+      "tick_id": "brp",
+      "state": "ready"
+    },
+    {
+      "tick_id": "glo",
+      "state": "ready"
+    }
+  ],
+  "provenance": {
+    "run_id": "gate-cia-2",
+    "tick_id": null,
+    "attempt": null,
+    "source_ref": "refs/heads/epic/cia",
+    "source_sha": "1da981d5230766b2009e12ddc911b4fd848fbf6f",
+    "integration_ref": "refs/heads/epic/cia",
+    "phase": "worker",
+    "executor": "local-subprocess",
+    "workspace_id": null,
+    "backend": null,
+    "role": null,
+    "profile_digest": "sha256:ccc33c86815762a14ac758cacb1a532d",
+    "model": null,
+    "context_manifest_digest": "sha256:0cf644d69158e095c78727ed089548d1"
+  }
+}
