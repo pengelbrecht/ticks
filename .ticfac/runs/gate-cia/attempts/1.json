@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "attempt": 1,
+  "tick_id": "uhw",
+  "dispatched_at": "2026-09-08T08:45:34Z",
+  "job_handle": {
+    "attempt": 1,
+    "base_sha": "1da981d5230766b2009e12ddc911b4fd848fbf6f",
+    "executor": "local-subprocess",
+    "job_id": "run-gate-cia/tick-uhw/attempt-1",
+    "model": "sonnet",
+    "prompt_digest": "sha256:38739fba8b2922be1943ae0eb6b419dd",
+    "remote": "origin",
+    "repo": "/private/tmp/claude-501/-Users-peterengelbrecht-Development-ticfac/1687f85b-9680-4c8b-ad98-ebe61eb3bfb3/scratchpad/gate/clone1",
+    "role": "implement-tick",
+    "state_root": "/private/tmp/claude-501/-Users-peterengelbrecht-Development-ticfac/1687f85b-9680-4c8b-ad98-ebe61eb3bfb3/scratchpad/gate/exec-state/gate-cia/uhw/1",
+    "tick_id": "uhw",
+    "write_ref": "refs/heads/tick/uhw"
+  },
+  "provenance": {
+    "run_id": "gate-cia",
+    "tick_id": "uhw",
+    "attempt": 1,
+    "source_ref": "refs/heads/epic/cia",
+    "source_sha": "1da981d5230766b2009e12ddc911b4fd848fbf6f",
+    "integration_ref": "refs/heads/epic/cia",
+    "phase": "worker",
+    "executor": "local-subprocess",
+    "workspace_id": null,
+    "backend": null,
+    "role": "implement-tick",
+    "profile_digest": "sha256:8b14fdfa3c6152f72e779ad12c2a144dd7175b5d587781c888b84fde3c9d581b",
+    "model": "sonnet",
+    "context_manifest_digest": "sha256:0cf644d69158e095c78727ed089548d1"
+  }
+}
