@@ -1,0 +1,16 @@
+{
+  "id": "brp",
+  "title": "Final review of epic cia diff",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "t62"
+  ],
+  "parent": "cia",
+  "role": "review",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-08T08:42:29.986268Z",
+  "updated_at": "2026-09-08T08:42:29.986268Z"
+}

@@ -2412,3 +2412,8 @@
 {"ts":"2026-09-08T08:42:20.765977Z","tick":"cia","action":"create","actor":"claude:orchestrator","data":{"priority":2,"title":"Guard and frontier hygiene","type":"epic"}}
 {"ts":"2026-09-08T08:42:20.791411Z","tick":"uhw","action":"update","actor":"claude:orchestrator","epic":"cia","data":{"parent":{"from":"","to":"cia"},"title":"verify-herd-plugin.sh does not check the guard hook exists"}}
 {"ts":"2026-09-08T08:42:20.821065Z","tick":"uqe","action":"update","actor":"claude:orchestrator","epic":"cia","data":{"parent":{"from":"","to":"cia"},"title":"tk self-invocation pays the update check"}}
+{"ts":"2026-09-08T08:42:29.904853Z","tick":"t62","action":"update","actor":"claude:orchestrator","epic":"cia","data":{"parent":{"from":"","to":"cia"},"title":"tk frontier --check and the herd guard are repo-wide, so a scoped epic run is nudged about unrelated ticks"}}
+{"ts":"2026-09-08T08:42:29.930776Z","tick":"t62","action":"block","actor":"claude:orchestrator","epic":"cia","data":{"blockers":["uhw"],"title":"tk frontier --check and the herd guard are repo-wide, so a scoped epic run is nudged about unrelated ticks"}}
+{"ts":"2026-09-08T08:42:29.957328Z","tick":"t62","action":"block","actor":"claude:orchestrator","epic":"cia","data":{"blockers":["uhw","uqe"],"title":"tk frontier --check and the herd guard are repo-wide, so a scoped epic run is nudged about unrelated ticks"}}
+{"ts":"2026-09-08T08:42:29.986581Z","tick":"brp","action":"create","actor":"claude:orchestrator","epic":"cia","data":{"priority":2,"title":"Final review of epic cia diff","type":"task"}}
+{"ts":"2026-09-08T08:42:30.012097Z","tick":"glo","action":"create","actor":"claude:orchestrator","epic":"cia","data":{"priority":2,"title":"Close out epic cia: run epic retro","type":"task"}}
