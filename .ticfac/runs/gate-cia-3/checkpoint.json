@@ -2,14 +2,14 @@
   "schema_version": 1,
   "run_id": "gate-cia-3",
   "epic_id": "cia",
-  "sequence": 7,
-  "state": "publishing",
-  "reason": "closing 7i5 behind the integrated gate on 2649fe48e3f9",
-  "updated_at": "2026-09-08T11:42:08Z",
+  "sequence": 8,
+  "state": "running",
+  "reason": "7i5 is closed",
+  "updated_at": "2026-09-08T11:42:23Z",
   "ticks": [
     {
       "tick_id": "7i5",
-      "state": "integrated",
+      "state": "closed",
       "attempt": 1
     },
     {
