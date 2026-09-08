@@ -336,7 +336,9 @@ func runHerdSpawn(cmd *cobra.Command, args []string) error {
 	// Never overrides an existing registration — an explicit `tk herd watch`
 	// target wins, and re-arming every spawn would reset the guard's episode
 	// memory mid-stall, which is exactly when it must not be reset.
-	armedTarget, armErr := armOrchestratorWatch(root)
+	// The scope is this tick's epic: the guard judges that epic's frontier,
+	// not the repository's. A `tk herd watch --clear` tombstone is respected.
+	armedTarget, armErr := armOrchestratorWatch(root, m.Epic)
 	if armedTarget != "" {
 		// Arming just happened, so this is the FIRST spawn of the run — the one
 		// place a once-per-run environment check belongs. Under herdr, what

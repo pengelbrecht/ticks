@@ -219,7 +219,11 @@ func printCloseContinuation(w io.Writer, root string, t tick.Tick) {
 	if cfg, err := config.LoadOrDefault(filepath.Join(root, ".tick", "config.json")); err == nil {
 		autonomous = cfg.Policy.GetAutonomousMode()
 	}
-	rep, err := evaluateFrontier(root, "", "", autonomous)
+	// Judge the container the run is working in, not the repository: the
+	// closed tick's epic, or — for an epic or its close-out, where the next
+	// work is the next epic — the enclosing project. No container: the whole
+	// repository, as before.
+	rep, err := evaluateFrontier(root, closeFrontierScope(root, t), "", autonomous)
 	if err != nil {
 		return // advisory only; never fail a close over it
 	}
@@ -231,16 +235,35 @@ func printCloseContinuation(w io.Writer, root string, t tick.Tick) {
 
 	if !rep.Actionable {
 		if loud {
-			fmt.Fprintln(w, "frontier: at rest — every open path waits on a human, is in flight, or the scope is done.")
+			fmt.Fprintf(w, "frontier%s: at rest — every open path waits on a human, is in flight, or the scope is done.\n", rep.scopeLabel())
 		}
 		return
 	}
 	if !loud {
-		fmt.Fprintf(w, "frontier: %s\n", rep.summary())
+		fmt.Fprintf(w, "frontier%s: %s\n", rep.scopeLabel(), rep.summary())
 		return
 	}
-	fmt.Fprintf(w, "\nTHIS IS NOT A STOPPING POINT. frontier: %s\n", rep.summary())
+	fmt.Fprintf(w, "\nTHIS IS NOT A STOPPING POINT. frontier%s: %s\n", rep.scopeLabel(), rep.summary())
 	fmt.Fprintln(w, "End the turn on a dispatch, never on a close: plan and launch the next")
 	fmt.Fprintln(w, "feasible work in THIS turn, or name the blocker that prevents it.")
 	fmt.Fprintln(w, "(`tk frontier` for the full list; re-read the run charter in the ticks skill.)")
+}
+
+// closeFrontierScope picks the container whose frontier a close is judged
+// against. An ordinary tick: its parent. An epic: its parent project. A
+// close-out tick, whose epic is about to close: the epic's parent project, so
+// the verdict names the next epic rather than this epic's own last steps. No
+// container at any of those levels: the whole repository, as before.
+func closeFrontierScope(root string, t tick.Tick) string {
+	if t.Parent == "" {
+		return ""
+	}
+	if t.Type == tick.TypeEpic || t.Role != tick.RoleCloseout {
+		return t.Parent
+	}
+	store := tick.NewStore(filepath.Join(root, ".tick"))
+	if epic, err := store.Read(t.Parent); err == nil && epic.Parent != "" {
+		return epic.Parent
+	}
+	return t.Parent
 }

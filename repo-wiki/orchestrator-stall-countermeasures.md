@@ -94,6 +94,25 @@ reliable.
   any test of the no-target path must `t.Setenv("HERDR_PANE_ID", "")` or it
   silently exercises the fallback instead.
 
+## Scope: the guard judges the run, not the repository (t62)
+
+The first live run under the armed guard (ticfac Phase 0, 2026-09-02) showed
+a second kind of false positive. `tk frontier --check` answered for the whole
+repository, so an orchestrator running one epic in a repository with 48 other
+open ticks was nudged six times as "idle while the frontier is actionable" —
+every named tick from another epic, while all four of its workers were live
+and claimed. Worse, `tk herd watch --clear` deleted the registration, and the
+next wave's `tk herd spawn` — arming being automatic — wrote it straight back.
+
+The watch now carries a **scope**: the epic of the first tick spawn dispatched,
+or `tk herd watch --scope <id>` (an epic or a project). `tk herd guard`
+evaluates `tk frontier <scope>` — the container's whole subtree — and the
+nudge names it. `--clear` writes a tombstone that spawn respects; only an
+explicit `tk herd watch <target>` replaces it. `tk close`'s verdict is scoped
+the same way (a tick to its epic; an epic or its close-out to the enclosing
+project). Unscoped `tk frontier` is unchanged for hooks that want the
+repository view.
+
 ## Timeline
 - 2026-08-31 — watchdog ships (`35c4b8ef`), armed by nothing.
 - 2026-09-01 — spawn-arming + `tk close` verdict; guard makes its first

@@ -26,7 +26,7 @@ func TestArmOrchestratorWatchUsesOwnPane(t *testing.T) {
 	root := armTestRepo(t)
 	t.Setenv("HERDR_PANE_ID", "w9T:p1")
 
-	target, err := armOrchestratorWatch(root)
+	target, err := armOrchestratorWatch(root, "")
 	if err != nil {
 		t.Fatalf("arm: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestArmOrchestratorWatchNoPaneIsNoOp(t *testing.T) {
 	root := armTestRepo(t)
 	t.Setenv("HERDR_PANE_ID", "")
 
-	target, err := armOrchestratorWatch(root)
+	target, err := armOrchestratorWatch(root, "")
 	if err != nil {
 		t.Fatalf("arm: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestArmOrchestratorWatchNeverOverridesExisting(t *testing.T) {
 	}
 	t.Setenv("HERDR_PANE_ID", "w9T:p1")
 
-	target, err := armOrchestratorWatch(root)
+	target, err := armOrchestratorWatch(root, "")
 	if err != nil {
 		t.Fatalf("arm: %v", err)
 	}
