@@ -22,7 +22,7 @@
 #                 the plugin that can default to the focused workspace carries an
 #                 explicit target. Zero herdr calls in this section.
 #   1. link       the worktree's plugin is linked and reports the [[events]]
-#                 UNION: five paint hooks + one notify hook.
+#                 UNION: five paint hooks + one notify hook + one guard hook.
 #   2. wave       two live claude workers. One runs full-auto and finishes; the
 #                 other is spawned with `full_auto = false` so it hits a real
 #                 approval prompt and herdr reports it BLOCKED. The plugin log is
@@ -180,7 +180,7 @@ unset HERDR_PLUGIN_CONFIG_DIR HERDR_PLUGIN_ROOT
 
 # Every script must use the shared resolution, not its own copy: four private
 # copies are exactly how the two hooks ended up with the weaker variant.
-for s in dashboard.sh paint-hook.sh notify-hook.sh action-collect-tick.sh action-retry-tick.sh; do
+for s in dashboard.sh paint-hook.sh notify-hook.sh guard-hook.sh action-collect-tick.sh action-retry-tick.sh; do
   assert "$s sources lib/tk-resolve.sh" \
     grep -q 'lib/tk-resolve.sh' "$PLUGIN_DIR/scripts/$s"
 done
@@ -400,20 +400,24 @@ jq --arg id "$PLUGIN_ID" '.result.plugins[] | select(.plugin_id==$id) | .events'
   "$EVIDENCE/plugin-list-linked.json" > "$EV"
 jq -r '.[] | "\(.on)  \(.command | join(" "))"' "$EV" >&2
 
-# Carry-over (d): the merged manifest must be the UNION of the paint and notify
-# hook sets, not one of them. `events.on` is unvalidated, so this reads what
-# herdr actually parsed rather than what the file says.
+# Carry-over (d): the merged manifest must be the UNION of the paint, notify
+# and guard hook sets, not a subset of them. `events.on` is unvalidated, so
+# this reads what herdr actually parsed rather than what the file says.
 assert_eq "five paint hooks are registered" 5 \
   "$(jq '[.[] | select(.command | index("scripts/paint-hook.sh"))] | length' "$EV")"
 assert_eq "one notify hook is registered" 1 \
   "$(jq '[.[] | select(.command | index("scripts/notify-hook.sh"))] | length' "$EV")"
+assert_eq "one guard hook is registered" 1 \
+  "$(jq '[.[] | select(.command | index("scripts/guard-hook.sh"))] | length' "$EV")"
 for e in pane.agent_status_changed pane.agent_detected pane.created pane.closed workspace.focused; do
   assert "paint is hooked on $e" \
     jq -e --arg e "$e" '[.[] | select(.on==$e and (.command | index("scripts/paint-hook.sh")))] | length == 1' "$EV"
 done
 assert "notify is hooked on pane.agent_status_changed" \
   jq -e '[.[] | select(.on=="pane.agent_status_changed" and (.command | index("scripts/notify-hook.sh")))] | length == 1' "$EV"
-assert_eq "both hooks share pane.agent_status_changed (two entries, one event)" 2 \
+assert "guard is hooked on pane.agent_status_changed" \
+  jq -e '[.[] | select(.on=="pane.agent_status_changed" and (.command | index("scripts/guard-hook.sh")))] | length == 1' "$EV"
+assert_eq "all three hooks share pane.agent_status_changed (three entries, one event)" 3 \
   "$(jq '[.[] | select(.on=="pane.agent_status_changed")] | length' "$EV")"
 
 # ---- the tk binary, and the pin that is the ONLY channel an event hook has ----
