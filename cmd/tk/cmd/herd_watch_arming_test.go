@@ -26,7 +26,7 @@ func TestArmOrchestratorWatchUsesOwnPane(t *testing.T) {
 	root := armTestRepo(t)
 	t.Setenv("HERDR_PANE_ID", "w9T:p1")
 
-	target, err := armOrchestratorWatch(root)
+	target, err := armOrchestratorWatch(root, "")
 	if err != nil {
 		t.Fatalf("arm: %v", err)
 	}
@@ -52,7 +52,7 @@ func TestArmOrchestratorWatchNoPaneIsNoOp(t *testing.T) {
 	root := armTestRepo(t)
 	t.Setenv("HERDR_PANE_ID", "")
 
-	target, err := armOrchestratorWatch(root)
+	target, err := armOrchestratorWatch(root, "")
 	if err != nil {
 		t.Fatalf("arm: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestArmOrchestratorWatchNeverOverridesExisting(t *testing.T) {
 	}
 	t.Setenv("HERDR_PANE_ID", "w9T:p1")
 
-	target, err := armOrchestratorWatch(root)
+	target, err := armOrchestratorWatch(root, "")
 	if err != nil {
 		t.Fatalf("arm: %v", err)
 	}
@@ -92,6 +92,52 @@ func TestArmOrchestratorWatchNeverOverridesExisting(t *testing.T) {
 	s, _ := loadWatchState(root)
 	if s.Target != "orchestrator" || s.NudgeMax != 7 || s.NudgeCount != 2 {
 		t.Fatalf("existing registration was clobbered: %+v", s)
+	}
+}
+
+// armOrchestratorWatch records the scope tk herd spawn passes it (the epic of
+// the tick it just dispatched), so the guard it arms judges that epic's
+// frontier instead of the whole repository.
+func TestArmOrchestratorWatchRecordsScope(t *testing.T) {
+	root := armTestRepo(t)
+	t.Setenv("HERDR_PANE_ID", "w9T:p1")
+
+	target, err := armOrchestratorWatch(root, "cia")
+	if err != nil {
+		t.Fatalf("arm: %v", err)
+	}
+	if target != "w9T:p1" {
+		t.Fatalf("target = %q, want w9T:p1", target)
+	}
+	s, ok := loadWatchState(root)
+	if !ok {
+		t.Fatal("no watch state written")
+	}
+	if s.Scope != "cia" {
+		t.Fatalf("scope = %q, want cia", s.Scope)
+	}
+}
+
+// A `tk herd watch --clear` writes a tombstone, not a removed file. Arming
+// must see that tombstone and stay off — otherwise the very next `tk herd
+// spawn` of the run silently re-registers the watch the operator just told it
+// to drop (the bug noted on t62).
+func TestArmOrchestratorWatchRespectsClearedTombstone(t *testing.T) {
+	root := armTestRepo(t)
+	if err := saveWatchState(root, watchState{}); err != nil {
+		t.Fatalf("seed tombstone: %v", err)
+	}
+	t.Setenv("HERDR_PANE_ID", "w9T:p1")
+
+	target, err := armOrchestratorWatch(root, "cia")
+	if err != nil {
+		t.Fatalf("arm: %v", err)
+	}
+	if target != "" {
+		t.Fatalf("target = %q, want empty — a cleared watch must stay cleared", target)
+	}
+	if _, ok := loadWatchState(root); ok {
+		t.Fatal("tombstone was overwritten with a live registration")
 	}
 }
 

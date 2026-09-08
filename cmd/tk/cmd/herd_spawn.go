@@ -333,10 +333,17 @@ func runHerdSpawn(cmd *cobra.Command, args []string) error {
 	// orchestrator's own pane, so HERDR_PANE_ID identifies the very process
 	// dispatching this worker.
 	//
+	// Recorded with THIS tick's epic as the guard's scope: a run dispatching
+	// under one epic should be judged against that epic's frontier, not the
+	// whole repository — otherwise every ready tick anywhere nudges an
+	// orchestrator that is correctly at rest within its own scope (the t62
+	// bug). An operator who wants a different scope, or no scope, still has
+	// `tk herd watch --scope` / `tk herd watch` to override this default.
+	//
 	// Never overrides an existing registration — an explicit `tk herd watch`
 	// target wins, and re-arming every spawn would reset the guard's episode
 	// memory mid-stall, which is exactly when it must not be reset.
-	armedTarget, armErr := armOrchestratorWatch(root)
+	armedTarget, armErr := armOrchestratorWatch(root, epic.ID)
 	if armedTarget != "" {
 		// Arming just happened, so this is the FIRST spawn of the run — the one
 		// place a once-per-run environment check belongs. Under herdr, what

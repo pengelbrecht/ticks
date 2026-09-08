@@ -245,6 +245,48 @@ func TestFrontierScoped(t *testing.T) {
 	}
 }
 
+// The t62 acceptance case: a scoped --check must judge only its container's
+// descendants. Every dispatchable tick OUTSIDE the epic is ready, but the
+// epic itself holds only an awaiting tick — the scoped check must exit 1
+// (at rest) even though a bare, unscoped check on the same repo exits 0.
+func TestFrontierScopedCheckIgnoresWorkOutsideScope(t *testing.T) {
+	_, store := frontierTestSetup(t)
+
+	epic := makeTestEpic("e01")
+	if err := store.Write(epic); err != nil {
+		t.Fatalf("write epic: %v", err)
+	}
+	inScope := makeTestTask("in1")
+	inScope.Parent = "e01"
+	awaiting := tick.AwaitingApproval
+	inScope.Awaiting = &awaiting
+	if err := store.Write(inScope); err != nil {
+		t.Fatalf("write in-scope tick: %v", err)
+	}
+	for _, id := range []string{"0t9", "0vz"} {
+		if err := store.Write(makeTestTask(id)); err != nil {
+			t.Fatalf("write outside tick %s: %v", id, err)
+		}
+	}
+
+	ResetFlags()
+	if err := ExecuteArgs([]string{"frontier", "--check"}); err != nil {
+		t.Fatalf("bare frontier --check should be actionable (exit 0) with two ready outside ticks: %v", err)
+	}
+
+	ResetFlags()
+	err := ExecuteArgs([]string{"frontier", "--check", "e01"})
+	if err == nil {
+		t.Fatal("frontier --check e01 should exit 1: everything inside e01 is awaiting a human")
+	}
+	if code := GetExitCode(err); code != ExitGeneric {
+		t.Errorf("scoped at-rest exit code = %d, want %d", code, ExitGeneric)
+	}
+	if !strings.Contains(err.Error(), "at rest") {
+		t.Errorf("scoped error should say at rest: %v", err)
+	}
+}
+
 func TestFrontierScopedChildlessEpicIsNotDone(t *testing.T) {
 	// A childless open epic scoped by id yields a plan item; the report must
 	// not simultaneously claim "done: no open ticks in scope" — the scope

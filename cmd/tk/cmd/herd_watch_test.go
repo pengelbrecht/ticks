@@ -266,6 +266,114 @@ func TestGuardBlockedToIdleRearmsBudget(t *testing.T) {
 	}
 }
 
+// A guard armed with a scope (as tk herd spawn now does, recording the epic of
+// the tick it dispatches) must judge THAT epic's frontier, not the whole
+// repository — the t62 bug: a run scoped to one epic was nudged about
+// unrelated ticks whenever any of them was ready, burning the nudge budget on
+// false positives.
+func TestGuardJudgesScopedFrontier(t *testing.T) {
+	ResetFlags()
+	_, store := setupTestRepo(t)
+	if err := store.Ensure(); err != nil {
+		t.Fatalf("ensure store: %v", err)
+	}
+
+	// Epic X holds only an awaiting tick (at rest); a tick OUTSIDE any epic
+	// is wide open and ready — the exact "41 more" shape from the bug report.
+	scopedEpic := makeTestEpic("cia")
+	if err := store.Write(scopedEpic); err != nil {
+		t.Fatalf("write epic: %v", err)
+	}
+	inScope := makeTestTask("t62")
+	inScope.Parent = "cia"
+	awaiting := tick.AwaitingApproval
+	inScope.Awaiting = &awaiting
+	if err := store.Write(inScope); err != nil {
+		t.Fatalf("write in-scope tick: %v", err)
+	}
+	outside := makeTestTask("0t9")
+	if err := store.Write(outside); err != nil {
+		t.Fatalf("write outside tick: %v", err)
+	}
+
+	prompts := &promptRecorder{}
+	srv := herdtest.New(t, herdtest.Config{
+		Agents: []herdtest.Agent{{Name: "orc", PaneID: "w1:p1", Status: "idle"}},
+		Routes: map[string]herdtest.Handler{
+			"agent.prompt": func(_ *testing.T, req herdtest.Request, w *herdtest.ConnWriter) error {
+				var p struct {
+					Target string `json:"target"`
+					Text   string `json:"text"`
+				}
+				_ = json.Unmarshal(req.Params, &p)
+				prompts.record(p.Target, p.Text)
+				return herdtest.RespondJSON(w, req.ID, map[string]any{
+					"type":  "agent_prompted",
+					"agent": map[string]any{"pane_id": "w1:p1", "agent_status": "idle"},
+				})
+			},
+		},
+	})
+
+	buf := captureCmdOutput(t)
+	if err := ExecuteArgs([]string{"herd", "watch", "orc", "--scope", "cia",
+		"--nudge-max", "3", "--nudge-interval", "0s"}); err != nil {
+		t.Fatalf("herd watch --scope: %v\n%s", err, buf.String())
+	}
+
+	out := runGuard(t, srv)
+	if !strings.Contains(out, "at-rest") {
+		t.Fatalf("scoped guard should see epic cia at rest despite the unrelated ready tick: %s", out)
+	}
+	if prompts.count() != 0 {
+		t.Fatalf("a scoped guard nudged about work outside its scope: %d prompts, texts=%v", prompts.count(), prompts.texts)
+	}
+
+	// Un-scoping (bare watch, no --scope) exposes the same repo as actionable —
+	// proving the fixture's "outside" tick really was ready, and the at-rest
+	// result above came from the scope, not from an empty repo.
+	ResetFlags()
+	if err := ExecuteArgs([]string{"herd", "watch", "--clear"}); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+	ResetFlags()
+	if err := ExecuteArgs([]string{"herd", "watch", "orc", "--nudge-max", "3", "--nudge-interval", "0s"}); err != nil {
+		t.Fatalf("herd watch unscoped: %v", err)
+	}
+	out = runGuard(t, srv)
+	if !strings.Contains(out, "nudge") {
+		t.Fatalf("unscoped guard should be nudged by the ready outside tick: %s", out)
+	}
+
+	// The nudge text itself must name the scope so an idle orchestrator does
+	// not mistake a scoped judgement for a repo-wide one.
+	ResetFlags()
+	if err := ExecuteArgs([]string{"herd", "watch", "--clear"}); err != nil {
+		t.Fatalf("clear: %v", err)
+	}
+	ResetFlags()
+	if err := ExecuteArgs([]string{"herd", "watch", "orc", "--scope", "cia",
+		"--nudge-max", "3", "--nudge-interval", "0s"}); err != nil {
+		t.Fatalf("re-watch scoped: %v", err)
+	}
+	// Make the scoped frontier itself actionable so this run actually nudges.
+	if err := store.Delete("t62"); err != nil {
+		t.Fatalf("delete: %v", err)
+	}
+	readyInScope := makeTestTask("t62b")
+	readyInScope.Parent = "cia"
+	if err := store.Write(readyInScope); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	out = runGuard(t, srv)
+	if !strings.Contains(out, "nudge") {
+		t.Fatalf("scoped guard should nudge once its own scope is actionable: %s", out)
+	}
+	if !strings.Contains(prompts.lastText(), "frontier of cia") {
+		t.Errorf("nudge text should name the scope: %q", prompts.lastText())
+	}
+}
+
 func TestGuardWithoutRegistrationIsQuiet(t *testing.T) {
 	ResetFlags()
 	_, store := setupTestRepo(t)
@@ -289,8 +397,11 @@ func TestWatchStatusAndClear(t *testing.T) {
 	}
 
 	buf := captureCmdOutput(t)
-	if err := ExecuteArgs([]string{"herd", "watch", "w2:p7"}); err != nil {
+	if err := ExecuteArgs([]string{"herd", "watch", "w2:p7", "--scope", "cia"}); err != nil {
 		t.Fatalf("watch: %v\n%s", err, buf.String())
+	}
+	if !strings.Contains(buf.String(), "scoped to cia") {
+		t.Errorf("registration output should confirm the scope: %s", buf.String())
 	}
 
 	ResetFlags()
@@ -300,6 +411,9 @@ func TestWatchStatusAndClear(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "w2:p7") {
 		t.Errorf("status should show the target: %s", buf.String())
+	}
+	if !strings.Contains(buf.String(), "cia") {
+		t.Errorf("status should show the scope: %s", buf.String())
 	}
 
 	ResetFlags()
