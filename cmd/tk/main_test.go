@@ -2611,3 +2611,62 @@ func TestMainHelpListsTell(t *testing.T) {
 		t.Fatalf("tk --help does not list tell:\n%s", out)
 	}
 }
+
+// TestNoUpdateCheckEnvSkipsCheck proves TK_NO_UPDATE_CHECK actually short-circuits
+// the update check rather than merely suppressing its output. A tk subprocess
+// spawned by `tk cloud spawn` to read local state (see resolveCloudTkBinary in
+// cmd/tk/cmd/cloud.go) sets this so it never consults the release feed.
+func TestNoUpdateCheckEnvSkipsCheck(t *testing.T) {
+	repo := t.TempDir()
+	if err := runGit(repo, "init"); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	if err := runGit(repo, "remote", "add", "origin", "https://github.com/petere/chefswiz.git"); err != nil {
+		t.Fatalf("git remote add: %v", err)
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(repo); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+
+	if err := os.Setenv("TICK_OWNER", "tester"); err != nil {
+		t.Fatalf("set env: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Unsetenv("TICK_OWNER") })
+
+	if code := runCLI([]string{"tk", "init"}); code != exitSuccess {
+		t.Fatalf("expected init exit %d, got %s", exitSuccess, exitInfo(code))
+	}
+
+	inner := checkPeriodically
+	var calls int
+	checkPeriodically = func(version string) string {
+		calls++
+		return inner(version)
+	}
+	t.Cleanup(func() { checkPeriodically = inner })
+
+	if code := runCLI([]string{"tk", "list", "--json"}); code != exitSuccess {
+		t.Fatalf("expected list exit %d, got %s", exitSuccess, exitInfo(code))
+	}
+	if calls != 1 {
+		t.Fatalf("expected the update check to run once without the env var, got %d calls", calls)
+	}
+
+	if err := os.Setenv("TK_NO_UPDATE_CHECK", "1"); err != nil {
+		t.Fatalf("set env: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Unsetenv("TK_NO_UPDATE_CHECK") })
+
+	if code := runCLI([]string{"tk", "list", "--json"}); code != exitSuccess {
+		t.Fatalf("expected list exit %d, got %s", exitSuccess, exitInfo(code))
+	}
+	if calls != 1 {
+		t.Fatalf("expected TK_NO_UPDATE_CHECK to skip the update check, got %d total calls", calls)
+	}
+}
