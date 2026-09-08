@@ -2,10 +2,10 @@
   "schema_version": 1,
   "run_id": "gate-cia-2",
   "epic_id": "cia",
-  "sequence": 26,
-  "state": "dispatching",
-  "reason": "dispatching t62 as attempt 3",
-  "updated_at": "2026-09-08T10:26:08Z",
+  "sequence": 27,
+  "state": "running",
+  "reason": "t62 is running as attempt 3",
+  "updated_at": "2026-09-08T10:26:20Z",
   "ticks": [
     {
       "tick_id": "uhw",
@@ -19,7 +19,8 @@
     },
     {
       "tick_id": "t62",
-      "state": "ready"
+      "state": "dispatched",
+      "attempt": 3
     },
     {
       "tick_id": "brp",
