@@ -2,10 +2,10 @@
   "schema_version": 1,
   "run_id": "gate-cia",
   "epic_id": "cia",
-  "sequence": 28,
-  "state": "collecting",
-  "reason": "collecting t62 attempt 3",
-  "updated_at": "2026-09-08T09:15:15Z",
+  "sequence": 29,
+  "state": "failed",
+  "reason": "attempt 3 of t62 is no-commits: the attempt branch carries no commit beyond the base it was cut from (33da79ff7379)",
+  "updated_at": "2026-09-08T09:15:18Z",
   "ticks": [
     {
       "tick_id": "uhw",
@@ -19,7 +19,7 @@
     },
     {
       "tick_id": "t62",
-      "state": "dispatched",
+      "state": "rejected",
       "attempt": 3
     },
     {
