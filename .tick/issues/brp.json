@@ -1,10 +1,10 @@
 {
   "id": "brp",
   "title": "Final review of epic cia diff",
-  "status": "open",
+  "status": "in_progress",
   "priority": 2,
   "type": "task",
-  "owner": "noreply@anthropic.com",
+  "owner": "ticfac",
   "blocked_by": [
     "t62"
   ],
@@ -12,5 +12,6 @@
   "role": "review",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-08T08:42:29.986268Z",
-  "updated_at": "2026-09-08T08:42:29.986268Z"
+  "updated_at": "2026-09-08T10:47:46.17523Z",
+  "started_at": "2026-09-08T10:47:46.175229Z"
 }
