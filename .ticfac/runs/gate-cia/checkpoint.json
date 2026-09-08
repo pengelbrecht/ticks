@@ -2,10 +2,10 @@
   "schema_version": 1,
   "run_id": "gate-cia",
   "epic_id": "cia",
-  "sequence": 22,
-  "state": "integrating",
-  "reason": "integrating uqe attempt 2 into epic/cia",
-  "updated_at": "2026-09-08T09:05:22Z",
+  "sequence": 23,
+  "state": "gating",
+  "reason": "running the integrated gate for uqe on 52b133378f50",
+  "updated_at": "2026-09-08T09:05:33Z",
   "ticks": [
     {
       "tick_id": "uhw",
@@ -14,7 +14,7 @@
     },
     {
       "tick_id": "uqe",
-      "state": "reported",
+      "state": "integrated",
       "attempt": 2
     },
     {
