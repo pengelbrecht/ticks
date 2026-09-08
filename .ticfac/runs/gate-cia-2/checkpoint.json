@@ -2,10 +2,10 @@
   "schema_version": 1,
   "run_id": "gate-cia-2",
   "epic_id": "cia",
-  "sequence": 23,
-  "state": "gating",
-  "reason": "running the integrated gate for uqe on 04e753ac872b",
-  "updated_at": "2026-09-08T10:20:52Z",
+  "sequence": 24,
+  "state": "publishing",
+  "reason": "closing uqe behind the integrated gate on 04e753ac872b",
+  "updated_at": "2026-09-08T10:25:39Z",
   "ticks": [
     {
       "tick_id": "uhw",
