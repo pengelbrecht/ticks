@@ -239,3 +239,25 @@ func TestCloudSpawnOnAnUnrunnableTkSaysSo(t *testing.T) {
 		t.Errorf("an unreadable tracker cost %d factory call(s); it must cost none", len(*requests))
 	}
 }
+
+// TestResolveCloudTkBinarySuppressesUpdateCheck proves the self-invocation
+// this package makes to read local state (`tk show`/`tk list` as a
+// subprocess, see cloudTkJSON) never pays for a release-feed check: it is tk
+// reading its own tracker, not a user checking for upgrades, and inside a
+// sandbox with restricted egress that check is a latency or failure surface
+// for no benefit.
+func TestResolveCloudTkBinarySuppressesUpdateCheck(t *testing.T) {
+	_, extraEnv, err := resolveCloudTkBinary()
+	if err != nil {
+		t.Fatalf("resolveCloudTkBinary: %v", err)
+	}
+	found := false
+	for _, kv := range extraEnv {
+		if kv == "TK_NO_UPDATE_CHECK=1" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("resolveCloudTkBinary extraEnv = %v, want it to include TK_NO_UPDATE_CHECK=1", extraEnv)
+	}
+}
