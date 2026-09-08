@@ -2,10 +2,10 @@
   "schema_version": 1,
   "run_id": "gate-cia-2",
   "epic_id": "cia",
-  "sequence": 30,
-  "state": "gating",
-  "reason": "running the integrated gate for t62 on 222003e30492",
-  "updated_at": "2026-09-08T10:41:45Z",
+  "sequence": 31,
+  "state": "publishing",
+  "reason": "closing t62 behind the integrated gate on 222003e30492",
+  "updated_at": "2026-09-08T10:47:10Z",
   "ticks": [
     {
       "tick_id": "uhw",
