@@ -618,6 +618,7 @@ func ResetFlags() {
 
 	// Reset herd watch flags
 	watchClear = false
+	watchScope = ""
 	watchStatus = false
 	watchNudgeMax = 3
 	watchNudgeInterval = 2 * time.Minute

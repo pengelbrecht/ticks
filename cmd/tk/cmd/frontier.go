@@ -114,6 +114,9 @@ type frontierWaiting struct {
 
 // frontierReport is the whole answer.
 type frontierReport struct {
+	// Scope is the container the report was judged within, or empty for the
+	// whole repository.
+	Scope      string             `json:"scope,omitempty"`
 	Actionable bool               `json:"actionable"`
 	Items      []frontierItem     `json:"items"`
 	InFlight   []frontierInFlight `json:"in_flight"`
@@ -142,6 +145,40 @@ func (r frontierReport) summary() string {
 	return fmt.Sprintf("at rest: %d awaiting human, %d in flight", len(r.Waiting), len(r.InFlight))
 }
 
+// scopeLabel names the scope a report was judged in — " of <id>", or ""
+// for the whole repository — so the guard's nudge and the close-time verdict
+// let a reader tell "this epic has work" from "somewhere in the repository
+// has work".
+func (r frontierReport) scopeLabel() string {
+	if r.Scope == "" {
+		return ""
+	}
+	return " of " + r.Scope
+}
+
+// descendantSet returns the ids of every tick under rootID, at any depth.
+func descendantSet(all []tick.Tick, rootID string) map[string]bool {
+	children := make(map[string][]string)
+	for _, t := range all {
+		if t.Parent != "" {
+			children[t.Parent] = append(children[t.Parent], t.ID)
+		}
+	}
+	set := make(map[string]bool)
+	stack := []string{rootID}
+	for len(stack) > 0 {
+		id := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		for _, c := range children[id] {
+			if !set[c] {
+				set[c] = true
+				stack = append(stack, c)
+			}
+		}
+	}
+	return set
+}
+
 // evaluateFrontier computes the frontier over durable state. scopeID is a
 // container id or empty for everything; owner is empty for all owners.
 // Shared by tk frontier and tk herd guard.
@@ -153,12 +190,25 @@ func evaluateFrontier(root, scopeID, owner string, autonomous bool) (frontierRep
 	}
 
 	filter := query.Filter{Owner: owner}
-	if scopeID != "" {
+	var filtered []tick.Tick
+	if scopeID == "" {
+		filtered = query.Apply(all, filter)
+	} else {
+		// A scope is the container and everything under it, not its direct
+		// children: a project's frontier is its epics' ticks, and an epic's
+		// frontier includes any sub-containers. query.Filter.Parent matches
+		// one level, so walk the tree here. filter.Parent is still set for
+		// the planning fallback, which reads it as "the scope container".
 		filter.Parent = scopeID
+		inScope := descendantSet(all, scopeID)
+		for _, t := range query.Apply(all, query.Filter{Owner: owner}) {
+			if inScope[t.ID] {
+				filtered = append(filtered, t)
+			}
+		}
 	}
-	filtered := query.Apply(all, filter)
 
-	report := frontierReport{Items: []frontierItem{}, InFlight: []frontierInFlight{}, Waiting: []frontierWaiting{}}
+	report := frontierReport{Scope: scopeID, Items: []frontierItem{}, InFlight: []frontierInFlight{}, Waiting: []frontierWaiting{}}
 
 	// Herd manifests, joined by tick id: a recorded worker whose result file
 	// exists is collectable evidence; one without is a live-or-stale worker
