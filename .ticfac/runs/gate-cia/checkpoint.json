@@ -2,10 +2,10 @@
   "schema_version": 1,
   "run_id": "gate-cia",
   "epic_id": "cia",
-  "sequence": 29,
+  "sequence": 30,
   "state": "failed",
-  "reason": "attempt 3 of t62 is no-commits: the attempt branch carries no commit beyond the base it was cut from (33da79ff7379)",
-  "updated_at": "2026-09-08T09:15:18Z",
+  "reason": "t62 did not pass: the run stopped rather than integrating over an unproven change",
+  "updated_at": "2026-09-08T09:15:24Z",
   "ticks": [
     {
       "tick_id": "uhw",
