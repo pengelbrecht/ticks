@@ -2,10 +2,10 @@
   "schema_version": 1,
   "run_id": "gate-cia",
   "epic_id": "cia",
-  "sequence": 7,
-  "state": "gating",
-  "reason": "running the integrated gate for uhw on c4d8a524bea6",
-  "updated_at": "2026-09-08T08:48:52Z",
+  "sequence": 8,
+  "state": "admitted",
+  "reason": "the epic graph is read and the run is admitted",
+  "updated_at": "2026-09-08T08:49:23Z",
   "ticks": [
     {
       "tick_id": "uhw",
@@ -34,7 +34,7 @@
     "tick_id": null,
     "attempt": null,
     "source_ref": "refs/heads/epic/cia",
-    "source_sha": "e39dfef558f2e4bb7a34463a6bdbe7e1543fa050",
+    "source_sha": "8e55e7a9ec5ec425f101ee338457f4a34d2e874b",
     "integration_ref": "refs/heads/epic/cia",
     "phase": "worker",
     "executor": "local-subprocess",
