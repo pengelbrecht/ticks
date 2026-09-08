@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "run_id": "gate-cia-2",
+  "epic_id": "cia",
+  "sequence": 43,
+  "state": "completed",
+  "reason": "every tick of cia is closed behind the integrated gate",
+  "updated_at": "2026-09-08T11:04:21Z",
+  "ticks": [
+    {
+      "tick_id": "uhw",
+      "state": "closed",
+      "attempt": 1
+    },
+    {
+      "tick_id": "uqe",
+      "state": "closed",
+      "attempt": 2
+    },
+    {
+      "tick_id": "t62",
+      "state": "closed",
+      "attempt": 3
+    },
+    {
+      "tick_id": "brp",
+      "state": "closed",
+      "attempt": 4
+    },
+    {
+      "tick_id": "glo",
+      "state": "closed",
+      "attempt": 5
+    }
+  ],
+  "provenance": {
+    "run_id": "gate-cia-2",
+    "tick_id": null,
+    "attempt": null,
+    "source_ref": "refs/heads/epic/cia",
+    "source_sha": "53bf252dea786df8e451f307aa262ff812231974",
+    "integration_ref": "refs/heads/epic/cia",
+    "phase": "worker",
+    "executor": "local-subprocess",
+    "workspace_id": null,
+    "backend": null,
+    "role": null,
+    "profile_digest": "sha256:ccc33c86815762a14ac758cacb1a532d",
+    "model": null,
+    "context_manifest_digest": "sha256:0cf644d69158e095c78727ed089548d1"
+  }
+}

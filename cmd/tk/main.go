@@ -10,6 +10,11 @@ import (
 
 var Version = "dev"
 
+// checkPeriodically is a package variable, like cloudTkBinary in
+// cmd/tk/cmd/cloud.go, so a test can spy on whether the update check ran
+// without making a network call.
+var checkPeriodically = update.CheckPeriodically
+
 func init() {
 	// Sync version with the Cobra cmd package for when commands are migrated
 	cobracmd.SetVersion(Version)
@@ -40,8 +45,8 @@ func run(args []string) int {
 	if cmd != "version" && cmd != "--version" && cmd != "-v" &&
 		cmd != "upgrade" && cmd != "--help" && cmd != "-h" &&
 		cmd != "merge-file" && cmd != "merge-activity" && cmd != "snippet" &&
-		cmd != "skills" {
-		if notice := update.CheckPeriodically(Version); notice != "" {
+		cmd != "skills" && os.Getenv("TK_NO_UPDATE_CHECK") == "" {
+		if notice := checkPeriodically(Version); notice != "" {
 			fmt.Fprintln(os.Stderr, notice)
 			fmt.Fprintln(os.Stderr)
 		}

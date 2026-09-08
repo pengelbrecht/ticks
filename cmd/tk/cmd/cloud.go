@@ -1057,12 +1057,16 @@ var cloudTkBinary = resolveCloudTkBinary
 // the tk subcommands it needs and install-checks them against the tk on its
 // PATH, because the caller there (a shell script) is not tk either.
 func resolveCloudTkBinary() (string, []string, error) {
+	// This is tk reading its own local state, not a user checking for
+	// upgrades, so the child should not pay for a release-feed check on a
+	// path that runs per spawn.
+	noUpdateCheck := []string{"TK_NO_UPDATE_CHECK=1"}
 	if exe, err := os.Executable(); err == nil {
 		if resolved, err := filepath.EvalSymlinks(exe); err == nil {
 			exe = resolved
 		}
 		if name := filepath.Base(exe); name == "tk" || name == "tk.exe" {
-			return exe, nil, nil
+			return exe, noUpdateCheck, nil
 		}
 	}
 	bin, err := exec.LookPath("tk")
@@ -1070,7 +1074,7 @@ func resolveCloudTkBinary() (string, []string, error) {
 		return "", nil, fmt.Errorf(
 			"cannot find a tk to read the tracker with: %w; install tk or put it on PATH", err)
 	}
-	return bin, nil, nil
+	return bin, noUpdateCheck, nil
 }
 
 // cloudTkJSON runs one tk subcommand in root and returns its stdout.

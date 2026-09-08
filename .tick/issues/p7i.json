@@ -2,13 +2,14 @@
   "id": "p7i",
   "title": "public-repo guard: do not flag sha256 digests in .ticfac/ run records as account ids",
   "description": "Found by CI on PR #80: the public-repo \"Guard tracked files\" job flags 32-hex-character values in .ticfac/runs/gate-cia-2/{attempts,checkpoint,decisions,evidence}/*.json as [account] identifiers (e.g. checkpoint.json:48 profile_digest \"sha256:ccc33c86...\", attempts/4.json:34 context_manifest_digest \"0cf644d6...48d1\"). These are content digests written by ticfac (contracts/ticfac-run-state.json), not Cloudflare account ids. Teach the guard to skip a 32-hex value that is prefixed by \"sha256:\" or sits in a JSON field whose name ends in _digest, or exempt .ticfac/runs/**/*.json from the account-id pattern while keeping every other rule (tokens, emails, hostnames) active on those files. Add a fixture case for a .ticfac record with digests (must pass) and one with a real-looking account id outside a digest field (must still fail). Find the guard: grep -rn \"Guard tracked files\" .github/workflows and the script it runs.",
-  "status": "open",
+  "status": "in_progress",
   "priority": 2,
   "type": "task",
-  "owner": "noreply@anthropic.com",
+  "owner": "ticfac",
   "parent": "cia",
   "acceptance_criteria": "The guard passes on the current .ticfac/runs/gate-cia-2 records and still fails on an account id or token placed in any tracked file; PR #80 public-repo check green",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-08T11:23:53.696192Z",
-  "updated_at": "2026-09-08T11:23:53.696192Z"
+  "updated_at": "2026-09-08T11:42:44.53186Z",
+  "started_at": "2026-09-08T11:42:44.531859Z"
 }

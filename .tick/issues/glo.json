@@ -1,10 +1,11 @@
 {
   "id": "glo",
   "title": "Close out epic cia: run epic retro",
-  "status": "open",
+  "notes": "2026-09-08 13:04 - ticfac run gate-cia-2: the closeout-epic job (attempt 5) returned a validated ticfac.job-result.closeout-epic.v1 envelope at 4b4ae9058fe4 — DONE_WITH_CONCERNS: verify (a) whether the epic/cia → main PR has since been opened/merged (it had not, as of this closeout), and (b) whether brp's F1/F2 findings get filed as follow-up ticks before this epic is considered fully closed.",
+  "status": "closed",
   "priority": 2,
   "type": "task",
-  "owner": "noreply@anthropic.com",
+  "owner": "ticfac",
   "blocked_by": [
     "brp"
   ],
@@ -12,5 +13,6 @@
   "role": "closeout",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-08T08:42:30.011822Z",
-  "updated_at": "2026-09-08T08:42:30.011822Z"
+  "updated_at": "2026-09-08T11:04:11.411682Z",
+  "closed_at": "2026-09-08T11:04:11.411682Z"
 }

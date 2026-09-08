@@ -1,10 +1,11 @@
 {
   "id": "brp",
   "title": "Final review of epic cia diff",
-  "status": "open",
+  "notes": "2026-09-08 12:58 - ticfac run gate-cia-2: the review-epic job (attempt 4) returned a validated ticfac.job-result.review-epic.v1 envelope at ab349f037dec — DONE_WITH_CONCERNS: F1: `tk herd spawn` scopes the orchestrator watchdog to the run's FIRST epic and never re-scopes (herd_spawn.go:346 + herd_watch.go:119), so once that epic closes the guard reads `Done` → at-rest and is silent for the rest of a multi-epic run — contradicting docs/design/orchestrator-continuation.md:56 and CHANGELOG.md:236, and no test covers the epic boundary. F2: `--clear` writes a permanent repo-wide tombstone that `--status` reports identically to never-armed, also disabling the once-per-run plugin-health check. Gate itself verified green: go build, go vet ./cmd/..., go test -short -count=1 ./... all exit 0.",
+  "status": "closed",
   "priority": 2,
   "type": "task",
-  "owner": "noreply@anthropic.com",
+  "owner": "ticfac",
   "blocked_by": [
     "t62"
   ],
@@ -12,5 +13,6 @@
   "role": "review",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-08T08:42:29.986268Z",
-  "updated_at": "2026-09-08T08:42:29.986268Z"
+  "updated_at": "2026-09-08T10:58:18.790777Z",
+  "closed_at": "2026-09-08T10:58:18.790777Z"
 }

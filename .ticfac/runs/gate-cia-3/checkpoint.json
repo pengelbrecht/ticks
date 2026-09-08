@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "run_id": "gate-cia-3",
+  "epic_id": "cia",
+  "sequence": 13,
+  "state": "gating",
+  "reason": "running the integrated gate for p7i on 05c30741f58b",
+  "updated_at": "2026-09-08T11:48:09Z",
+  "ticks": [
+    {
+      "tick_id": "7i5",
+      "state": "closed",
+      "attempt": 1
+    },
+    {
+      "tick_id": "p7i",
+      "state": "integrated",
+      "attempt": 2
+    }
+  ],
+  "provenance": {
+    "run_id": "gate-cia-3",
+    "tick_id": null,
+    "attempt": null,
+    "source_ref": "refs/heads/epic/cia",
+    "source_sha": "7744f21ca30e79e4b405f182506891c0249099fc",
+    "integration_ref": "refs/heads/epic/cia",
+    "phase": "worker",
+    "executor": "local-subprocess",
+    "workspace_id": null,
+    "backend": null,
+    "role": null,
+    "profile_digest": "sha256:ccc33c86815762a14ac758cacb1a532d",
+    "model": null,
+    "context_manifest_digest": "sha256:0cf644d69158e095c78727ed089548d1"
+  }
+}

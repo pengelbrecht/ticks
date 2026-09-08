@@ -64,6 +64,12 @@ type watchState struct {
 	Target       string `json:"target"`
 	RegisteredAt string `json:"registered_at,omitempty"`
 
+	// Scope narrows the guard's frontier judgement to one container's
+	// descendants (an epic or project id), the same id tk frontier's
+	// positional argument accepts. Empty means unscoped — the guard judges
+	// the whole repository, tk frontier's default behaviour.
+	Scope string `json:"scope,omitempty"`
+
 	// Policy.
 	NudgeMax             int `json:"nudge_max"`
 	NudgeIntervalSeconds int `json:"nudge_interval_seconds"`
@@ -94,9 +100,15 @@ func orchestratorSelfTarget() string {
 }
 
 // armOrchestratorWatch registers this process's own pane as the run's
-// orchestrator, unless a registration already exists. It returns the target it
-// armed, or "" when it armed nothing (already registered, or no HERDR_PANE_ID —
-// the run is not in a herdr pane, so there is no orchestrator pane to watch).
+// orchestrator, unless a registration already exists. scope narrows the
+// guard's frontier judgement to one container's descendants — tk herd spawn
+// passes the epic of the tick it just dispatched, so a run scoped to one
+// epic is judged against that epic alone rather than the whole repository.
+//
+// It returns the target it armed, or "" when it armed nothing: already
+// registered (including a `tk herd watch --clear` tombstone — see
+// loadRawWatchState), or no HERDR_PANE_ID, meaning the run is not in a herdr
+// pane and there is no orchestrator pane to watch.
 //
 // Called by tk herd spawn so the watchdog is armed by DISPATCH rather than by
 // anyone remembering a run-start ritual; see the comment at its call site for
@@ -104,8 +116,8 @@ func orchestratorSelfTarget() string {
 //
 // Idempotent and never destructive: an existing registration is left exactly as
 // it is, including a hand-set --nudge-max and any live episode memory.
-func armOrchestratorWatch(root string) (string, error) {
-	if _, ok := loadWatchState(root); ok {
+func armOrchestratorWatch(root, scope string) (string, error) {
+	if _, ok := loadRawWatchState(root); ok {
 		return "", nil
 	}
 	target := orchestratorSelfTarget()
@@ -114,6 +126,7 @@ func armOrchestratorWatch(root string) (string, error) {
 	}
 	s := watchState{
 		Target:               target,
+		Scope:                scope,
 		RegisteredAt:         time.Now().UTC().Format(time.RFC3339),
 		NudgeMax:             watchDefaultNudgeMax,
 		NudgeIntervalSeconds: int(watchDefaultNudgeInterval / time.Second),
@@ -128,13 +141,26 @@ func watchStatePath(root string) string {
 	return filepath.Join(root, filepath.FromSlash(state.RelDir), watchFile)
 }
 
-func loadWatchState(root string) (watchState, bool) {
+// loadRawWatchState reads whatever is on disk, including a `tk herd watch
+// --clear` tombstone (a version-valid record with an empty Target). Callers
+// that need an ACTIVE registration to judge or display want loadWatchState
+// instead; armOrchestratorWatch uses this one so a cleared watch stays
+// cleared for the run instead of being silently re-armed by the next spawn.
+func loadRawWatchState(root string) (watchState, bool) {
 	body, err := os.ReadFile(watchStatePath(root))
 	if err != nil {
 		return watchState{}, false
 	}
 	var s watchState
-	if err := json.Unmarshal(body, &s); err != nil || s.Version != watchStateVersion || s.Target == "" {
+	if err := json.Unmarshal(body, &s); err != nil || s.Version != watchStateVersion {
+		return watchState{}, false
+	}
+	return s, true
+}
+
+func loadWatchState(root string) (watchState, bool) {
+	s, ok := loadRawWatchState(root)
+	if !ok || s.Target == "" {
 		return watchState{}, false
 	}
 	return s, true
@@ -179,6 +205,7 @@ func saveWatchState(root string, s watchState) error {
 var (
 	watchClear         bool
 	watchStatus        bool
+	watchScope         string
 	watchNudgeMax      int
 	watchNudgeInterval time.Duration
 )
@@ -197,13 +224,18 @@ pane's shell has it, so a bare "tk herd watch" works from the orchestrator and
 nowhere else; pass the agent name or pane id explicitly to register any other pane.
 
 You rarely need to run this by hand: the first "tk herd spawn" of a run arms the
-watch for you, the same way it writes each worker's manifest.
+watch for you, the same way it writes each worker's manifest — scoped to the
+epic of the tick it dispatches, so a run scoped to one epic is judged against
+that epic's frontier rather than the whole repository. Pass --scope yourself to
+override that default, or to scope a hand-registered watch.
 
 What the guard then does on every agent status change is documented on
 tk herd guard.
 
 State lives in .tick/logs/herd/.watch-orchestrator.json — local run state,
-git-ignored, removed with --clear.
+git-ignored. --clear leaves a tombstone there rather than deleting the file, so
+the next "tk herd spawn" does not silently re-arm the watch it was told to
+drop; register again explicitly to resume supervision.
 
 Exit codes
   0  registered / shown / cleared
@@ -214,6 +246,7 @@ Examples
   tk herd watch                       # register THIS pane (from HERDR_PANE_ID)
   tk herd watch orchestrator          # register the agent herdr names "orchestrator"
   tk herd watch w3:p1                 # register by pane id
+  tk herd watch --scope cia orc       # judge only epic cia's frontier
   tk herd watch --nudge-max 5 orc     # allow five nudges per stall episode
   tk herd watch --status
   tk herd watch --clear`,
@@ -225,6 +258,7 @@ Examples
 func init() {
 	herdWatchCmd.Flags().BoolVar(&watchClear, "clear", false, "remove the registration")
 	herdWatchCmd.Flags().BoolVar(&watchStatus, "status", false, "show the current registration and guard memory")
+	herdWatchCmd.Flags().StringVar(&watchScope, "scope", "", "restrict the guard's frontier judgement to this container's descendants (default: unscoped)")
 	herdWatchCmd.Flags().IntVar(&watchNudgeMax, "nudge-max", watchDefaultNudgeMax, "nudges per stall episode before the guard chimes and stops")
 	herdWatchCmd.Flags().DurationVar(&watchNudgeInterval, "nudge-interval", watchDefaultNudgeInterval, "minimum time between nudges")
 	herdCmd.AddCommand(herdWatchCmd)
@@ -238,8 +272,12 @@ func runHerdWatch(cmd *cobra.Command, args []string) error {
 	}
 
 	if watchClear {
-		if err := os.Remove(watchStatePath(root)); err != nil && !os.IsNotExist(err) {
-			return NewExitError(ExitIO, "removing watch state: %v", err)
+		// A tombstone (a version-valid record with no Target), not a removed
+		// file: armOrchestratorWatch's raw read sees it and arms nothing, so
+		// the next "tk herd spawn" of this run does not silently re-register
+		// the watch this call was told to drop.
+		if err := saveWatchState(root, watchState{}); err != nil {
+			return NewExitError(ExitIO, "%v", err)
 		}
 		fmt.Fprintln(out, "orchestrator watch cleared")
 		return nil
@@ -252,6 +290,9 @@ func runHerdWatch(cmd *cobra.Command, args []string) error {
 			return nil
 		}
 		fmt.Fprintf(out, "target          %s\n", s.Target)
+		if s.Scope != "" {
+			fmt.Fprintf(out, "scope           %s\n", s.Scope)
+		}
 		fmt.Fprintf(out, "registered      %s\n", s.RegisteredAt)
 		fmt.Fprintf(out, "nudge policy    max %d per episode, %ds between\n", s.NudgeMax, s.NudgeIntervalSeconds)
 		fmt.Fprintf(out, "episode         %d nudge(s) used, last status %q\n", s.NudgeCount, s.LastStatus)
@@ -282,6 +323,7 @@ func runHerdWatch(cmd *cobra.Command, args []string) error {
 
 	s := watchState{
 		Target:               target,
+		Scope:                strings.TrimSpace(watchScope),
 		RegisteredAt:         time.Now().UTC().Format(time.RFC3339),
 		NudgeMax:             watchNudgeMax,
 		NudgeIntervalSeconds: int(watchNudgeInterval / time.Second),
@@ -293,7 +335,11 @@ func runHerdWatch(cmd *cobra.Command, args []string) error {
 	if selfTargeted {
 		via = " (this pane, via HERDR_PANE_ID)"
 	}
-	fmt.Fprintf(out, "watching orchestrator %s%s (nudge max %d, interval %s)\n", s.Target, via, s.NudgeMax, watchNudgeInterval)
+	scopeNote := ""
+	if s.Scope != "" {
+		scopeNote = fmt.Sprintf(" scoped to %s", s.Scope)
+	}
+	fmt.Fprintf(out, "watching orchestrator %s%s%s (nudge max %d, interval %s)\n", s.Target, via, scopeNote, s.NudgeMax, watchNudgeInterval)
 	return nil
 }
 
@@ -317,11 +363,13 @@ The decision table, against the target's current agent status:
 
   working   the orchestrator is acting — re-arm the episode (nudge budget,
             chime memory) and do nothing
-  idle/done run the frontier predicate (tk frontier). At rest: nothing.
-            Actionable: prompt the orchestrator to continue — at most
-            --nudge-max times per stall episode, never closer together than
-            --nudge-interval; when the budget is exhausted, chime once
-            (sound request) instead
+  idle/done run the frontier predicate (tk frontier), scoped to the id the
+            registration carries (tk herd watch --scope, or the epic tk herd
+            spawn recorded) — unscoped when none was given. At rest: nothing.
+            Actionable: prompt the orchestrator to continue, naming the scope
+            it judged — at most --nudge-max times per stall episode, never
+            closer together than --nudge-interval; when the budget is
+            exhausted, chime once (sound request) instead
   blocked   chime once (sound request): the run itself wants a human. The
             guard NEVER answers an approval UI — not for workers, not for
             the orchestrator
@@ -364,20 +412,34 @@ type guardDecision struct {
 	Reason string `json:"reason,omitempty"`
 	// Frontier is the predicate's one-line summary when it was consulted.
 	Frontier string `json:"frontier,omitempty"`
-	DryRun   bool   `json:"dry_run,omitempty"`
+	// Scope is the container id the frontier was judged against, or empty
+	// for an unscoped (repo-wide) judgement.
+	Scope  string `json:"scope,omitempty"`
+	DryRun bool   `json:"dry_run,omitempty"`
+}
+
+// guardFrontierClause names what a frontier judgement was evaluated against,
+// for the guard's own prose: "the frontier" when unscoped, "the frontier of
+// <scope>" otherwise. Naming the scope here is what stops a scoped run's
+// operator from reading a nudge as if it described the whole repository.
+func guardFrontierClause(scope string) string {
+	if scope == "" {
+		return "the frontier"
+	}
+	return fmt.Sprintf("the frontier of %s", scope)
 }
 
 // guardNudgePrompt is the text an idle orchestrator receives. It arrives as
 // the most recent thing in the orchestrator's context — the context-decay
 // countermeasure in mechanical form — so it restates the rule as well as the
 // facts.
-func guardNudgePrompt(summary string) string {
+func guardNudgePrompt(scope, summary string) string {
 	return fmt.Sprintf(
-		"[ticks guard] You are the orchestrator of this run and appear idle while the frontier is %s. "+
+		"[ticks guard] You are the orchestrator of this run and appear idle while %s is %s. "+
 			"Re-read run-charter.md from the ticks skill's references, then continue the run: "+
 			"act on `tk next`, run continuously, and end your turn on a dispatch — not on a summary or a question. "+
 			"If something genuinely blocks you, park it durably (`tk ask` on the tick) instead of stopping.",
-		summary)
+		guardFrontierClause(scope), summary)
 }
 
 func runHerdGuard(cmd *cobra.Command, args []string) error {
@@ -445,7 +507,7 @@ func runHerdGuard(cmd *cobra.Command, args []string) error {
 // judgeOrchestrator applies the decision table and mutates ws's runtime
 // memory. The caller persists ws (unless dry-running).
 func judgeOrchestrator(ctx context.Context, herd *client.Client, root string, ws *watchState) (guardDecision, error) {
-	d := guardDecision{Target: ws.Target}
+	d := guardDecision{Target: ws.Target, Scope: ws.Scope}
 
 	info, err := herd.AgentGet(ctx, ws.Target)
 	if err != nil {
@@ -517,7 +579,7 @@ func judgeOrchestrator(ctx context.Context, herd *client.Client, root string, ws
 		if cfg, err := config.LoadOrDefault(filepath.Join(root, ".tick", "config.json")); err == nil {
 			autonomous = cfg.Policy.GetAutonomousMode()
 		}
-		report, err := evaluateFrontier(root, "", "", autonomous)
+		report, err := evaluateFrontier(root, ws.Scope, "", autonomous)
 		if err != nil {
 			return d, err
 		}
@@ -534,8 +596,8 @@ func judgeOrchestrator(ctx context.Context, herd *client.Client, root string, ws
 				return d, nil
 			}
 			if !guardDryRun {
-				body := fmt.Sprintf("Idle with %s after %d nudge(s). Attach: herdr agent attach %s",
-					d.Frontier, ws.NudgeCount, ws.Target)
+				body := fmt.Sprintf("Idle while %s is %s, after %d nudge(s). Attach: herdr agent attach %s",
+					guardFrontierClause(ws.Scope), d.Frontier, ws.NudgeCount, ws.Target)
 				if _, err := herd.NotificationShow(ctx, client.NotificationShowParams{
 					Title: "ticks orchestrator stalled",
 					Body:  &body,
@@ -562,7 +624,7 @@ func judgeOrchestrator(ctx context.Context, herd *client.Client, root string, ws
 		if !guardDryRun {
 			if _, err := herd.AgentPrompt(ctx, client.AgentPromptParams{
 				Target: ws.Target,
-				Text:   guardNudgePrompt(report.summary()),
+				Text:   guardNudgePrompt(ws.Scope, report.summary()),
 			}); err != nil {
 				return d, NewExitError(ExitGeneric, "agent.prompt %s: %v", ws.Target, err)
 			}
