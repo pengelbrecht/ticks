@@ -6,8 +6,9 @@
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
+  "parent": "cia",
   "acceptance_criteria": "The verify script asserts the guard hook is registered, and fails when it is missing.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-01T10:27:38.821424Z",
-  "updated_at": "2026-09-01T10:27:38.821424Z"
+  "updated_at": "2026-09-08T08:42:20.790987Z"
 }

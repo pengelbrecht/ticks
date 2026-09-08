@@ -6,8 +6,9 @@
   "priority": 3,
   "type": "task",
   "owner": "noreply@anthropic.com",
+  "parent": "cia",
   "acceptance_criteria": "A tk subprocess spawned by tk does not run the update check. Any existing suppression mechanism is reused rather than duplicated. go test ./... green.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-08-27T09:46:22.176137Z",
-  "updated_at": "2026-08-27T09:46:22.176137Z"
+  "updated_at": "2026-09-08T08:42:20.82081Z"
 }

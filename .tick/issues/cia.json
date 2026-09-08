@@ -1,0 +1,13 @@
+{
+  "id": "cia",
+  "title": "Guard and frontier hygiene",
+  "description": "Phase 1 gate epic for ticfac (ticfac tick cc5): three existing independent Go-only tasks run through ticfac run-epic with a claude runner, killed and restarted after dispatch, after collection and before closure. Wave 1: uhw + uqe (disjoint files); wave 2: t62.",
+  "status": "open",
+  "priority": 2,
+  "type": "epic",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "uhw, uqe and t62 closed; go test -short -count=1 ./... green on the integrated tree; the epic PR opened by ticfac is merged",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-08T08:42:20.765731Z",
+  "updated_at": "2026-09-08T08:42:20.765731Z"
+}
