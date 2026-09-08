@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/pengelbrecht/ticks/internal/update"
 )
 
 // The cloud commands read the tracker by running `tk show --json` and
@@ -82,6 +84,25 @@ func TestCloudTkSelfExecAnswersLikeTk(t *testing.T) {
 	if tkErr.code != ExitNotFound {
 		t.Errorf("tk exit code = %d, want %d", tkErr.code, ExitNotFound)
 	}
+}
+
+// TestResolveCloudTkBinarySuppressesTheUpdateCheck pins the fix for uqe: a tk
+// spawned by tk to read local tracker state (tk show/list --json) must not
+// consult the release feed. resolveCloudTkBinary is the one place that
+// decides what a `tk cloud spawn` self-invocation runs as, so it is the one
+// place that has to carry the suppression into the child's environment.
+func TestResolveCloudTkBinarySuppressesTheUpdateCheck(t *testing.T) {
+	_, extraEnv, err := resolveCloudTkBinary()
+	if err != nil {
+		t.Fatalf("resolveCloudTkBinary: %v", err)
+	}
+	want := update.NoCheckEnv + "=1"
+	for _, kv := range extraEnv {
+		if kv == want {
+			return
+		}
+	}
+	t.Errorf("resolveCloudTkBinary extraEnv = %v, want it to contain %q so the child skips the update check", extraEnv, want)
 }
 
 // TestCloudReadTrackerBatchesTheList counts the subprocesses one tracker read

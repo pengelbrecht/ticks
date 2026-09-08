@@ -20,6 +20,12 @@ const (
 	checkInterval = 24 * time.Hour
 )
 
+// NoCheckEnv suppresses CheckPeriodically when set to any non-empty value.
+// A tk invoking itself as a subprocess to read local tracker state (tk cloud
+// spawn shelling out to `tk show`/`tk list`) sets this on the child so a
+// self-invocation never pays a network-shaped code path.
+const NoCheckEnv = "TK_NO_UPDATE_CHECK"
+
 // updateCache stores the last update check result.
 type updateCache struct {
 	LastCheck       time.Time `json:"last_check"`
@@ -259,6 +265,10 @@ func CheckPeriodically(currentVersion string) string {
 	// Skip for dev builds
 	current := strings.TrimPrefix(currentVersion, "v")
 	if current == "dev" || current == "" {
+		return ""
+	}
+
+	if os.Getenv(NoCheckEnv) != "" {
 		return ""
 	}
 
