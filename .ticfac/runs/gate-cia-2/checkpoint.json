@@ -2,10 +2,10 @@
   "schema_version": 1,
   "run_id": "gate-cia-2",
   "epic_id": "cia",
-  "sequence": 36,
-  "state": "publishing",
-  "reason": "closing brp behind its validated review-epic answer",
-  "updated_at": "2026-09-08T10:58:07Z",
+  "sequence": 37,
+  "state": "running",
+  "reason": "brp is closed",
+  "updated_at": "2026-09-08T10:58:22Z",
   "ticks": [
     {
       "tick_id": "uhw",
@@ -24,7 +24,7 @@
     },
     {
       "tick_id": "brp",
-      "state": "reported",
+      "state": "closed",
       "attempt": 4
     },
     {
