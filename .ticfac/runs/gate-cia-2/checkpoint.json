@@ -2,10 +2,10 @@
   "schema_version": 1,
   "run_id": "gate-cia-2",
   "epic_id": "cia",
-  "sequence": 28,
-  "state": "collecting",
-  "reason": "collecting t62 attempt 3",
-  "updated_at": "2026-09-08T10:41:29Z",
+  "sequence": 29,
+  "state": "integrating",
+  "reason": "integrating t62 attempt 3 into epic/cia",
+  "updated_at": "2026-09-08T10:41:31Z",
   "ticks": [
     {
       "tick_id": "uhw",
@@ -19,7 +19,7 @@
     },
     {
       "tick_id": "t62",
-      "state": "dispatched",
+      "state": "reported",
       "attempt": 3
     },
     {
