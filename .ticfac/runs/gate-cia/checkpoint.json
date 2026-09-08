@@ -2,14 +2,14 @@
   "schema_version": 1,
   "run_id": "gate-cia",
   "epic_id": "cia",
-  "sequence": 17,
-  "state": "publishing",
-  "reason": "closing uhw behind the integrated gate on f916a858be20",
-  "updated_at": "2026-09-08T08:54:59Z",
+  "sequence": 18,
+  "state": "running",
+  "reason": "uhw is closed",
+  "updated_at": "2026-09-08T08:55:02Z",
   "ticks": [
     {
       "tick_id": "uhw",
-      "state": "integrated",
+      "state": "closed",
       "attempt": 1
     },
     {
