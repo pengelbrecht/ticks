@@ -1,0 +1,44 @@
+{
+  "schema_version": 1,
+  "key": "gate-uqe-2-go",
+  "provenance": {
+    "run_id": "gate-cia-2",
+    "tick_id": "uqe",
+    "attempt": 2,
+    "source_ref": "refs/heads/tick/uqe",
+    "source_sha": "3d9c74e46f858d3eb8717eebf29f60dcb15c307c",
+    "integration_ref": "refs/heads/epic/cia",
+    "phase": "integrated",
+    "executor": "local-subprocess",
+    "workspace_id": null,
+    "backend": null,
+    "role": "implement-tick",
+    "profile_digest": "sha256:8b14fdfa3c6152f72e779ad12c2a144dd7175b5d587781c888b84fde3c9d581b",
+    "model": "sonnet",
+    "context_manifest_digest": "sha256:0cf644d69158e095c78727ed089548d1"
+  },
+  "check": {
+    "id": "go",
+    "kind": "command",
+    "command": [
+      "sh",
+      "-c",
+      "go test -short -count=1 ./..."
+    ]
+  },
+  "started_at": "2026-09-08T10:20:59Z",
+  "finished_at": "2026-09-08T10:24:15Z",
+  "exit_code": 0,
+  "output": {
+    "mode": "inline",
+    "stdout": "?   \tgithub.com/pengelbrecht/ticks\t[no test files]\n?   \tgithub.com/pengelbrecht/ticks/cmd/testrig\t[no test files]\nok  \tgithub.com/pengelbrecht/ticks/cmd/tk\t9.743s\nok  \tgithub.com/pengelbrecht/ticks/cmd/tk/cmd\t99.667s\nok  \tgithub.com/pengelbrecht/ticks/internal/beads\t1.490s\nok  \tgithub.com/pengelbrecht/ticks/internal/cloud/collect\t8.612s\nok  \tgithub.com/pengelbrecht/ticks/internal/cloud/lease\t2.465s\nok  \tgithub.com/pengelbrecht/ticks/internal/cloud/state\t1.184s\nok  \tgithub.com/pengelbrecht/ticks/internal/config\t2.153s\nok  \tgithub.com/pengelbrecht/ticks/internal/contracts\t3.187s\nok  \tgithub.com/pengelbrecht/ticks/internal/devbuild\t5.076s\nok  \tgithub.com/pengelbrecht/ticks/internal/factory\t37.693s\nok  \tgithub.com/pengelbrecht/ticks/internal/factory/credentials\t2.536s\nok  \tgithub.com/pengelbrecht/ticks/internal/factory/dashboard\t2.697s\nok  \tgithub.com/pengelbrecht/ticks/internal/factory/jobprotocol\t2.361s\nok  \tgithub.com/pengelbrecht/ticks/internal/factory/lifecycle\t2.379s\nok  \tgithub.com/pengelbrecht/ticks/internal/factory/runstate\t2.372s\nok  \tgithub.com/pengelbrecht/ticks/internal/gatewaytrace\t2.457s\nok  \tgithub.com/pengelbrecht/ticks/internal/gc\t2.203s\nok  \tgithub.com/pengelbrecht/ticks/internal/github\t3.449s\nok  \tgithub.com/pengelbrecht/ticks/internal/herd/cleanup\t20.746s\nok  \tgithub.com/pengelbrecht/ticks/internal/herd/client\t2.699s\nok  \tgithub.com/pengelbrecht/ticks/internal/herd/collect\t6.341s\nok  \tgithub.com/pengelbrecht/ticks/internal/herd/config\t2.204s\nok  \tgithub.com/pengelbrecht/ticks/internal/herd/dashboard\t7.180s\n?   \tgithub.com/pengelbrecht/ticks/internal/herd/gitcmd\t[no test files]\n?   \tgithub.com/pengelbrecht/ticks/internal/herd/herdtest\t[no test files]\nok  \tgithub.com/pengelbrecht/ticks/internal/herd/notify\t1.578s\nok  \tgithub.com/pengelbrecht/ticks/internal/herd/paint\t1.613s\nok  \tgithub.com/pengelbrecht/ticks/internal/herd/reconcile\t8.427s\nok  \tgithub.com/pengelbrecht/ticks/internal/herd/relay\t2.337s\nok  \tgithub.com/pengelbrecht/ticks/internal/herd/spawn\t2.773s\nok  \tgithub.com/pengelbrecht/ticks/internal/herd/state\t1.956s\nok  \tgithub.com/pengelbrecht/ticks/internal/herd/wait\t5.010s\nok  \tgithub.com/pengelbrecht/ticks/internal/merge\t1.361s\nok  \tgithub.com/pengelbrecht/ticks/internal/operator\t2.782s\nok  \tgithub.com/pengelbrecht/ticks/internal/query\t1.545s\nok  \tgithub.com/pengelbrecht/ticks/internal/sandbox\t176.188s\nok  \tgithub.com/pengelbrecht/ticks/internal/skills\t2.053s\n?   \tgithub.com/pengelbrecht/ticks/internal/styles\t[no test files]\nok  \tgithub.com/pengelbrecht/ticks/internal/tick\t1.295s\nok  \tgithub.com/pengelbrecht/ticks/internal/tickboard/cloud\t1.584s\nok  \tgithub.com/pengelbrecht/ticks/internal/tickboard/server\t5.993s\nok  \tgithub.com/pengelbrecht/ticks/internal/tickenv\t1.896s\nok  \tgithub.com/pengelbrecht/ticks/internal/ticks\t2.265s\nok  \tgithub.com/pengelbrecht/ticks/internal/tkcontract\t2.585s\nok  \tgithub.com/pengelbrecht/ticks/internal/trace\t2.382s\nok  \tgithub.com/pengelbrecht/ticks/internal/tui\t2.721s\nok  \tgithub.com/pengelbrecht/ticks/internal/types/generated\t2.249s\n?   \tgithub.com/pengelbrecht/ticks/internal/update\t[no test files]\nok  \tgithub.com/pengelbrecht/ticks/internal/wave\t2.373s\nok  \tgithub.com/pengelbrecht/ticks/internal/worktree\t22.851s\n?   \tgithub.com/pengelbrecht/ticks/scripts/experiments\t[no test files]\n",
+    "stderr": "",
+    "truncated": false,
+    "redacted": false,
+    "max_bytes": 16384
+  },
+  "result": "pass",
+  "acceptance": "required",
+  "content_digest": "sha256:bb4243a300b9b510c68c2ff8e8712c84c3d02e46d8c97a6646a9f361bfd19ee9",
+  "persistence_uri": "git:refs/heads/epic/cia:.ticfac/runs/gate-cia-2/evidence/gate-uqe-2-go.json"
+}
