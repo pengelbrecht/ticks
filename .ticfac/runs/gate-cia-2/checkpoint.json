@@ -2,10 +2,10 @@
   "schema_version": 1,
   "run_id": "gate-cia-2",
   "epic_id": "cia",
-  "sequence": 31,
-  "state": "publishing",
-  "reason": "closing t62 behind the integrated gate on 222003e30492",
-  "updated_at": "2026-09-08T10:47:10Z",
+  "sequence": 32,
+  "state": "running",
+  "reason": "t62 is closed",
+  "updated_at": "2026-09-08T10:47:26Z",
   "ticks": [
     {
       "tick_id": "uhw",
@@ -19,7 +19,7 @@
     },
     {
       "tick_id": "t62",
-      "state": "integrated",
+      "state": "closed",
       "attempt": 3
     },
     {
