@@ -2,10 +2,10 @@
   "schema_version": 1,
   "run_id": "gate-cia-2",
   "epic_id": "cia",
-  "sequence": 32,
-  "state": "running",
-  "reason": "t62 is closed",
-  "updated_at": "2026-09-08T10:47:26Z",
+  "sequence": 33,
+  "state": "dispatching",
+  "reason": "dispatching brp as attempt 4",
+  "updated_at": "2026-09-08T10:47:37Z",
   "ticks": [
     {
       "tick_id": "uhw",
