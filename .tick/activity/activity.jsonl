@@ -2423,3 +2423,4 @@
 {"ts":"2026-09-08T10:09:58.547762Z","tick":"uhw","action":"close","actor":"ticfac:orchestrator","epic":"cia","data":{"title":"verify-herd-plugin.sh does not check the guard hook exists"}}
 {"ts":"2026-09-08T10:10:25.518759Z","tick":"uqe","action":"start","actor":"ticfac:orchestrator","epic":"cia","data":{"title":"tk self-invocation pays the update check"}}
 {"ts":"2026-09-08T10:25:45.380582Z","tick":"uqe","action":"note","actor":"ticfac:orchestrator","epic":"cia","data":{"note":"2026-09-08 12:25 - ticfac run gate-cia-2: attempt 2 merged into epic/cia as 04e753ac872b; the integrated gate (go, pi-runner) passed.","title":"tk self-invocation pays the update check"}}
+{"ts":"2026-09-08T10:25:51.37774Z","tick":"uqe","action":"close","actor":"ticfac:orchestrator","epic":"cia","data":{"title":"tk self-invocation pays the update check"}}
