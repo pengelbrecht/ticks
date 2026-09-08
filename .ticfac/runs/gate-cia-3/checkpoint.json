@@ -2,14 +2,14 @@
   "schema_version": 1,
   "run_id": "gate-cia-3",
   "epic_id": "cia",
-  "sequence": 5,
-  "state": "integrating",
-  "reason": "integrating 7i5 attempt 1 into epic/cia",
-  "updated_at": "2026-09-08T11:37:08Z",
+  "sequence": 6,
+  "state": "gating",
+  "reason": "running the integrated gate for 7i5 on 2649fe48e3f9",
+  "updated_at": "2026-09-08T11:37:21Z",
   "ticks": [
     {
       "tick_id": "7i5",
-      "state": "reported",
+      "state": "integrated",
       "attempt": 1
     },
     {
