@@ -2,14 +2,15 @@
   "schema_version": 1,
   "run_id": "gate-cia",
   "epic_id": "cia",
-  "sequence": 2,
-  "state": "dispatching",
-  "reason": "dispatching uhw as attempt 1",
-  "updated_at": "2026-09-08T08:45:32Z",
+  "sequence": 3,
+  "state": "running",
+  "reason": "uhw is running as attempt 1",
+  "updated_at": "2026-09-08T08:45:39Z",
   "ticks": [
     {
       "tick_id": "uhw",
-      "state": "ready"
+      "state": "dispatched",
+      "attempt": 1
     },
     {
       "tick_id": "uqe",
