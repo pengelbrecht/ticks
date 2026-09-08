@@ -2,10 +2,10 @@
   "schema_version": 1,
   "run_id": "gate-cia-3",
   "epic_id": "cia",
-  "sequence": 12,
-  "state": "integrating",
-  "reason": "integrating p7i attempt 2 into epic/cia",
-  "updated_at": "2026-09-08T11:47:57Z",
+  "sequence": 13,
+  "state": "gating",
+  "reason": "running the integrated gate for p7i on 05c30741f58b",
+  "updated_at": "2026-09-08T11:48:09Z",
   "ticks": [
     {
       "tick_id": "7i5",
@@ -14,7 +14,7 @@
     },
     {
       "tick_id": "p7i",
-      "state": "reported",
+      "state": "integrated",
       "attempt": 2
     }
   ],
