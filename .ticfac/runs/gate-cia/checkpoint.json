@@ -2,10 +2,10 @@
   "schema_version": 1,
   "run_id": "gate-cia",
   "epic_id": "cia",
-  "sequence": 3,
-  "state": "running",
-  "reason": "uhw is running as attempt 1",
-  "updated_at": "2026-09-08T08:45:39Z",
+  "sequence": 4,
+  "state": "admitted",
+  "reason": "the epic graph is read and the run is admitted",
+  "updated_at": "2026-09-08T08:48:35Z",
   "ticks": [
     {
       "tick_id": "uhw",
@@ -34,7 +34,7 @@
     "tick_id": null,
     "attempt": null,
     "source_ref": "refs/heads/epic/cia",
-    "source_sha": "1da981d5230766b2009e12ddc911b4fd848fbf6f",
+    "source_sha": "e39dfef558f2e4bb7a34463a6bdbe7e1543fa050",
     "integration_ref": "refs/heads/epic/cia",
     "phase": "worker",
     "executor": "local-subprocess",
