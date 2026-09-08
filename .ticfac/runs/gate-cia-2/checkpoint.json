@@ -2,14 +2,14 @@
   "schema_version": 1,
   "run_id": "gate-cia-2",
   "epic_id": "cia",
-  "sequence": 10,
-  "state": "integrating",
-  "reason": "integrating uhw attempt 1 into epic/cia",
-  "updated_at": "2026-09-08T10:03:10Z",
+  "sequence": 11,
+  "state": "gating",
+  "reason": "running the integrated gate for uhw on c7a52d3e3afd",
+  "updated_at": "2026-09-08T10:03:19Z",
   "ticks": [
     {
       "tick_id": "uhw",
-      "state": "reported",
+      "state": "integrated",
       "attempt": 1
     },
     {
