@@ -2,10 +2,10 @@
   "schema_version": 1,
   "run_id": "gate-cia-2",
   "epic_id": "cia",
-  "sequence": 42,
-  "state": "running",
-  "reason": "glo is closed",
-  "updated_at": "2026-09-08T11:04:15Z",
+  "sequence": 43,
+  "state": "completed",
+  "reason": "every tick of cia is closed behind the integrated gate",
+  "updated_at": "2026-09-08T11:04:21Z",
   "ticks": [
     {
       "tick_id": "uhw",
