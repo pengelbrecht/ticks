@@ -16,12 +16,17 @@ Run this before `tk create`. A fresh subagent sees *only this tick* — not the 
 - [ ] **Acceptance fits in ≤3 bullets** — if it doesn't, the scope is too broad to verify cleanly; split it
 - [ ] **Verification is concrete** — a runnable test command or explicit check, never "works appropriately"
 - [ ] **Test cases spelled out** — actual inputs → expected outputs, including edge and error cases
+- [ ] **Regression surface named** — which existing tests or behaviours must *still* pass, by command or by path. "No regressions" is not a regression surface (see *Both halves of acceptance*)
 - [ ] **Self-contained** — no placeholders, and no reference to a type or function defined only in another tick (see *The Ideal Tick*)
 - [ ] **Files (and shared resources) likely touched listed** — the input to wave / parallel-safety planning (see *Partitioning an Epic into Ticks*)
 - [ ] **Human gate decided** — if the tick needs a person (a decision, a secret, a review), create it with the right `--awaiting`/`--requires` flag rather than letting an agent guess
 - [ ] **No unresolved decisions** — every question this tick depends on has an answer *in the tick*, not a plan to ask later (see *Human-in-the-loop ticks*)
 
 The sections below are the detailed backing for each line; this checklist is just the fast gate.
+
+**Four of these lines are checked for you.** `tk graph <epic>` lints every open atomic child and reports the misses under `readiness` in `--json`, beside the existing `unjustified_gates`. It flags a tick that names no verification command, hides behind an unquantified adjective (`appropriately`, `robust`, `intuitive`, `secure`, `as needed`), carries an unresolved placeholder (`TODO`, `TBD`, `???`), or lists no files touched. Containers, process ticks and human-gated ticks are not linted — their verification is their children's, the skeleton's, or a person's.
+
+It is a warning and never a refusal, on the same contract as the gate lint: **a planned epic should graph clean.** The lint exists because this checklist is otherwise run by a planner against its own output at the exact moment it most wants to start executing, which is when self-assessment is worth least. It catches the mechanical half only — one deliverable, sizing, the regression surface and unresolved decisions are still yours to judge.
 
 ## Partitioning an Epic into Ticks
 
@@ -203,6 +208,24 @@ A right-sized tick reads like one clear deliverable an implementer can finish, t
 - Regression protection
 - Clear completion signal
 
+### Both halves of acceptance
+
+Acceptance has two halves and most ticks are written with only one. **What must start passing** proves the work happened. **What must keep passing** proves nothing else broke. A tick that names only the first is satisfied by a change that delivers the feature and wrecks the module around it — which is not a hypothetical failure mode but the second most common reason a human rejects an agent's work outright.
+
+So name the regression surface explicitly, the way you name the test cases:
+
+```
+Must pass (new):  go test ./internal/validation/... -run TestEmail
+Must still pass:  go test ./internal/auth/...   # session flow consumes the validator
+```
+
+Two rules keep this honest.
+
+- **"No regressions" is not a regression surface.** It is the same unquantified adjective the Definition of Ready rejects everywhere else, and an implementer cannot act on it. Name the command or the path.
+- **Name the surface the tick actually endangers**, not the whole suite by reflex. "Everything still passes" is the post-wave gate's job and it runs anyway. What belongs on the tick is the neighbouring behaviour a careful author can see this change reaching — the callers of the function being altered, the flow that consumes the type being changed. That is the part the implementer, seeing only this tick, cannot infer.
+
+The second half is also what makes per-tick review cheap: a reviewer checking spec compliance has something concrete to check *against* rather than re-deriving the blast radius from the diff.
+
 ### TDD Tick Pattern
 
 ```bash
@@ -213,8 +236,9 @@ tk create "Add [feature]" \
 - Edge case: [condition] -> Expected: [behavior]
 - Error case: [bad input] -> Expected: [error]
 
-Run: [test command]" \
-  --acceptance "All tests pass, no regressions"
+Run: [test command]
+Must still pass: [command guarding the neighbouring behaviour]" \
+  --acceptance "All new tests pass; [named existing suite] still passes"
 ```
 
 ### TDD Feature Example
@@ -229,8 +253,9 @@ Test cases:
 - \"Abc123!@#\" -> score 3 (strong), reasons: []
 - \"\" -> error: \"password required\"
 
-Run: go test ./internal/auth/... -v" \
-  --acceptance "All password tests pass, validator integrated"
+Run: go test ./internal/auth/... -run TestPasswordStrength -v
+Must still pass: go test ./internal/auth/... (login and session flows already using this package)" \
+  --acceptance "All password tests pass; the rest of the auth suite still passes; validator integrated"
 ```
 
 ### TDD Bug Fix Example
@@ -247,8 +272,9 @@ Test cases to add:
 Current: Returns \"invalid email format\"
 Expected: All plus addresses validate
 
-Run: npm test -- --grep \"email\"" \
-  --acceptance "New plus-address tests pass, existing tests pass"
+Run: npm test -- --grep \"email\"
+Must still pass: npm test -- --grep \"validation\" (the rejection cases this must not loosen)" \
+  --acceptance "New plus-address tests pass; the validation suite still passes"
 ```
 
 ### Why TDD Matters

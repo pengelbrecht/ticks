@@ -70,8 +70,14 @@ type graphOutput struct {
 	// description or notes. A lint warning, never a refusal — see
 	// tick-patterns.md, "resolve is the default; awaiting is the exception
 	// you justify". Checkpoint and escalation gates are not linted.
-	UnjustifiedGates []string   `json:"unjustified_gates"`
-	Stats            graphStats `json:"stats"`
+	UnjustifiedGates []string `json:"unjustified_gates"`
+	// Readiness lists open atomic children that miss a machine-checkable
+	// Definition of Ready line — no verification command, an unquantified
+	// adjective, an unresolved placeholder, no files-touched list. A lint
+	// warning, never a refusal, on the same contract as UnjustifiedGates:
+	// a planned epic should graph clean. See graph_readiness.go.
+	Readiness []readinessFinding `json:"readiness"`
+	Stats     graphStats         `json:"stats"`
 	// Dispatch is how many implementers may be launched RIGHT NOW, which is
 	// not what Stats.MaxParallel answers. Stats.MaxParallel is graph shape —
 	// the widest wave, "how parallel could this epic ever be". Dispatch is
@@ -388,6 +394,17 @@ func runGraph(cmd *cobra.Command, args []string) error {
 	missingProcess := missingProcessRoles(epicID, allTicks)
 	gateLint := unjustifiedGates(tasks)
 
+	// A child that is itself a parent rolls up its children's deliverable and
+	// is not linted for one of its own. Built from every tick, not just this
+	// epic's children, so a grandchild still marks its parent as a container.
+	hasChildren := make(map[string]bool)
+	for _, t := range allTicks {
+		if t.Parent != "" {
+			hasChildren[t.Parent] = true
+		}
+	}
+	readinessLint := lintReadiness(tasks, hasChildren)
+
 	// The dispatch answer: what may be launched now, under the configured
 	// wave width. Read from the same file and counted the same way as the
 	// gate that refuses a claim beyond it (cmd/tk/cmd/wave_width.go), so the
@@ -444,6 +461,7 @@ func runGraph(cmd *cobra.Command, args []string) error {
 			NeedsPlanning:       false,
 			MissingProcessTicks: missingProcess,
 			UnjustifiedGates:    append([]string{}, gateLint...),
+			Readiness:           readinessLint,
 			Stats: graphStats{
 				TotalTasks:    len(tasks),
 				WaveCount:     len(waves),
@@ -532,6 +550,11 @@ func runGraph(cmd *cobra.Command, args []string) error {
 		fmt.Printf("%s unjustified human gates: %s — resolve is the default, awaiting is the exception you justify. Record why planning could not settle each (tk note <id> \"gate: <why>\"), or resolve the gate\n",
 			styles.StatusBlockedStyle.Render("!"),
 			strings.Join(gateLint, ", "))
+	}
+	if len(readinessLint) > 0 {
+		fmt.Printf("%s not ready for an agent: %s — a fresh implementer sees only the tick. Name the verification command, quantify the adjective, resolve the placeholder, list the files (tick-patterns.md, Definition of Ready)\n",
+			styles.StatusBlockedStyle.Render("!"),
+			readinessSummary(readinessLint))
 	}
 	fmt.Println()
 
@@ -637,6 +660,7 @@ func handleChildlessEpic(epic tick.Tick, allTicks []tick.Tick) error {
 			NeedsPlanning:       isReadyToPlan,
 			MissingProcessTicks: missingProcess,
 			UnjustifiedGates:    []string{},
+			Readiness:           []readinessFinding{},
 			Stats:               graphStats{},
 			CriticalPath:        0,
 		}

@@ -145,8 +145,9 @@ Test cases:
 - invalid@ -> invalid
 - @nodomain.com -> invalid
 
-Run: go test ./internal/validation/..." \
-  --acceptance "All validation tests pass" \
+Run: go test ./internal/validation/...
+Must still pass: go test ./internal/auth/... (the signup flow consumes this validator)" \
+  --acceptance "All validation tests pass; the auth suite still passes" \
   --parent <epic-id>
 ```
 
@@ -382,6 +383,7 @@ Ticks in the same wave (no blocking relationship between them) run concurrently,
 2. **Sizing** — split any tick whose title needs an "and" or whose acceptance won't fit in 3 bullets.
 3. **Naming consistency** — the same interface should be called the same thing across tick descriptions; a contract named `clearLayers` in one tick and `clearFullLayers` in another is a latent bug.
 4. **Wave safety** — run `tk graph <epic>` and confirm no two ticks in the same wave share a file or an un-isolable resource.
+5. **Readiness** — the same `tk graph` run lints every open atomic tick and reports misses under `readiness` (no verification command, unquantified adjective, unresolved placeholder, no files listed). It warns, never refuses; a planned epic should graph clean. Details in `references/tick-patterns.md` → *Definition of Ready*.
 
 This review is cheap and catches the partitioning mistakes that are expensive to unwind once agents are running.
 
