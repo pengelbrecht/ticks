@@ -5,6 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"testing"
@@ -48,6 +51,33 @@ type runnersConfigContract struct {
 		Refused           []int    `json:"refused"`
 		RefusedTOMLValues []string `json:"refused_toml_values"`
 	} `json:"max_parallel"`
+	Tables struct {
+		VersionKey      string   `json:"version_key"`
+		ExecutionTables []string `json:"execution_tables"`
+		TrackerTables   []string `json:"tracker_tables"`
+		ToleratedHere   []string `json:"tolerated_here"`
+		ForeignRule     string   `json:"foreign_table_rule"`
+		Accepted        []struct {
+			Name    string   `json:"name"`
+			Readers []string `json:"readers"`
+			Toml    string   `json:"toml"`
+		} `json:"accepted"`
+		Refused []struct {
+			Name                string   `json:"name"`
+			Readers             []string `json:"readers"`
+			ExpectErrorContains string   `json:"expect_error_contains"`
+			Toml                string   `json:"toml"`
+		} `json:"refused"`
+	} `json:"tables"`
+	Substrate struct {
+		Path              string   `json:"path"`
+		Values            []string `json:"values"`
+		Default           string   `json:"default"`
+		RefusalMessage    string   `json:"refusal_message"`
+		Accepted          []string `json:"accepted"`
+		Refused           []string `json:"refused"`
+		RefusedTOMLValues []string `json:"refused_toml_values"`
+	} `json:"substrate"`
 }
 
 func readRunnersConfigContract(t *testing.T) runnersConfigContract {
@@ -214,6 +244,145 @@ func TestMaxParallelRuleMatchesContract(t *testing.T) {
 			document := documentWith("orchestration", "max_parallel", value)
 			if msg := errorFor(t, document, contract.MaxParallel.Path); msg == "" {
 				t.Errorf("max_parallel = %s was accepted; the shared contract refuses it", value)
+			}
+		})
+	}
+}
+
+// The table enumeration (4.0.0): the split, as data. Every table the fixture
+// names — execution, tracker, and the version key — must be a table this
+// reader's Config struct decodes, and nothing this reader decodes may be
+// missing from the fixture. A table added to the document without a pin bump
+// fails here; a table dropped from this reader without the fixture noticing
+// fails here too. The one deliberate divergence is [tier_policy]: this reader
+// tolerates it as ticfac's half of the split rather than decoding it, and the
+// tolerance cases below prove that behaviour instead.
+func TestTheTableEnumerationMatchesTheSplit(t *testing.T) {
+	contract := readRunnersConfigContract(t)
+
+	if contract.Tables.VersionKey != "version" {
+		t.Errorf("the version key is pinned as %q, want \"version\"", contract.Tables.VersionKey)
+	}
+
+	// Every table name this reader's own Config decodes, from the struct tags
+	// themselves rather than a hand-written list — the reader is the thing
+	// that has to agree with the fixture, so it is the reader that answers.
+	var decoded []string
+	cfgType := reflect.TypeOf(Config{})
+	for i := 0; i < cfgType.NumField(); i++ {
+		tag := cfgType.Field(i).Tag.Get("toml")
+		if name, _, _ := strings.Cut(tag, ","); name != "" && name != "-" {
+			decoded = append(decoded, name)
+		}
+	}
+	sort.Strings(decoded)
+
+	// The fixture's full table set: both halves plus the version key, minus the
+	// tables this reader merely TOLERATES — [tier_policy] is ticfac's half of the
+	// split, present in the enumeration but deliberately not decoded here. The
+	// execution half is pinned as ticfac's OWN, but this reader still validates
+	// it (the shared half) until its execution machinery retires.
+	want := append(append([]string{}, contract.Tables.ExecutionTables...), contract.Tables.TrackerTables...)
+	want = append(want, contract.Tables.VersionKey)
+	for _, tolerated := range contract.Tables.ToleratedHere {
+		if !slices.Contains(want, tolerated) {
+			t.Errorf("tolerated table %q is not in the document's table set at all", tolerated)
+		}
+		want = slices.DeleteFunc(want, func(name string) bool { return name == tolerated })
+	}
+	sort.Strings(want)
+
+	if !reflect.DeepEqual(decoded, want) {
+		t.Errorf("the document's tables as this reader decodes them are %v,\n"+
+			"the shared contract enumerates %v — a table moved halves, or a reader\n"+
+			"quietly stopped (or started) claiming one", decoded, want)
+	}
+}
+
+// The split's teeth: the accepted cases a repository can actually write, and
+// the refusals that keep the tolerance from becoming a hole. Only the cases
+// whose `readers` name this repository run here — the mirror-direction cases
+// (ticfac's half) run in ticfac's own parity suite over the same fixture.
+func TestTheTableToleranceMatchesContract(t *testing.T) {
+	contract := readRunnersConfigContract(t)
+
+	if contract.Tables.ForeignRule == "" {
+		t.Fatal("the contract does not state its foreign-table rule")
+	}
+	for _, c := range contract.Tables.Accepted {
+		if !slices.Contains(c.Readers, "ticks") {
+			continue
+		}
+		t.Run("accepts "+c.Name, func(t *testing.T) {
+			if _, err := Parse([]byte(c.Toml)); err != nil {
+				t.Errorf("the shared contract accepts this file and this reader refuses it:\n%s\n%v", c.Toml, err)
+			}
+		})
+	}
+	for _, c := range contract.Tables.Refused {
+		if !slices.Contains(c.Readers, "ticks") {
+			continue
+		}
+		t.Run("refuses "+c.Name, func(t *testing.T) {
+			_, err := Parse([]byte(c.Toml))
+			if err == nil {
+				t.Fatalf("the shared contract refuses this file and this reader accepted it:\n%s", c.Toml)
+			}
+			if !strings.Contains(err.Error(), c.ExpectErrorContains) {
+				t.Errorf("the refusal is %q, the shared contract pins %q", err.Error(), c.ExpectErrorContains)
+			}
+		})
+	}
+}
+
+// The substrate enum (4.0.0): the closed vocabulary that decides which
+// dispatch verb is correct. The values, their order, the default and the
+// refusal words are all shared surface — an operator greps for the message,
+// and a substrate this reader cannot parse authorises nothing.
+func TestTheSubstrateEnumMatchesContract(t *testing.T) {
+	contract := readRunnersConfigContract(t)
+
+	var want []string
+	for _, s := range Substrates {
+		want = append(want, string(s))
+	}
+	if !reflect.DeepEqual(contract.Substrate.Values, want) {
+		t.Errorf("the contract pins substrate values %v, this reader's vocabulary is %v", contract.Substrate.Values, want)
+	}
+	if contract.Substrate.Default != string(SubstrateAuto) {
+		t.Errorf("the contract pins the default as %q, this reader defaults to %q", contract.Substrate.Default, SubstrateAuto)
+	}
+	if len(contract.Substrate.Accepted) == 0 || len(contract.Substrate.Refused) == 0 {
+		t.Fatal("a parity guard with nothing on one side of it guards nothing")
+	}
+
+	for _, value := range contract.Substrate.Accepted {
+		t.Run("accepts "+value, func(t *testing.T) {
+			document := documentWith("orchestration", "substrate", strconv.Quote(value))
+			if msg := errorFor(t, document, contract.Substrate.Path); msg != "" {
+				t.Errorf("%s refused %q: %s", contract.Substrate.Path, value, msg)
+			}
+		})
+	}
+	for _, value := range contract.Substrate.Refused {
+		t.Run("refuses "+value, func(t *testing.T) {
+			document := documentWith("orchestration", "substrate", strconv.Quote(value))
+			msg := errorFor(t, document, contract.Substrate.Path)
+			if msg == "" {
+				t.Fatalf("%s accepted %q, which the shared contract calls unusable", contract.Substrate.Path, value)
+			}
+			if !strings.Contains(msg, contract.Substrate.RefusalMessage) {
+				t.Errorf("refusal of %q is %q, the shared contract says it contains %q",
+					value, msg, contract.Substrate.RefusalMessage)
+			}
+		})
+	}
+	// A typed value the schema does not allow is a refusal, never a coercion.
+	for _, value := range contract.Substrate.RefusedTOMLValues {
+		t.Run("refuses the value "+value, func(t *testing.T) {
+			document := documentWith("orchestration", "substrate", value)
+			if msg := errorFor(t, document, contract.Substrate.Path); msg == "" {
+				t.Errorf("substrate = %s was accepted; the shared contract refuses it", value)
 			}
 		})
 	}

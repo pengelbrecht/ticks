@@ -142,8 +142,11 @@ func decode(t *testing.T, raw json.RawMessage) any {
 func TestContractIdentity(t *testing.T) {
 	c := load(t)
 
-	if c.SchemaVersion != 1 {
-		t.Errorf("schema_version = %d, want 1", c.SchemaVersion)
+	// 4.0.0: the records themselves moved (provenance gained tier, the
+	// role-result envelope gained findings), which under the closed-records
+	// rule is a new file version, not an extension of the old one.
+	if c.SchemaVersion != 2 {
+		t.Errorf("schema_version = %d, want 2", c.SchemaVersion)
 	}
 	if c.Contract != Contract {
 		t.Errorf("contract = %q, want %q", c.Contract, Contract)
@@ -544,6 +547,52 @@ func TestRoleResultStatusMatchesCollectVocabulary(t *testing.T) {
 	}
 }
 
+// TestRoleResultCarriesTheFindingsChannel pins 4.0.0's findings field. The
+// typed list is part of the ENVELOPE, so the closed five fields are validated
+// by every reader of this contract rather than trusted from `result`'s open
+// payload — the state ticfac's tick 7vn shipped with the field riding in
+// `result`, waiting for this bump. Required even when empty, so a report that
+// carried no findings block states the absence rather than implying it.
+func TestRoleResultCarriesTheFindingsChannel(t *testing.T) {
+	c := load(t)
+	records, defs := parsed(t, c)
+
+	role := resolve(t, records["role_result"], defs)
+	if role == nil {
+		t.Fatal("no role_result record")
+	}
+	if !contains(role.Required, "findings") {
+		t.Fatalf("role_result must require findings; required = %v", role.Required)
+	}
+	list := role.Properties["findings"]
+	if list == nil || list.Items == nil || list.Items.Ref != "#/$defs/finding" {
+		t.Fatalf("role_result.findings must be an array of $defs.finding, got %+v", list)
+	}
+	// The bump is real: a v1 envelope is refused by name, which is what makes
+	// "findings in the open payload" a retired state rather than a tolerated
+	// one. (The negative example pins the message; this pins the enum.)
+	if got := enumStrings(role.Properties["schema_version"]); len(got) != 1 || got[0] != "2" {
+		t.Errorf("role_result.schema_version enum = %v, want [2] — 4.0.0 moved the record", got)
+	}
+
+	finding := mustDef(t, defs, "finding")
+	for _, field := range []string{"kind", "title", "body", "severity", "target"} {
+		if !contains(finding.Required, field) {
+			t.Errorf("finding must require %q (empty included — 'no target' and 'target forgotten' must not look identical); required = %v",
+				field, finding.Required)
+		}
+	}
+	if got := enumStrings(finding.Properties["kind"]); !equalStrings(got, []string{"proposed-tick", "upstream-tick", "contract", "defect"}) {
+		t.Errorf("finding.kind enum = %v, want the four kinds of the findings channel", got)
+	}
+	if got := enumStrings(finding.Properties["severity"]); !equalStrings(got, []string{"low", "medium", "high"}) {
+		t.Errorf("finding.severity enum = %v, want [low medium high]", got)
+	}
+	if finding.AdditionalProperties == nil || *finding.AdditionalProperties {
+		t.Error("finding must be closed — a field the reporting side invents is a triage decision smuggled in as data")
+	}
+}
+
 // TestEvidenceCarriesTheMinimalRecord walks the field list SPEC §10.1 calls
 // the minimum. Every one of them is REQUIRED, including the ones that are
 // often empty: an evidence record that omits `integration_ref` and one that
@@ -590,7 +639,7 @@ func TestEvidenceCarriesTheMinimalRecord(t *testing.T) {
 		"run_id", "tick_id", "attempt",
 		"source_ref", "source_sha", "integration_ref",
 		"phase", "executor", "workspace_id", "backend",
-		"role", "profile_digest", "model", "context_manifest_digest",
+		"role", "tier", "profile_digest", "model", "context_manifest_digest",
 	} {
 		if !contains(provenance.Required, field) {
 			t.Errorf("provenance must require %q (SPEC §10.1 minimal record); required = %v",
