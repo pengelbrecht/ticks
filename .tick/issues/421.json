@@ -3,7 +3,7 @@
   "title": "Final review of ticfac Phase 1 (gate evidence from the ticfac repository)",
   "description": "Review the Phase 1 gate evidence produced in the ticfac repository: the .ticfac/ run record and tag of the real epic run through ticfac run-epic on this repository with a claude or codex runner, killed and restarted after dispatch, after collection and before closure, plus the Appendix A conformance suite (bundle 3.0.0 lifecycle-invariants) green against the real reconciler and subprocess executor. Blocked on the human tick because the work runs in the ticfac tracker; the last Phase 1 tick there closes this one.",
   "notes": "2026-09-02 17:44 - Awaiting work: this review closes when ticfac tick cc5 (gate run) commits its evidence report; nothing to review in this repository until then.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -15,5 +15,7 @@
   "awaiting": "work",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-02T15:14:08.537199Z",
-  "updated_at": "2026-09-02T15:44:45.161619Z"
+  "updated_at": "2026-09-10T08:11:59.818437Z",
+  "closed_at": "2026-09-10T08:11:59.818437Z",
+  "closed_reason": "ticfac Phase 1 done: epic qeu merged to main as 9ebcd5a in the ticfac repository. Gate evidence: go test -short -timeout 45m -count=1 ./... green at b98e865, every package ok, exit 0; CI green (contracts, go). Final review adjudicated across two read-only passes; retro at .tick/logs/herd/qeu/RETRO.md in ticfac."
 }

@@ -199,9 +199,11 @@ tk block <id> <blocker-id>...     # Add blocker(s) (id is now blocked by each bl
 tk unblock <id> <blocker-id>      # Remove blocker
 tk deps <id>                      # Show dependency tree
 tk graph <epic-id> [--json]       # Waves + parallelism; JSON carries needs_planning,
-                                  # missing_process_ticks (EPIC-SKELETON roles no child has)
-                                  # and dispatch{max_parallel,in_flight,free,now} — the
-                                  # configured wave width and the ids to launch right now
+                                  # missing_process_ticks (EPIC-SKELETON roles no child has),
+                                  # unjustified_gates, readiness (Definition-of-Ready lint:
+                                  # id + misses, warn-only) and dispatch{max_parallel,
+                                  # in_flight,free,now} — the configured wave width and
+                                  # the ids to launch right now
 ```
 
 These commands manage **hard** dependencies (`blocked_by` — feasibility: the tick is not ready until its blockers close). **Soft** ordering preferences are managed with `--after` on `tk create` / `tk update` (clear with `--after ""`); they affect `tk next` ordering only and never gate readiness.

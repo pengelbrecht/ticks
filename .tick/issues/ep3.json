@@ -2,7 +2,7 @@
   "id": "ep3",
   "title": "Close out ticfac Phase 1: retro, then flesh out Phase 2 (Herdr executor)",
   "description": "Run the epic-close retro against 4ik acceptance item by item, then flesh out Phase 2 (jrj) per SPEC §12 and the required-gate-tests note on jrj.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
@@ -13,5 +13,7 @@
   "role": "closeout",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-02T15:14:08.562069Z",
-  "updated_at": "2026-09-02T15:14:08.562069Z"
+  "updated_at": "2026-09-10T08:11:59.869146Z",
+  "closed_at": "2026-09-10T08:11:59.869146Z",
+  "closed_reason": "ticfac Phase 1 done: epic qeu merged to main as 9ebcd5a in the ticfac repository. Gate evidence: go test -short -timeout 45m -count=1 ./... green at b98e865, every package ok, exit 0; CI green (contracts, go). Final review adjudicated across two read-only passes; retro at .tick/logs/herd/qeu/RETRO.md in ticfac."
 }

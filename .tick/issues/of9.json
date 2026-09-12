@@ -1,0 +1,12 @@
+{
+  "id": "of9",
+  "title": "job-protocol: source_grade read-only description overstates the boundary",
+  "description": "contracts/job-protocol.json $defs.source_grade.description says 'read-only means git write is refused by the issuer, not by the runner's good manners'. Found by ticfac epic qeu final re-review (ticfac tick 604): that is true of an ACCIDENTAL push (no credential is issued and the launch pins every push url to a refusing transport, including bare relative paths) and false of a DELIBERATE runner, which can bring its own credential (ssh identity, -c credential.helper) or override env-pinned config with git -c / a longer url.\u003cprefix\u003e.pushInsteadOf. Suggested wording: keep the first clause and add 'which closes an accidental push; a runner that brings its own credential or overrides its launch config is not stopped by the issuer, and the boundary diff at collect is the backstop'. Prose-only change to the contract bundle; no schema change.",
+  "status": "open",
+  "priority": 3,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-09T13:41:08.493459Z",
+  "updated_at": "2026-09-09T13:41:08.493459Z"
+}

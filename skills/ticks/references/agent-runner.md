@@ -303,13 +303,18 @@ Each implementer commits its code in its own worktree and reports its branch nam
 # 1. Verify the agent stayed inside its boundary (should print nothing)
 git diff --name-only HEAD...<agent-branch> -- .tick/
 
-# 2. Merge provisionally; keep the branch/worktree
+# 2. Surface the test files it touched (adapt the globs to the repo)
+git diff --name-only HEAD...<agent-branch> -- '*_test.go' '*.test.ts' '*_test.py' 'tests/'
+
+# 3. Merge provisionally; keep the branch/worktree
 git merge <agent-branch>     # branch name comes from the agent's report
 
-# 3. After every wave branch is merged, run and persist the integrated test gate.
-# 4. Only when that gate passes:
+# 4. After every wave branch is merged, run and persist the integrated test gate.
+# 5. Only when that gate passes:
 tk close <tick-id> --reason "Completed: <one-line summary of what landed>"
 ```
+
+**Step 2 is a detector, not a prohibition.** Ticks are supposed to add tests, so this check prints on legitimate work; what it costs is one diff read, and what it buys is that no test file changes hands unread. The failure it exists to catch is cheap to commit and invisible afterwards: a test rewritten to assert nothing, an assertion relaxed, a case marked skip, a runner patched so failures report as passes. All four produce a green tick, a green post-wave gate and a green close-out, because every gate downstream trusts the same tests. Read what changed and satisfy yourself it is an addition or a legitimate update the tick asked for. A weakened test is a blocker, not a nit — reopen the tick, and record the attempt in `.tick/learnings.md` (the boundary rule there already says compliance is a property of the model, not the system).
 
 Commit all wave closes durably after the passed gate, then run the active adapter's successful-integration cleanup. Harness-managed worktrees may clean themselves; manually created worktrees and merged branches must be removed explicitly. A failed gate leaves the ticks open and all branches/worktrees intact.
 
@@ -364,7 +369,7 @@ Tag each finding with a **confidence** as well as a severity. Severity sets the 
 - **Security** — input handling, authorization, secrets, injection.
 - **Performance** — hot paths, N+1 queries, needless allocation.
 - **Error handling** — silent failures: swallowed exceptions, empty catch blocks, errors logged but never surfaced, `|| true`.
-- **Test quality** — behavioral coverage (do the tests actually exercise the behavior?), not line coverage; missing edge cases.
+- **Test quality** — behavioral coverage (do the tests actually exercise the behavior?), not line coverage; missing edge cases. Include the tamper question whenever the diff touches test files: did this change *weaken* an existing test — an assertion relaxed, a case skipped, a fixture loosened, a test deleted — and if so, does the tick actually ask for that? A test that changed to accommodate the implementation, rather than an implementation that changed to satisfy the test, is a blocker.
 - **Type/contract design** — do shared types and API shapes encode their invariants, or can a caller construct an invalid state? Highest-leverage on the contracts a FOUNDATION-REVIEW already targets.
 - **Comment & doc accuracy** — comments that no longer match the code, stale docs, comment rot.
 - **Maintainability** — structural code smells: mysterious names, duplication, feature envy, data clumps, speculative generality. A curated Fowler baseline lives in `references/code-smells.md`; each smell is a judgment call, never a hard violation. Earn this axis on logic-heavy diffs; skip it for routine ones.
@@ -695,6 +700,7 @@ Epic: <epic-title> (<epic-id>)
 
 ## Boundaries (important)
 - Do NOT run any `tk` command and do NOT touch the `.tick/` directory — the orchestrator owns all tick state.
+- Do NOT edit, delete, skip or weaken an existing test to make acceptance pass, and do not alter the test runner or its reporting. Adding tests is expected; changing the ones that judge you is not. If a test named in the acceptance criteria cannot be satisfied as written, that is a finding, not an obstacle — report `STATUS: BLOCKED` with the contradiction named. A tick whose acceptance is impossible is worth more to the run than a tick that appears to pass.
 - Stay in scope: implement this tick only. Don't add features it didn't ask for.
 - Commit source and tests only — never build/run artifacts (`__pycache__`, `*.pyc`, coverage files, caches). If the repo's `.gitignore` doesn't cover the artifacts your test run produces, extend it as part of your change.
 - If the task is ambiguous or you're missing something, stop and report it — don't guess.
@@ -702,6 +708,7 @@ Epic: <epic-title> (<epic-id>)
 ## Report back, ending with one status line
 - Branch name (`git rev-parse --abbrev-ref HEAD`)
 - Files changed and tests added
+- The verification command you ran, pasted verbatim, with its final output lines and exit status — not a summary of them, and not a claim that it passed
 - Anything the next tick should know
 - Final line, exactly one of:
   STATUS: DONE
