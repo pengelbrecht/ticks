@@ -90,6 +90,21 @@ func DiffDir(name, dir string) (InstallDiff, error) {
 		return out, fmt.Errorf("diff %s: %s is not a directory", name, dir)
 	}
 
+	// Walk the symlink target, not the link. os.Stat above follows symlinks, so
+	// a linked install passes the is-a-directory check — but filepath.WalkDir
+	// lstats its root, sees a symlink rather than a directory, and yields the
+	// root itself as a single non-directory entry. The walk then records one
+	// on-disk path (".") and every bundle file reads as removed, so a linked
+	// install that is byte-identical to the bundle reports total drift.
+	//
+	// This is the normal shape of a development checkout, where the installed
+	// skill is a link back to the source of truth being edited, and it made
+	// `tk skills diff` useless in exactly the repo that ships the skill.
+	walkRoot, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return out, fmt.Errorf("diff %s: resolve %s: %w", name, dir, err)
+	}
+
 	if stamp, err := ReadStamp(dir); err == nil {
 		out.StampVersion = stamp.Version
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -97,14 +112,14 @@ func DiffDir(name, dir string) (InstallDiff, error) {
 	}
 
 	onDisk := map[string]bool{}
-	err = filepath.WalkDir(dir, func(p string, d fs.DirEntry, err error) error {
+	err = filepath.WalkDir(walkRoot, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() {
 			return nil
 		}
-		rel, err := filepath.Rel(dir, p)
+		rel, err := filepath.Rel(walkRoot, p)
 		if err != nil {
 			return err
 		}
@@ -124,7 +139,7 @@ func DiffDir(name, dir string) (InstallDiff, error) {
 			out.Removed = append(out.Removed, p)
 			continue
 		}
-		got, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(p)))
+		got, err := os.ReadFile(filepath.Join(walkRoot, filepath.FromSlash(p)))
 		if err != nil || !bytes.Equal(got, bundle[p]) {
 			out.Changed = append(out.Changed, p)
 		}

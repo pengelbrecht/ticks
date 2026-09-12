@@ -145,3 +145,92 @@ func TestDiffDirUnstampedDirReportsDrift(t *testing.T) {
 		t.Errorf("StampVersion = %q, want empty for a missing stamp", diff.StampVersion)
 	}
 }
+
+// A symlinked install is the normal shape of a development checkout: the
+// installed skill points back at the source of truth being edited. os.Stat
+// follows the link so the is-a-directory check passes, but filepath.WalkDir
+// lstats its root and sees a symlink rather than a directory — it then yields
+// the link itself as one non-directory entry, so an identical install reported
+// one added path (".") and every bundle file as removed.
+func TestDiffDirFollowsSymlinkedInstall(t *testing.T) {
+	withVersion(t, "1.0.0-test")
+	base := t.TempDir()
+	real := filepath.Join(base, "source", "ticks")
+	if _, err := Install("ticks", real, false); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	link := filepath.Join(base, "installed-ticks")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	diff, err := DiffDir("ticks", link)
+	if err != nil {
+		t.Fatalf("DiffDir through symlink: %v", err)
+	}
+	if !diff.OK() {
+		t.Errorf("a symlink to an identical install must report no drift, got %+v\n%s", diff, diff)
+	}
+}
+
+// The same, through a chain of links (.claude/skills/ticks -> .agents/skills/
+// ticks -> skills/ticks), which is what this repo actually has on disk.
+func TestDiffDirFollowsSymlinkChain(t *testing.T) {
+	withVersion(t, "1.0.0-test")
+	base := t.TempDir()
+	real := filepath.Join(base, "source", "ticks")
+	if _, err := Install("ticks", real, false); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+
+	mid := filepath.Join(base, "mid-ticks")
+	if err := os.Symlink(real, mid); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	outer := filepath.Join(base, "outer-ticks")
+	if err := os.Symlink(mid, outer); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	diff, err := DiffDir("ticks", outer)
+	if err != nil {
+		t.Fatalf("DiffDir through symlink chain: %v", err)
+	}
+	if !diff.OK() {
+		t.Errorf("a symlink chain to an identical install must report no drift, got %+v\n%s", diff, diff)
+	}
+}
+
+// Drift through a symlink is still drift — the fix must not make the walk
+// blind, only correctly rooted.
+func TestDiffDirSymlinkedInstallStillDetectsDrift(t *testing.T) {
+	withVersion(t, "1.0.0-test")
+	base := t.TempDir()
+	real := filepath.Join(base, "source", "ticks")
+	if _, err := Install("ticks", real, false); err != nil {
+		t.Fatalf("Install: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(real, "SKILL.md"), []byte("edited\n"), 0o644); err != nil {
+		t.Fatalf("edit SKILL.md: %v", err)
+	}
+
+	link := filepath.Join(base, "installed-ticks")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+
+	diff, err := DiffDir("ticks", link)
+	if err != nil {
+		t.Fatalf("DiffDir through symlink: %v", err)
+	}
+	if diff.OK() {
+		t.Fatal("edited SKILL.md through a symlink must report drift")
+	}
+	if len(diff.Changed) != 1 || diff.Changed[0] != "SKILL.md" {
+		t.Errorf("changed = %v, want exactly [SKILL.md]", diff.Changed)
+	}
+	if len(diff.Added) != 0 || len(diff.Removed) != 0 {
+		t.Errorf("added=%v removed=%v, want both empty", diff.Added, diff.Removed)
+	}
+}
