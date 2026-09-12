@@ -23,7 +23,9 @@ import { parseDefs, parseSchema, validate, type Defs, type Schema } from "./json
  * `internal/factory/runstate/evidence_cross_contract_test.go`.
  */
 
-const EVIDENCE_SCHEMA_ID = "ticfac.evidence.v1";
+// 4.0.0 bumped the evidence record: provenance gained tier, so the closed
+// record moved to ticfac.evidence.v2.
+const EVIDENCE_SCHEMA_ID = "ticfac.evidence.v2";
 
 type RecordEntry = { schema_id: string; description: string; schema: unknown };
 type GoldenExample = { name: string; record: string; document: Record<string, unknown> };

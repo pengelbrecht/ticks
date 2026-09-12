@@ -131,7 +131,9 @@ const schemas: Record<string, Schema> = Object.fromEntries(
 
 describe("the .ticfac/ run-state contract identifies itself", () => {
   it("is the contract this reader was written against", () => {
-    expect(contract.schema_version).toBe(1);
+    // 4.0.0: every record this contract places carries provenance, which
+    // gained the tier field — a moved shape under the closed-records rule.
+    expect(contract.schema_version).toBe(2);
     expect(contract.contract).toBe("ticfac.run_state");
     expect(contract.spec_sections).toContain("10.4");
     expect(contract.spec_sections).toContain("4.2");
@@ -293,6 +295,10 @@ describe("every committed record carries the envelope", () => {
       "workspace_id",
       "backend",
       "role",
+      // 4.0.0: the tier this dispatch was derived under, required-and-null
+      // for a record no dispatch produced — the field that makes an
+      // over-tiered run auditable from provenance alone.
+      "tier",
       "profile_digest",
       "model",
       "context_manifest_digest",

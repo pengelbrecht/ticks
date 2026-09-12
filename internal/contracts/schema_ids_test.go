@@ -37,7 +37,7 @@ func TestTheEvidenceRecordCrossesTwoContractsAndIsDefinedOnce(t *testing.T) {
 		collectSchemaIDs(document, name, "", uses)
 	}
 
-	const evidence = "ticfac.evidence.v1"
+	const evidence = "ticfac.evidence.v2"
 	appearances := uses[evidence]
 	if len(appearances) == 0 {
 		t.Fatalf("no contract in the bundle publishes %s", evidence)
@@ -101,7 +101,7 @@ func TestSchemaIDCheckRefusesASecondDefinition(t *testing.T) {
 		t.Fatal("ticfac-run-state.json has no schemas object; update this control")
 	}
 	schemas["evidence_envelope"] = map[string]any{
-		"schema_id": "ticfac.evidence.v1",
+		"schema_id": "ticfac.evidence.v2",
 		"schema": map[string]any{
 			"type":                 "object",
 			"required":             []any{"schema_version", "key", "provenance"},
@@ -118,10 +118,10 @@ func TestSchemaIDCheckRefusesASecondDefinition(t *testing.T) {
 
 	err = VerifySchemaIDs(dir)
 	if err == nil {
-		t.Fatal("VerifySchemaIDs accepted two definitions of ticfac.evidence.v1 — " +
+		t.Fatal("VerifySchemaIDs accepted two definitions of ticfac.evidence.v2 — " +
 			"the check is not a check, and this is exactly what bundle 1.2.0 shipped")
 	}
-	if !strings.Contains(err.Error(), "ticfac.evidence.v1") {
+	if !strings.Contains(err.Error(), "ticfac.evidence.v2") {
 		t.Errorf("the refusal does not name the record: %v", err)
 	}
 	if !strings.Contains(err.Error(), "defined 2 times") {

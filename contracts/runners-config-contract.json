@@ -6,12 +6,12 @@
     "before any container exists to read anything, so it re-implements them",
     "(cloud/factory/src/repo-config.ts).",
     "",
-    "Until this file they were kept in sync by a comment saying 'mirrored from",
-    "internal/herd/config/load.go' — the one contract in this epic without a",
-    "cross-implementation test, while every other Go/TS shape has one",
-    "(tracker-layout.json, worker-boot-contract.json). .tick/learnings.md's rule",
-    "is explicit about why a comment is not enough: both suites stay green while",
-    "each side is internally consistent, so a one-sided edit is invisible.",
+    "Since 4.0.0 the file also pins the document's TABLE ENUMERATION and the",
+    "SUBSTRATE ENUM — the split ticfac's epic av8 made (2026-09-10), which until",
+    "now was a shape two readers agreed on by comment. The tables section names",
+    "which half of `.tick/runners.toml` each reader owns and what it does with the",
+    "other half; the substrate section pins the closed vocabulary of",
+    "`orchestration.substrate`, which decides which dispatch verb is correct.",
     "",
     "Drift here already fails LOUD rather than silent — the sandbox entrypoint",
     "refuses the boot when the image `tk` reads disagrees with the one the control",
@@ -24,7 +24,10 @@
     "documents is pinned separately, and case by case, in sandbox-image-cases.json.",
     "internal/herd/config/runners_config_parity_test.go asserts this file against",
     "Go's validator; cloud/factory/test/repo-config.test.ts asserts it against the",
-    "Worker's reader."
+    "Worker's reader; and since the split, ticfac's own reader (internal/runconfig,",
+    "vendored from this package) asserts the tables and substrate sections through",
+    "internal/contracts/parity/runners_config_test.go — the same cases, both sides",
+    "of the split, one file."
   ],
   "image": {
     "why": [
@@ -82,5 +85,136 @@
     "accepted": [1, 2, 4, 64],
     "refused": [0, -1],
     "refused_toml_values": ["1.5", "\"3\"", "true"]
+  },
+  "tables": {
+    "why": [
+      "THE TABLE ENUMERATION (4.0.0). `.tick/runners.toml` is ONE document with TWO",
+      "domains and TWO readers, and until this section the split lived in comments on",
+      "both sides — the shape a reader agrees on with itself, which is what bundle",
+      "1.2.0 shipped for the evidence record. The execution tables belong to ticfac's",
+      "orchestrator (its internal/runconfig, lifted from this repository's",
+      "internal/herd/config); the tracker tables are ticks' own, acted on by the cloud",
+      "factory's control plane with tk as their author-time validator. ONE writer stays:",
+      "ticks' migrator (`tk config migrate`), so a file written by the other side's",
+      "migrator cannot exist.",
+      "",
+      "The tolerance rule is keyed on SHAPE, not on the bare name. A reader pinned to",
+      "its own half meets the other half's tables as TABLES — neither validated nor",
+      "refused, because a legal file on the other side of the split is not a typo'd key",
+      "on this side. A SCALAR squatting on a foreign table's name has no table shape, so",
+      "the tolerance never fires: it is refused as an unknown key exactly as if it were",
+      "misspelled. A refusal is the one thing a foreign table may never cause, and a",
+      "scalar on its name is not a foreign table.",
+      "",
+      "The mirror obligation runs both ways, and both directions are pinned by the",
+      "cases below: ticfac's reader tolerates `[signals]` and `[sweeps]`; THIS reader",
+      "tolerates `[tier_policy]` — ticfac's tier ladder (its tick 5eq), a table ticks",
+      "will never own the semantics of — because a repository that declares it is a",
+      "legal file on this reader's half too. When ticks retires its execution machinery",
+      "(ticfac tick 4l2) the remaining execution tables become foreign here the same",
+      "way; this enumeration is what makes that a pin bump on both sides, never a",
+      "silent refusal of a repository's good file.",
+      "",
+      "READERS: internal/herd/config/runners_config_parity_test.go runs every case",
+      "whose `readers` names this repository; ticfac's internal/contracts/parity/",
+      "runners_config_test.go runs every case whose `readers` names ticfac. An",
+      "`accepted` case with both readers listed must load in BOTH, so a table added to",
+      "one half fails the other side's build, not its own."
+    ],
+    "version_key": "version",
+    "version_rule": "The version key is the one property of the WHOLE document, gated by both readers before shape: a file from a future format version is refused with one upgrade line, never with a list of unknown keys.",
+    "execution_tables": ["orchestrator", "orchestration", "roles", "testing", "evidence", "environment", "sandbox", "tier_policy"],
+    "execution_owner": "ticfac (internal/runconfig, lifted from this repository's internal/herd/config); this repository's reader still validates the shared half until it retires its execution machinery (ticfac tick 4l2)",
+    "tracker_tables": ["signals", "sweeps"],
+    "tracker_owner": "ticks: the cloud factory's control plane acts on them and tk is their author-time validator",
+    "tolerated_here": ["tier_policy"],
+    "tolerated_by_consumer": ["signals", "sweeps"],
+    "foreign_table_rule": "A table from the other reader's half is tolerated when present as a table, neither validated nor refused; a scalar squatting on its name is a typo'd key and refused as unknown.",
+    "accepted": [
+      {
+        "name": "every execution table, one document",
+        "why": "The whole execution half, one working file. Both readers load it: this one still validates every table, ticfac's owns them.",
+        "readers": ["ticks", "ticfac"],
+        "toml": "version = 2\n\n[orchestrator]\nkind = \"claude\"\n\n[orchestration]\nsubstrate = \"auto\"\ndetect = \"env-or-socket\"\nmax_parallel = 4\n\n[roles.implement]\nkind = \"claude\"\nmodel = \"opus\"\n\n[roles.implement.tiers.economy]\nmodel = \"haiku\"\n\n[testing.commands]\ngo = { command = \"go test ./...\", description = \"Go\" }\n\n[evidence.commands]\naudit = { command = \"go vet ./...\", description = \"Close-out audit\" }\n\n[environment.commands]\ntoolchain = { command = \"which go\", description = \"Go toolchain on PATH\" }\n\n[sandbox]\nimage = \"ticks-orchestrator:0.32.0\"\n"
+      },
+      {
+        "name": "the tracker tables beside a working execution config",
+        "why": "The file both readers exist for: a repository that declares both halves. This reader validates the tracker tables; ticfac's tolerates them as foreign tables, which is the split working, not the split failing.",
+        "readers": ["ticks", "ticfac"],
+        "toml": "version = 2\n\n[roles.implement]\nkind = \"claude\"\n\n[signals]\n\n[sweeps]\n"
+      },
+      {
+        "name": "the tier_policy table, which ticks will never own",
+        "why": "THE MIRROR TOLERANCE. ticfac's reader validates [tier_policy] in full; this reader tolerates it as a foreign table, so a repository that declares its own tier ladder is a legal file here too.",
+        "readers": ["ticks", "ticfac"],
+        "toml": "version = 2\n\n[roles.implement]\nkind = \"claude\"\n\n[tier_policy]\ndefault = \"strong\"\nceiling = \"frontier\"\nstep = 1\n\n[[tier_policy.start]]\ntier = \"economy\"\ntypes = [\"bug\"]\n\n[tier_policy.roles]\nreview-epic = \"strong\"\n"
+      }
+    ],
+    "refused": [
+      {
+        "name": "a typo'd execution table name",
+        "why": "additionalProperties: false on the shared half: an unknown TABLE is an error on both readers, never silently ignored — the split pins what each half owns, not what it tolerates.",
+        "readers": ["ticks", "ticfac"],
+        "expect_error_contains": "orchestratr: unknown key",
+        "toml": "version = 2\n\n[orchestratr]\nharness = \"claude\"\n\n[roles.implement]\nkind = \"claude\"\n"
+      },
+      {
+        "name": "a typo'd execution key inside a table",
+        "why": "The tolerance never extends to a key INSIDE a table this reader owns: a typo'd substrate key must not hide behind the split.",
+        "readers": ["ticks", "ticfac"],
+        "expect_error_contains": "orchestration.substrat: unknown key",
+        "toml": "version = 2\n\n[orchestration]\nsubstrat = \"auto\"\n\n[roles.implement]\nkind = \"claude\"\n"
+      },
+      {
+        "name": "a scalar squatting on a tracker table's name, read by the execution half",
+        "why": "The tolerance is keyed on shape, not name: `signals = true` is not the tracker table [signals], it is a typo'd key in a file this reader owns nothing of, and it is refused. (This repository's reader decodes [signals] as its own table, so the same text is a type error there — which is also a refusal.)",
+        "readers": ["ticfac"],
+        "expect_error_contains": "signals: unknown key",
+        "toml": "version = 2\n\n[roles.implement]\nkind = \"claude\"\n\nsignals = true\n"
+      },
+      {
+        "name": "a scalar squatting on the tier_policy name, read by the tracker half",
+        "why": "The mirror of the same rule: this reader has no [tier_policy] field, so `tier_policy = true` is a typo'd key here — while in ticfac's reader the same line is a type error against a table it owns. Both refuse; neither falls back to defaults.",
+        "readers": ["ticks"],
+        "expect_error_contains": "tier_policy: unknown key",
+        "toml": "version = 2\n\n[roles.implement]\nkind = \"claude\"\n\ntier_policy = true\n"
+      }
+    ]
+  },
+  "substrate": {
+    "why": [
+      "THE SUBSTRATE ENUM (4.0.0). `[orchestration].substrate` decides which",
+      "substrate orchestrates a run, and therefore which dispatch verb is correct: a",
+      "cloud run must refuse `tk herd spawn`, and a herdr run that degrades to harness",
+      "orchestration must SAY so rather than fail. The four values are a closed enum, not",
+      "free text, because a substrate a reader cannot parse authorises nothing — a run",
+      "that fell back to the file's default after being told a substrate is the exact",
+      "failure the value exists to prevent (the container case: a cloud sandbox has no",
+      "herdr server and never will).",
+      "",
+      "`herdr` — workers are herdr panes/worktrees; an unavailable herdr is an explicit",
+      "degradation to harness orchestration, never a failed run. `harness` — the",
+      "harness's own subagents, always; terminal, never probed for herdr. `auto` — the",
+      "default: herdr when it is there, harness when it is not, and neither is a",
+      "failure. `cloud` — one cloud sandbox per tick through the run API; terminal,",
+      "never probed, and no local worktree ever appears for a tick until its container",
+      "pushes one.",
+      "",
+      "The same vocabulary governs the environment override (`TICKS_SUBSTRATE`), which",
+      "is how whatever boots a run states the substrate that is effective where the run",
+      "actually executes. The override refuses a value outside the enum with the same",
+      "words, quoted — one vocabulary, two surfaces.",
+      "",
+      "READERS: internal/herd/config/runners_config_parity_test.go (this repository) and",
+      "ticfac's internal/contracts/parity/runners_config_test.go, both through their own",
+      "real readers over whole documents."
+    ],
+    "path": "orchestration.substrate",
+    "values": ["herdr", "harness", "auto", "cloud"],
+    "default": "auto",
+    "refusal_message": "is not one of herdr, harness, auto, cloud",
+    "accepted": ["herdr", "harness", "auto", "cloud"],
+    "refused": ["kubernetes", "Herdr", "", "cloud,herdr"],
+    "refused_toml_values": ["3", "true"]
   }
 }
