@@ -1,0 +1,47 @@
+{
+  "schema_version": 3,
+  "key": "gate-os6-5-go",
+  "provenance": {
+    "run_id": "epic-pwp",
+    "tick_id": "os6",
+    "attempt": 5,
+    "source_ref": "refs/heads/epic/pwp",
+    "source_sha": "7a9cfe1689dd3d13a7b7a43de19ef815c91f2ac6",
+    "integration_ref": "refs/heads/epic/pwp",
+    "phase": "integrated",
+    "executor": "herdr",
+    "workspace_id": null,
+    "backend": null,
+    "role": "implement-tick",
+    "tier": null,
+    "profile_digest": "sha256:d03e0127c114fdb1ad5ea3cff0f0ce45cf005a897543bd8d4afb5f157d6ee420",
+    "model": "sonnet",
+    "context_manifest_digest": "sha256:0cf644d69158e095c78727ed089548d1",
+    "substrate_protocol": 22,
+    "substrate_server_version": "0.9.0"
+  },
+  "check": {
+    "id": "go",
+    "kind": "command",
+    "command": [
+      "sh",
+      "-c",
+      "go test -short -count=1 ./..."
+    ]
+  },
+  "started_at": "2026-09-14T20:09:36Z",
+  "finished_at": "2026-09-14T20:12:29Z",
+  "exit_code": 0,
+  "output": {
+    "mode": "inline",
+    "stdout": "?   \tgithub.com/pengelbrecht/ticks\t[no test files]\n?   \tgithub.com/pengelbrecht/ticks/cmd/testrig\t[no test files]\nok  \tgithub.com/pengelbrecht/ticks/cmd/tk\t4.766s\nok  \tgithub.com/pengelbrecht/ticks/cmd/tk/cmd\t60.717s\nok  \tgithub.com/pengelbrecht/ticks/internal/beads\t2.413s\nok  \tgithub.com/pengelbrecht/ticks/internal/cloud/collect\t3.734s\nok  \tgithub.com/pengelbrecht/ticks/internal/cloud/lease\t1.835s\nok  \tgithub.com/pengelbrecht/ticks/internal/cloud/state\t2.195s\nok  \tgithub.com/pengelbrecht/ticks/internal/config\t0.574s\nok  \tgithub.com/pengelbrecht/ticks/internal/contracts\t1.124s\nok  \tgithub.com/pengelbrecht/ticks/internal/devbuild\t3.369s\nok  \tgithub.com/pengelbrecht/ticks/internal/factory\t18.458s\nok  \tgithub.com/pengelbrecht/ticks/internal/factory/credentials\t2.086s\nok  \tgithub.com/pengelbrecht/ticks/internal/factory/dashboard\t1.783s\nok  \tgithub.com/pengelbrecht/ticks/internal/factory/jobprotocol\t1.764s\nok  \tgithub.com/pengelbrecht/ticks/internal/factory/lifecycle\t1.635s\nok  \tgithub.com/pengelbrecht/ticks/internal/factory/runstate\t1.804s\nok  \tgithub.com/pengelbrecht/ticks/internal/gatewaytrace\t1.770s\nok  \tgithub.com/pengelbrecht/ticks/internal/gc\t1.754s\nok  \tgithub.com/pengelbrecht/ticks/internal/github\t2.240s\nok  \tgithub.com/pengelbrecht/ticks/internal/herd/client\t2.261s\nok  \tgithub.com/pengelbrecht/ticks/internal/herd/dashboard\t6.588s\n?   \tgithub.com/pengelbrecht/ticks/internal/herd/herdtest\t[no test files]\nok  \tgithub.com/pengelbrecht/ticks/internal/herd/relay\t2.461s\nok  \tgithub.com/pengelbrecht/ticks/internal/herd/state\t2.423s\nok  \tgithub.com/pengelbrecht/ticks/internal/herdclient\t2.221s\nok  \tgithub.com/pengelbrecht/ticks/internal/merge\t2.300s\nok  \tgithub.com/pengelbrecht/ticks/internal/operator\t3.451s\nok  \tgithub.com/pengelbrecht/ticks/internal/query\t1.789s\nok  \tgithub.com/pengelbrecht/ticks/internal/runnersconfig\t1.906s\nok  \tgithub.com/pengelbrecht/ticks/internal/sandbox\t163.456s\nok  \tgithub.com/pengelbrecht/ticks/internal/skills\t1.975s\n?   \tgithub.com/pengelbrecht/ticks/internal/styles\t[no test files]\nok  \tgithub.com/pengelbrecht/ticks/internal/tick\t1.887s\nok  \tgithub.com/pengelbrecht/ticks/internal/tickboard/cloud\t1.885s\nok  \tgithub.com/pengelbrecht/ticks/internal/tickboard/server\t5.555s\nok  \tgithub.com/pengelbrecht/ticks/internal/tickenv\t1.371s\nok  \tgithub.com/pengelbrecht/ticks/internal/ticks\t1.350s\nok  \tgithub.com/pengelbrecht/ticks/internal/tkcontract\t1.455s\nok  \tgithub.com/pengelbrecht/ticks/internal/trace\t1.573s\nok  \tgithub.com/pengelbrecht/ticks/internal/tui\t1.856s\nok  \tgithub.com/pengelbrecht/ticks/internal/types/generated\t1.322s\n?   \tgithub.com/pengelbrecht/ticks/internal/update\t[no test files]\nok  \tgithub.com/pengelbrecht/ticks/internal/wave\t1.330s\nok  \tgithub.com/pengelbrecht/ticks/internal/workerprompt\t1.358s\nok  \tgithub.com/pengelbrecht/ticks/internal/worktree\t12.998s\n?   \tgithub.com/pengelbrecht/ticks/scripts/experiments\t[no test files]\n",
+    "stderr": "",
+    "truncated": false,
+    "redacted": false,
+    "max_bytes": 16384
+  },
+  "result": "pass",
+  "acceptance": "required",
+  "content_digest": "sha256:11812e3099402b92ef3f72190319f431447945b23cc49245780a9c89d7428b5d",
+  "persistence_uri": "git:refs/heads/epic/pwp:.ticfac/runs/epic-pwp/evidence/gate-os6-5-go.json"
+}
