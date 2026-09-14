@@ -2,10 +2,10 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 23,
-  "state": "admitted",
-  "reason": "the epic graph is read and the run is admitted",
-  "updated_at": "2026-09-14T19:41:38Z",
+  "sequence": 24,
+  "state": "dispatching",
+  "reason": "dispatching hvj as attempt 4",
+  "updated_at": "2026-09-14T19:41:46Z",
   "ticks": [
     {
       "tick_id": "azq",
