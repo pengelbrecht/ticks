@@ -2,10 +2,10 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 35,
-  "state": "dispatching",
-  "reason": "dispatching os6 as attempt 5",
-  "updated_at": "2026-09-14T19:59:36Z",
+  "sequence": 36,
+  "state": "running",
+  "reason": "os6 is running as attempt 5",
+  "updated_at": "2026-09-14T19:59:53Z",
   "ticks": [
     {
       "tick_id": "azq",
@@ -36,7 +36,8 @@
     },
     {
       "tick_id": "os6",
-      "state": "ready"
+      "state": "dispatched",
+      "attempt": 5
     },
     {
       "tick_id": "gms",
