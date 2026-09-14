@@ -2,10 +2,10 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 54,
-  "state": "dispatching",
-  "reason": "dispatching gms as attempt 8",
-  "updated_at": "2026-09-14T20:57:23Z",
+  "sequence": 55,
+  "state": "running",
+  "reason": "gms is running as attempt 8",
+  "updated_at": "2026-09-14T20:57:42Z",
   "ticks": [
     {
       "tick_id": "azq",
@@ -42,8 +42,8 @@
     },
     {
       "tick_id": "gms",
-      "state": "ready",
-      "attempt": 7
+      "state": "dispatched",
+      "attempt": 8
     }
   ],
   "provenance": {
