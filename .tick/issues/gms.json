@@ -10,6 +10,6 @@
   "acceptance_criteria": "No skill reference documents a deleted tk herd command; what replaced them is stated; the herdr-runner and agent-runner references agree with the commands that now exist.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-14T19:39:40.390005Z",
-  "updated_at": "2026-09-14T20:50:45.936396Z",
-  "started_at": "2026-09-14T20:50:45.936395Z"
+  "updated_at": "2026-09-14T20:57:31.340129Z",
+  "started_at": "2026-09-14T20:57:31.340128Z"
 }
