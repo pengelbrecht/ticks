@@ -30,9 +30,14 @@ ticks beside the workers herdr is actually running.
 
 Read-only in two senses. It takes no actions — no spawn, no cancel, no merge.
 And it never mutates or even invokes the tracker: tick state is read straight
-off .tick/, and run state off the manifests 'tk herd spawn' wrote under
-.tick/logs/herd/, exactly the way 'tk herd collect' reads them. No 'tk'
-subprocess is ever run.
+off .tick/, and run state off the manifests under .tick/logs/herd/, in the
+internal/herd/state format. No 'tk' subprocess is ever run.
+
+Nothing in this repository currently writes those manifests: 'tk herd spawn',
+the command that used to, was deleted along with the rest of the local
+wave-execution loop (ticfac owns that now). Until a herdr-driven run has a
+writer again, this board has no manifests to show and every epic lists zero
+workers — tick state still renders normally.
 
 Updates are event-driven. One events.subscribe stream carries, per worker pane,
 one subscription per concrete agent status, so herdr PUSHES every status change
