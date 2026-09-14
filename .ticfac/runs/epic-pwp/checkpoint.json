@@ -2,14 +2,14 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 5,
-  "state": "integrating",
-  "reason": "integrating azq attempt 1 into epic/pwp",
-  "updated_at": "2026-09-14T17:31:26Z",
+  "sequence": 6,
+  "state": "gating",
+  "reason": "running the integrated gate for azq on 3df5ea6a2d83",
+  "updated_at": "2026-09-14T17:31:40Z",
   "ticks": [
     {
       "tick_id": "azq",
-      "state": "reported",
+      "state": "integrated",
       "attempt": 1
     },
     {
