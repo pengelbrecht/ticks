@@ -2,10 +2,10 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 62,
-  "state": "running",
-  "reason": "sx5 is running as attempt 9",
-  "updated_at": "2026-09-14T21:14:38Z",
+  "sequence": 63,
+  "state": "collecting",
+  "reason": "collecting the review-epic job for sx5",
+  "updated_at": "2026-09-14T21:29:08Z",
   "ticks": [
     {
       "tick_id": "azq",
