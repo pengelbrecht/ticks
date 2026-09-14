@@ -1,0 +1,47 @@
+{
+  "schema_version": 3,
+  "key": "gate-3r2-6-go",
+  "provenance": {
+    "run_id": "epic-pwp",
+    "tick_id": "3r2",
+    "attempt": 6,
+    "source_ref": "refs/heads/epic/pwp",
+    "source_sha": "c9383a5394b73b7570d58f984fcaa2af2f70866b",
+    "integration_ref": "refs/heads/epic/pwp",
+    "phase": "integrated",
+    "executor": "herdr",
+    "workspace_id": null,
+    "backend": null,
+    "role": "implement-tick",
+    "tier": null,
+    "profile_digest": "sha256:d03e0127c114fdb1ad5ea3cff0f0ce45cf005a897543bd8d4afb5f157d6ee420",
+    "model": "sonnet",
+    "context_manifest_digest": "sha256:0cf644d69158e095c78727ed089548d1",
+    "substrate_protocol": 22,
+    "substrate_server_version": "0.9.0"
+  },
+  "check": {
+    "id": "go",
+    "kind": "command",
+    "command": [
+      "sh",
+      "-c",
+      "go test -short -count=1 ./..."
+    ]
+  },
+  "started_at": "2026-09-14T20:37:27Z",
+  "finished_at": "2026-09-14T20:40:26Z",
+  "exit_code": 0,
+  "output": {
+    "mode": "inline",
+    "stdout": "?   \tgithub.com/pengelbrecht/ticks\t[no test files]\n?   \tgithub.com/pengelbrecht/ticks/cmd/testrig\t[no test files]\nok  \tgithub.com/pengelbrecht/ticks/cmd/tk\t5.583s\nok  \tgithub.com/pengelbrecht/ticks/cmd/tk/cmd\t45.737s\nok  \tgithub.com/pengelbrecht/ticks/internal/beads\t0.588s\nok  \tgithub.com/pengelbrecht/ticks/internal/cloud/collect\t4.948s\nok  \tgithub.com/pengelbrecht/ticks/internal/cloud/lease\t1.128s\nok  \tgithub.com/pengelbrecht/ticks/internal/cloud/state\t1.643s\nok  \tgithub.com/pengelbrecht/ticks/internal/cloudcredentials\t2.093s\nok  \tgithub.com/pengelbrecht/ticks/internal/config\t2.335s\nok  \tgithub.com/pengelbrecht/ticks/internal/contracts\t0.858s\nok  \tgithub.com/pengelbrecht/ticks/internal/devbuild\t4.334s\nok  \tgithub.com/pengelbrecht/ticks/internal/gc\t2.269s\nok  \tgithub.com/pengelbrecht/ticks/internal/github\t2.858s\nok  \tgithub.com/pengelbrecht/ticks/internal/herd/client\t2.585s\nok  \tgithub.com/pengelbrecht/ticks/internal/herd/dashboard\t6.447s\n?   \tgithub.com/pengelbrecht/ticks/internal/herd/herdtest\t[no test files]\nok  \tgithub.com/pengelbrecht/ticks/internal/herd/relay\t2.066s\nok  \tgithub.com/pengelbrecht/ticks/internal/herd/state\t1.852s\nok  \tgithub.com/pengelbrecht/ticks/internal/herdclient\t1.828s\nok  \tgithub.com/pengelbrecht/ticks/internal/merge\t1.202s\nok  \tgithub.com/pengelbrecht/ticks/internal/operator\t2.628s\nok  \tgithub.com/pengelbrecht/ticks/internal/query\t1.247s\nok  \tgithub.com/pengelbrecht/ticks/internal/runnersconfig\t1.515s\nok  \tgithub.com/pengelbrecht/ticks/internal/sandbox\t165.546s\nok  \tgithub.com/pengelbrecht/ticks/internal/skills\t1.896s\n?   \tgithub.com/pengelbrecht/ticks/internal/styles\t[no test files]\nok  \tgithub.com/pengelbrecht/ticks/internal/tick\t1.751s\nok  \tgithub.com/pengelbrecht/ticks/internal/tickboard/cloud\t1.919s\nok  \tgithub.com/pengelbrecht/ticks/internal/tickboard/server\t6.259s\nok  \tgithub.com/pengelbrecht/ticks/internal/tickenv\t1.881s\nok  \tgithub.com/pengelbrecht/ticks/internal/ticks\t1.832s\nok  \tgithub.com/pengelbrecht/ticks/internal/tkcontract\t1.638s\nok  \tgithub.com/pengelbrecht/ticks/internal/trace\t1.859s\nok  \tgithub.com/pengelbrecht/ticks/internal/tui\t2.377s\nok  \tgithub.com/pengelbrecht/ticks/internal/types/generated\t1.863s\n?   \tgithub.com/pengelbrecht/ticks/internal/update\t[no test files]\nok  \tgithub.com/pengelbrecht/ticks/internal/wave\t1.630s\nok  \tgithub.com/pengelbrecht/ticks/internal/workerprompt\t1.626s\nok  \tgithub.com/pengelbrecht/ticks/internal/worktree\t11.265s\n?   \tgithub.com/pengelbrecht/ticks/scripts/experiments\t[no test files]\n",
+    "stderr": "",
+    "truncated": false,
+    "redacted": false,
+    "max_bytes": 16384
+  },
+  "result": "pass",
+  "acceptance": "required",
+  "content_digest": "sha256:83761a4c582850962b15d645efb921244b962ca4219a6e614e6ba170c2044686",
+  "persistence_uri": "git:refs/heads/epic/pwp:.ticfac/runs/epic-pwp/evidence/gate-3r2-6-go.json"
+}
