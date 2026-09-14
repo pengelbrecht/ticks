@@ -1,0 +1,14 @@
+{
+  "id": "gms",
+  "title": "skills/ticks docs still document the deleted tk herd commands",
+  "description": "Filed from a worker finding on tick nkf attempt 3. The skill references still describe tk herd spawn/wait/collect/reconcile/cleanup/notify/paint/watch/plugin, which no longer exist. A reader following them gets an unknown-command error. Point them at ticfac run-epic instead, and keep whatever is still true about the substrate.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "pwp",
+  "acceptance_criteria": "No skill reference documents a deleted tk herd command; what replaced them is stated; the herdr-runner and agent-runner references agree with the commands that now exist.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-14T19:39:40.390005Z",
+  "updated_at": "2026-09-14T19:39:40.390005Z"
+}
