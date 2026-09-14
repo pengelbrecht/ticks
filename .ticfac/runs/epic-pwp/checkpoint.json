@@ -2,10 +2,10 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 26,
-  "state": "collecting",
-  "reason": "collecting hvj attempt 4",
-  "updated_at": "2026-09-14T19:49:34Z",
+  "sequence": 27,
+  "state": "integrating",
+  "reason": "integrating hvj attempt 4 into epic/pwp",
+  "updated_at": "2026-09-14T19:49:36Z",
   "ticks": [
     {
       "tick_id": "azq",
@@ -31,7 +31,7 @@
     },
     {
       "tick_id": "hvj",
-      "state": "dispatched",
+      "state": "reported",
       "attempt": 4
     },
     {
