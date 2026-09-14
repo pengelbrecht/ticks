@@ -2,10 +2,10 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 16,
-  "state": "collecting",
-  "reason": "collecting nkf attempt 3",
-  "updated_at": "2026-09-14T19:29:26Z",
+  "sequence": 17,
+  "state": "integrating",
+  "reason": "integrating nkf attempt 3 into epic/pwp",
+  "updated_at": "2026-09-14T19:30:07Z",
   "ticks": [
     {
       "tick_id": "azq",
@@ -14,7 +14,7 @@
     },
     {
       "tick_id": "nkf",
-      "state": "dispatched",
+      "state": "reported",
       "attempt": 3
     },
     {
