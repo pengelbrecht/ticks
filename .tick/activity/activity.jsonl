@@ -2456,3 +2456,4 @@
 {"ts":"2026-09-14T19:59:20.435974Z","tick":"nkf","action":"close","actor":"ticfac","epic":"pwp","data":{"title":"Delete the herd execution packages and their tk commands"}}
 {"ts":"2026-09-14T19:59:44.462259Z","tick":"os6","action":"start","actor":"ticfac","epic":"pwp","data":{"title":"Redesign internal/herd/dashboard to stop depending on deleted execution state, or move it to ticfac"}}
 {"ts":"2026-09-14T20:13:55.18401Z","tick":"os6","action":"note","actor":"ticfac","epic":"pwp","data":{"note":"2026-09-14 22:13 - ticfac run epic-pwp: attempt 5 merged into epic/pwp as 7a9cfe1689dd; the integrated gate (go, pi-runner) passed.","title":"Redesign internal/herd/dashboard to stop depending on deleted execution state, or move it to ticfac"}}
+{"ts":"2026-09-14T20:14:02.989028Z","tick":"os6","action":"close","actor":"ticfac","epic":"pwp","data":{"title":"Redesign internal/herd/dashboard to stop depending on deleted execution state, or move it to ticfac"}}
