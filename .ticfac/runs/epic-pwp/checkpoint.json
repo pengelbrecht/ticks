@@ -2,10 +2,10 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 19,
-  "state": "publishing",
-  "reason": "closing nkf behind the integrated gate on 0527106f8c56",
-  "updated_at": "2026-09-14T19:34:47Z",
+  "sequence": 20,
+  "state": "running",
+  "reason": "nkf is refused its close: a drafted finding is untriaged",
+  "updated_at": "2026-09-14T19:34:54Z",
   "ticks": [
     {
       "tick_id": "azq",
@@ -14,7 +14,7 @@
     },
     {
       "tick_id": "nkf",
-      "state": "integrated",
+      "state": "rejected",
       "attempt": 3
     },
     {
