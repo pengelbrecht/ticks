@@ -13,6 +13,6 @@
   "acceptance_criteria": "internal/herd contains only relay and dashboard plus what they need; the listed execution packages and herd commands are gone, not duplicated; internal/tkcontract is untouched; the ten direct .tick/ reads in the retired packages are gone or became callbacks; dashboard reads run state through a supported interface rather than a lifted internal type, and how relay survives without herd_wait is stated; go build ./... passes after every commit, not merely at the end; go test -short -count=1 ./... green.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-14T16:41:38.05521Z",
-  "updated_at": "2026-09-14T17:36:43.397572Z",
+  "updated_at": "2026-09-14T19:11:48.276367Z",
   "started_at": "2026-09-14T17:36:43.397571Z"
 }
