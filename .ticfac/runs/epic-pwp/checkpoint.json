@@ -2,10 +2,10 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 42,
-  "state": "dispatching",
-  "reason": "dispatching 3r2 as attempt 6",
-  "updated_at": "2026-09-14T20:14:22Z",
+  "sequence": 43,
+  "state": "running",
+  "reason": "3r2 is running as attempt 6",
+  "updated_at": "2026-09-14T20:14:41Z",
   "ticks": [
     {
       "tick_id": "azq",
@@ -19,7 +19,8 @@
     },
     {
       "tick_id": "3r2",
-      "state": "ready"
+      "state": "dispatched",
+      "attempt": 6
     },
     {
       "tick_id": "sx5",
