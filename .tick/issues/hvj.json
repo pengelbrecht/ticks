@@ -2,6 +2,7 @@
   "id": "hvj",
   "title": "Add a thin tk-side caller for internal/herd/relay now that herd_wait.go is gone",
   "description": "Filed from a worker finding on tick nkf attempt 3. The relay is the durable operator question and STAYS in this repository by design, but the command that called it was deleted with the rest of herd_*. Without a caller it is unreachable.",
+  "notes": "2026-09-14 21:54 - ticfac run epic-pwp: attempt 4 merged into epic/pwp as 83b792e459db; the integrated gate (go, pi-runner) passed.",
   "status": "in_progress",
   "priority": 1,
   "type": "task",
@@ -10,6 +11,6 @@
   "acceptance_criteria": "A tk command reaches internal/herd/relay so an operator question can still be raised and answered; a test covers it; go test -short -count=1 ./... green.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-14T19:39:40.364315Z",
-  "updated_at": "2026-09-14T19:41:54.139045Z",
+  "updated_at": "2026-09-14T19:54:14.131794Z",
   "started_at": "2026-09-14T19:41:54.139044Z"
 }
