@@ -1,0 +1,91 @@
+{
+  "schema_version": 3,
+  "decision": 2,
+  "role": "review-epic",
+  "request": {
+    "epic_id": "pwp",
+    "job_id": "run-epic-pwp/tick-sx5/attempt-9",
+    "output_schema": "ticfac.job-result.review-epic.v1",
+    "profile": "review-epic@1.0.0 (herdr/pi, cloudflare-workers-ai/@cf/zai-org/glm-5.3)",
+    "profile_digest": "sha256:af92bf105c806954e97d77cbeb8ef8a68d8ad6533cf3890ab6ae0f8537e56081",
+    "role": "review-epic",
+    "source_grade": "read-only",
+    "source_sha": "e172debec35c1a5c670a9985384582ac4fbc1be9",
+    "tick_id": "sx5"
+  },
+  "response": {
+    "findings": [
+      {
+        "body": "The epic exists to end 'extracted means copied', yet its integrated diff ADDS a second herdr wire client: internal/herdclient (commit ed92010e, tick nkf) coexists with the untouched internal/herd/client, and transport.go (141 lines), protocol.go (242), socketpath.go (43) and client.go (285) are byte-identical in both except the package clause and error prefix. Dashboard, herdtest and cmd/tk/cmd/herd_shared.go import the old client; relay, runnersconfig and herd_relay.go import the new; ticfac holds a third copy. Point dashboard (+herd_shared) at internal/herdclient — growing its 99-line methods.go to cover AgentList, SubscribeAgentStatus/EventStream and TerminalStatuses — and delete internal/herd/client along with herdclient/doc.go's false claim that the old package 'moved to ticfac'; or delete internal/herdclient, which keeps the full ~4.4K-line execution surface in-repo against the epic's premise. nkf's GOES list also named herd_shared.go, herdtest and internal/herd/state for deletion; all three survive.",
+        "kind": "proposed-tick",
+        "severity": "high",
+        "target": "",
+        "title": "Consolidate the two herdr clients the deletion epic left behind"
+      },
+      {
+        "body": "The epic deleted tk herd paint/notify/guard/collect/reconcile but left plugins/herdr-ticks/ unchanged, and every event hook it registers invokes one of them: guard-hook.sh:75 runs 'tk herd guard', paint-hook.sh ~101 'tk herd paint', notify-hook.sh ~91 'tk herd notify', action-collect-tick.sh 'tk herd collect', action-retry-tick.sh 'tk herd reconcile'. README.md:21-27 still marks them 'Working', herdr-plugin.toml registers the hooks, and the hooks exit 0 by design, so every firing now fails silently, visible only in the plugin log. action-open-worktree.sh reads .tick/logs/herd manifests that no writer remains for. scripts/verify-herd-helper.sh and scripts/verify-herd-plugin.sh are equally orphaned end-to-end smokes of the deleted CLI. Delete or re-point the plugin and its smokes once equivalents exist (see the ticfac finding), or remove them.",
+        "kind": "proposed-tick",
+        "severity": "high",
+        "target": "",
+        "title": "Ship-or-remove: plugins/herdr-ticks calls deleted tk herd commands"
+      },
+      {
+        "body": "Checked against ticfac's actual CLI: factory deploy/setup/status/dashboard and the cloud run|stop|status|logs|trace|supervisor slice have equivalents, and run-epic owns the wave loop — but tk factory webhook (register/inspect/withdraw the factory's Telegram webhook) has no ticfac command and no setup rung, and nothing in ticfac calls its client's PaneReportMetadata or NotificationShow, so herdr pane badges and blocked/settled chimes — capabilities tk herd paint/notify provided and the still-shipped herdr-ticks plugin expects — have no replacement. The wire methods already exist in ticfac's copied client (internal/herd/client/methods.go:597,734); what is missing are callers and commands. tk herd guard and tk herd plugin also have no equivalent.",
+        "kind": "upstream-tick",
+        "severity": "medium",
+        "target": "pengelbrecht/ticfac",
+        "title": "ticfac should own the operator surfaces tk dropped without replacement: factory webhook, herdr paint/notify"
+      },
+      {
+        "body": "tk herd spawn was the only writer of the .tick/logs/herd manifests and nkf deleted it; verified that internal/herd/state.Write now has no production caller (tests only). Three survivors still read the contract: internal/herd/dashboard/snapshot.go (os6 documented and accepted the 'zero workers' consequence), internal/herd/relay/identity.go recordedManifests (blocked-agent-to-tick identity resolution — undocumented), and cmd/tk/cmd/frontier.go ~245-251 (the live-worker overlay behind tk ready, which ticfac itself calls — undocumented). Either give ticfac a manifest writer for herdr-driven runs, re-point the readers at ticfac's run records, or record the relay and frontier degradation as deliberately as os6 did for the dashboard.",
+        "kind": "proposed-tick",
+        "severity": "medium",
+        "target": "",
+        "title": "Decide who writes .tick/logs/herd manifests, or re-point the three readers left on a dead contract"
+      },
+      {
+        "body": "cmd/tk/cmd/herd.go's Short ('Drive a herdr session: spawn, wait for and collect a wave of agent workers') and Long text describe the orchestration contract of commands nkf deleted; only dashboard and relay remain as subcommands. No test pins the herd command surface, so the gate stays green while the help lies — a subcommand-enumeration test (herdCmd contains exactly dashboard and relay) would pin it. One-file fix; can ride along with the client-consolidation tick.",
+        "kind": "proposed-tick",
+        "severity": "low",
+        "target": "",
+        "title": "tk herd --help still advertises the deleted spawn/wait/collect command family"
+      }
+    ],
+    "result": {
+      "boundary_violations": [],
+      "branch": "ticfac/run-epic-pwp/tick-sx5/attempt-9",
+      "commits": 0,
+      "findings_problem": "",
+      "needs_human": false,
+      "report_path": "runs/epic-pwp/sx5/RESULT-sx5.md",
+      "verdict": "no-commits"
+    },
+    "role": "review-epic",
+    "schema_id": "ticfac.job-result.review-epic.v1",
+    "schema_version": 2,
+    "status": "DONE_WITH_CONCERNS",
+    "summary": "the review itself is complete and independently verified (build + targeted tests green, tkcontract untouched, run-by-ticfac evidenced), but the epic as integrated does not yet do what it said: two herdr clients survive (one added by the epic itself, with byte-identical protocol plumbing), the shipped plugins/herdr-ticks still calls five deleted commands from hooks that fail silently, three survivors read a manifest contract with no writer, and factory-webhook/paint/notify/guard were deleted with no ticfac equivalent. Double-check the two high findings before closing sx5 and unblocking 8vl."
+  },
+  "validated": true,
+  "requested_at": "2026-09-14T21:30:10Z",
+  "answered_at": "2026-09-14T21:30:10Z",
+  "provenance": {
+    "run_id": "epic-pwp",
+    "tick_id": "sx5",
+    "attempt": 9,
+    "source_ref": "refs/heads/epic/pwp",
+    "source_sha": "e172debec35c1a5c670a9985384582ac4fbc1be9",
+    "integration_ref": "refs/heads/epic/pwp",
+    "phase": "review",
+    "executor": "herdr",
+    "workspace_id": null,
+    "backend": null,
+    "role": "review-epic",
+    "tier": null,
+    "profile_digest": "sha256:af92bf105c806954e97d77cbeb8ef8a68d8ad6533cf3890ab6ae0f8537e56081",
+    "model": "cloudflare-workers-ai/@cf/zai-org/glm-5.3",
+    "context_manifest_digest": "sha256:0cf644d69158e095c78727ed089548d1",
+    "substrate_protocol": 22,
+    "substrate_server_version": "0.9.0"
+  }
+}
