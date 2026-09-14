@@ -2,14 +2,14 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 4,
-  "state": "collecting",
-  "reason": "collecting azq attempt 1",
-  "updated_at": "2026-09-14T17:31:24Z",
+  "sequence": 5,
+  "state": "integrating",
+  "reason": "integrating azq attempt 1 into epic/pwp",
+  "updated_at": "2026-09-14T17:31:26Z",
   "ticks": [
     {
       "tick_id": "azq",
-      "state": "dispatched",
+      "state": "reported",
       "attempt": 1
     },
     {
