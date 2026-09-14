@@ -354,3 +354,114 @@ anything that pinned `lifecycle-invariants.json`'s `wipe_threshold_ms` was
 pinned to the wrong number and now gets the substrate's. A consumer that
 re-implements the bundle check should add the ledger check; one that only reads
 fixtures has nothing to follow there.
+
+---
+
+---
+
+## 4.1.0
+
+MAJOR, and the version a consumer actually adopts: it supersedes the `4.0.0`
+cut before either reached a release. The first `4.0.0` re-cut was made before
+the `$defs.evidence` `schema_version` enum (v1 → v2) had landed in
+`job-protocol.json`, so the manifest recorded evidence documents the schema
+would refuse — the ledger entry for `4.0.0` stays in `bundle.json` untouched,
+exactly as `2.1.1`'s did: the ledger is append-only and records what was CUT,
+not what shipped.
+
+Everything in the `4.0.0` entry below applies unchanged — the table
+enumeration and substrate enum in `runners-config-contract.json`, `tier` in
+`$defs.provenance`, and the role-result findings channel — plus the one
+correction: the evidence record's `schema_version` enum is `[2]`, so a v1
+evidence record is refused by name, in step with its `ticfac.evidence.v2`
+schema_id.
+
+Consumers: `cloud/factory` pins `4.1.0`; ticfac moves `ref` and `bundleVersion`
+together and adopts. Nothing pins `4.0.0` anywhere.
+
+---
+
+## 4.0.0
+
+MAJOR. SUPERSEDED BY 4.1.0 BEFORE RELEASE — the first cut missed the evidence
+`schema_version` enum and no consumer ever pinned this version; read 4.1.0 for
+what actually shipped. The entry stays because the changelog, like the
+`version_digests` ledger, records what was cut.
+
+MAJOR. Three closed records moved shape and a fixture gained the two pins it
+was missing — an unchanged consumer of any of the three is now **wrong**, and
+under the closed-records rule that means new schema_ids, not new fields on the
+old ones.
+
+Cut by ticfac's tick 9t0 (epic av8) — the bundle's second pinning consumer, and
+the first bump cut FOR that consumer's side of the split. Three items, all filed
+by ticfac ticks that could not reach the bundle from their own worktrees:
+
+- **`job-protocol.json` — `$defs.provenance` gains `tier`** (from ticfac's tick
+  5eq). The capability tier a dispatch was derived under — the rung of the
+  runners-config `[tier_policy]` ladder that routed the model — was carried on
+  the dispatch marker and implied by the tier-resolved profile digest, so an
+  over-tiered run could not be audited from provenance alone. The field is
+  required-and-nullable like every provenance field: "no tier was derived" (a
+  deterministic check, a run-level checkpoint) and "the tier was not recorded"
+  are different claims. The evidence record moves with it —
+  `ticfac.evidence.v1` → `ticfac.evidence.v2`, schema_version enum `[2]` — and
+  `contracts/ticfac-run-state.json`'s copy of the definition moves in lockstep
+  (the cross-file readers compare them structurally), with `lifecycle-invariants.json`'s
+  `fingerprint_fields.defined_by.schema_id` following the pointer.
+- **`job-protocol.json` — the role-result envelope gains the findings channel**
+  (from ticfac's tick 7vn). A worker's typed discoveries outside its tick —
+  kind, title, body, severity, target, closed vocabularies — were riding in
+  `result`'s open payload, which the envelope admits as-is: mechanically
+  durable, but validated by nobody. `role_result` gains a REQUIRED `findings`
+  array of a new `$defs.finding` (required even when empty, so "no findings" is
+  stated rather than implied), which is a new schema_id:
+  `ticfac.role-result.v1` → `ticfac.role-result.v2`, schema_version enum `[2]`.
+  A v1 envelope is refused by name — that is the regression control the
+  negatives add, on both sides of the bundle.
+- **`runners-config-contract.json` — the table enumeration and the substrate
+  enum** (ticfac's tick 9t0's own item, closing what its tick wgi left open).
+  The runners-config split — one `.tick/runners.toml`, two readers, one writer —
+  was a shape two readers agreed on by comment. The `tables` section pins the
+  enumeration (execution tables to ticfac's `internal/runconfig`, tracker
+  tables to ticks) and the shape-keyed tolerance rule: a foreign table is
+  tolerated when present as a TABLE, while a scalar squatting on its name is a
+  typo'd key. Both directions are executable cases, which required the mirror
+  tolerance this version also ships: THIS reader (`internal/herd/config`) now
+  tolerates `[tier_policy]` — ticfac's tier ladder, a table ticks will never
+  own the semantics of — the same way ticfac's reader tolerates `[signals]`
+  and `[sweeps]`. The `substrate` section pins the closed vocabulary of
+  `orchestration.substrate` (`herdr`, `harness`, `auto` with `cloud`; default
+  `auto`), the shared refusal words, and the typed-value refusals.
+
+Readers that moved with the bump, in the same commit:
+`internal/factory/jobprotocol` (Go) and `cloud/factory/test/job-protocol.test.ts`
+(TypeScript) follow the version bump, the tier field and the findings def;
+`cloud/factory/test/evidence-record.test.ts` and
+`internal/contracts/schema_ids_test.go` follow the evidence schema_id;
+`internal/herd/config` (loader tolerance plus the parity cases) and, from the
+pinning consumer, ticfac's `internal/runconfig` and its parity suite run the
+same `tables`/`substrate` cases through their own readers.
+
+Consumers: `cloud/factory` moves its pin to `4.0.0` (nothing to follow beyond
+the version — the Worker does not read provenance, findings or the substrate
+table). **ticfac must move `ref` and `bundleVersion` together and follow**:
+`internal/runstate`'s records gain the `tier` field, the role-result envelope
+gains `findings` as a first-class field filled by collect, and its parity
+readers assert the new sections. An implementation that still writes v1
+evidence records or v1 role-result envelopes is now writing documents its own
+bundle refuses.
+
+---
+
+## 4.1.1
+
+PATCH, cut immediately after 4.1.0 and before any version reached a consumer:
+two comment strings inside `job-protocol.json`'s `evidence_ref` still named the
+evidence record by its pre-4.0.0 id (`ticfac.evidence.v1`), and
+`contracts/README.md` did not name the pinning consumer whose readers joined
+this bundle's enforcement. No schema, example or rule bytes changed, and no
+reader has anything to follow beyond the version string; the ledger entry for
+4.1.0 stays untouched for the same reason 4.0.0's does — it is append-only and
+records what was cut, not what shipped. The lesson for whoever cuts the next
+bump: finish every fixture edit, then cut once.

@@ -172,7 +172,7 @@ func Parse(data []byte) (*Config, error) {
 		// are stops, reported with the parser's own message.
 		return nil, ValidationErrors{{Msg: err.Error()}}
 	}
-	if errs := validate(&cfg, md); len(errs) > 0 {
+	if errs := validate(&cfg, md, presentForeignTables(data)); len(errs) > 0 {
 		return nil, errs
 	}
 	return &cfg, nil
@@ -207,15 +207,21 @@ func checkVersion(data []byte) error {
 // validate enforces the JSON Schema's shape rules against a decoded config.
 // It uses the decode metadata rather than zero values so that a present-but-
 // empty key (`model = ""`) is distinguishable from an omitted one.
-func validate(cfg *Config, md toml.MetaData) ValidationErrors {
+func validate(cfg *Config, md toml.MetaData, foreign map[string]bool) ValidationErrors {
 	var errs ValidationErrors
 	add := func(path, msg string) { errs = append(errs, ValidationError{Path: path, Msg: msg}) }
 
 	// additionalProperties: false, everywhere at once. Undecoded() reports
 	// every key the structs above did not claim, which is exactly the set of
 	// unknown keys — role and tier names are decoded into maps and so never
-	// appear here.
-	for _, key := range undecodedKeys(md) {
+	// appear here. [tier_policy], when present as a TABLE, is filtered out
+	// first as ticfac's half of the runners-config split (contracts/runners-
+	// config-contract.json, `tables`): this repository will never own the
+	// semantics of a tier ladder, so a repository that declares its own is a
+	// legal file here, not a typo. The tolerance is keyed on shape, not on
+	// the bare name — `tier_policy = true` is a scalar squatting on the name,
+	// stays in the list, and is refused like any other typo'd key.
+	for _, key := range undecodedKeys(md, foreign) {
 		add(key, "unknown key (a typo'd key is an error, never silently ignored)")
 	}
 
@@ -613,14 +619,39 @@ func isKnownTier(name string) bool {
 	return false
 }
 
-func undecodedKeys(md toml.MetaData) []string {
+func undecodedKeys(md toml.MetaData, foreign map[string]bool) []string {
 	keys := md.Undecoded()
 	out := make([]string, 0, len(keys))
 	for _, k := range keys {
+		if len(k) > 0 && foreign[k[0]] {
+			continue
+		}
 		out = append(out, k.String())
 	}
 	sort.Strings(out)
 	return out
+}
+
+// presentForeignTables reports which of the split's foreign tables this
+// document actually carries as TABLES. The tolerance in [undecodedKeys] is
+// keyed on the answer, not on the bare name: `tier_policy = true` — a scalar
+// squatting on a foreign table's name — is not a foreign table, it is a
+// typo'd key, and it must be refused like any other (the same rule, mirrored,
+// that ticfac's reader applies to [signals] and [sweeps]).
+//
+// The name is probed by a one-field type rather than looked up in the
+// metadata, so the probe answers shape — only a value that DECODES as a table
+// counts. A probe that fails to decode simply contributes no entry, and its
+// keys are then reported as unknown, which is correct.
+func presentForeignTables(data []byte) map[string]bool {
+	var probe struct {
+		Table map[string]any `toml:"tier_policy"`
+	}
+	present := map[string]bool{}
+	if _, err := toml.Decode(string(data), &probe); err == nil && probe.Table != nil {
+		present["tier_policy"] = true
+	}
+	return present
 }
 
 // The patterns and enums a declared webhook source is held to. Mirrored in

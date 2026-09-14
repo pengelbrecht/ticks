@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://ticks.sh/contracts/job-protocol.json",
-  "schema_version": 1,
+  "schema_version": 2,
   "contract": "ticfac.job-protocol",
   "why": [
     "The record schemas for ticfac's four-operation executor protocol (SPEC §4.3), the",
@@ -25,9 +25,14 @@
     "keyword quietly dropped from a schema fails a build instead of widening the",
     "contract.",
     "",
-    "READERS (both must stay in this list):",
+    "READERS (all must stay in this list):",
     "  - internal/factory/jobprotocol/contract_test.go",
-    "  - cloud/factory/test/job-protocol.test.ts"
+    "  - cloud/factory/test/job-protocol.test.ts",
+    "  - the consumer's readers, in the ticfac repository (which pins this bundle by",
+    "    exact version and vendors its bytes): internal/contracts/parity/job_protocol_test.go,",
+    "    and the live validator internal/reconcile/roleresult.go, which validates every",
+    "    collected role-result envelope against the role_result schema embedded at build",
+    "    time."
   ],
   "versioning": {
     "rule": "Every record carries schema_version and a schema_id ending in .v<n>. The reconciler validates against the schema_id a record declares, never against 'the current one'.",
@@ -126,12 +131,12 @@
       "schema": { "$ref": "#/$defs/job_result" }
     },
     "role_result": {
-      "schema_id": "ticfac.role-result.v1",
-      "description": "The fixed envelope around every role job's structured output. `result` is the role-specific contract named by schema_id, which is what JobSpec.output_schema requested; the envelope around it never varies by role.",
+      "schema_id": "ticfac.role-result.v2",
+      "description": "The fixed envelope around every role job's structured output. `result` is the role-specific contract named by schema_id, which is what JobSpec.output_schema requested; the envelope around it never varies by role. Since 4.0.0 the envelope also carries the worker's typed FINDINGS (things discovered outside the tick) as a first-class field — see $defs.finding — where both readers validate the five closed fields, rather than trusting them from `result`'s open payload.",
       "schema": { "$ref": "#/$defs/role_result" }
     },
     "evidence": {
-      "schema_id": "ticfac.evidence.v1",
+      "schema_id": "ticfac.evidence.v2",
       "description": "A bounded, reproducible record that a configured command or review check ran against a named source ref and produced a result (SPEC §10.1). THE ONLY definition of the record in the bundle: contracts/ticfac-run-state.json places the file and pins how it is written, and references this schema_id rather than restating the shape. Its provenance fields are the shared $defs.provenance object every committed .ticfac/ record carries (SPEC §10.4). Every field is REQUIRED, nullable where it can be genuinely absent: a record that omits integration_ref and one that states it as null are different claims, and only the second is evidence.",
       "referenced_by": ["contracts/ticfac-run-state.json"],
       "schema": { "$ref": "#/$defs/evidence" }
@@ -485,11 +490,11 @@
     },
     "evidence_ref": {
       "type": "object",
-      "$comment": "How a JobResult and a RoleResult cite evidence: by the `key` of a ticfac.evidence.v1 record, which is also its filename under .ticfac/runs/<run-id>/evidence/. One identifier, so a citation can be resolved to the record it names instead of being trusted.",
+      "$comment": "How a JobResult and a RoleResult cite evidence: by the `key` of a ticfac.evidence.v2 record, which is also its filename under .ticfac/runs/<run-id>/evidence/. One identifier, so a citation can be resolved to the record it names instead of being trusted.",
       "required": ["key", "persistence_uri", "content_digest"],
       "additionalProperties": false,
       "properties": {
-        "key": { "type": "string", "description": "The `key` of the evidence record (ticfac.evidence.v1) this reference resolves to." },
+        "key": { "type": "string", "description": "The `key` of the evidence record (ticfac.evidence.v2) this reference resolves to." },
         "persistence_uri": { "type": "string" },
         "content_digest": { "$ref": "#/$defs/digest" }
       }
@@ -566,12 +571,36 @@
         "reason": { "type": "string" }
       }
     },
-    "role_result": {
+    "finding": {
       "type": "object",
-      "required": ["schema_version", "schema_id", "role", "status", "summary", "result"],
+      "$comment": "THE FINDINGS CHANNEL (4.0.0, from ticfac's tick 7vn). A worker that discovers something outside its tick reports it as a typed record in the findings block of its RESULT report; collect lifts it into the role-result envelope, and the reconciler drafts it on origin for a person to triage — the worker never writes the tracker. The five fields are exactly the ones ticfac's internal/exec/subprocess/findings.go validates (kind, title, body, severity, target), all REQUIRED empty included: 'no target' and 'target forgotten' must not look identical. `target` is an owner/name repository or empty (meaning the repository being run); the owner/name shape cannot be a schema keyword in the strict subset, so it stays the reader's check.",
+      "required": ["kind", "title", "body", "severity", "target"],
       "additionalProperties": false,
       "properties": {
-        "schema_version": { "type": "integer", "enum": [1] },
+        "kind": {
+          "type": "string",
+          "enum": ["proposed-tick", "upstream-tick", "contract", "defect"],
+          "$comment": "What the finding IS, never where it goes — `target` says where. proposed-tick: a tick this repository should carry. upstream-tick: a tick ANOTHER repository should carry (requires a target). contract: a pinned contract-bundle change. defect: a defect outside the discovering tick's scope."
+        },
+        "title": { "type": "string", "description": "A finding nobody can name is one nobody can triage; a blank title is refused by the reader." },
+        "body": { "type": "string", "description": "Free text, allowed to be empty. What to DO about it is triage's business, not the finding's." },
+        "severity": {
+          "type": "string",
+          "enum": ["low", "medium", "high"],
+          "$comment": "The worker's claim about how much it matters; triage acts on it and nobody sorts by an unvalidated claim."
+        },
+        "target": {
+          "type": "string",
+          "description": "The repository the finding belongs on, owner/name, or empty for the repository being run. An upstream-tick with an empty target is routed nowhere and is refused by the reader."
+        }
+      }
+    },
+    "role_result": {
+      "type": "object",
+      "required": ["schema_version", "schema_id", "role", "status", "summary", "result", "findings"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": { "type": "integer", "enum": [2] },
         "schema_id": {
           "type": "string",
           "description": "The role-specific contract `result` satisfies. Must equal the JobSpec.output_schema that asked for it."
@@ -582,6 +611,11 @@
         "result": {
           "type": "object",
           "description": "The role-specific payload. Open here because its shape is the role contract named by schema_id, which the reconciler validates separately; the ENVELOPE around it is what this record freezes."
+        },
+        "findings": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/finding" },
+          "$comment": "REQUIRED even when empty, so a report that carried no findings block and one whose block said nothing cannot look different in kind — the absence is stated. A block a reader could not parse is a problem the report carries, not an empty list."
         },
         "evidence": { "type": "array", "items": { "$ref": "#/$defs/evidence_ref" } },
         "decisions": { "type": "array", "items": { "$ref": "#/$defs/decision" } }
@@ -653,6 +687,7 @@
         "workspace_id",
         "backend",
         "role",
+        "tier",
         "profile_digest",
         "model",
         "context_manifest_digest"
@@ -682,6 +717,10 @@
           "anyOf": [{ "$ref": "#/$defs/role" }, { "type": "null" }],
           "description": "Null for a deterministic check with no LLM behind it — a test command is evidence too."
         },
+        "tier": {
+          "type": ["string", "null"],
+          "description": "The capability tier this dispatch was derived under — the rung of the runners-config [tier_policy] ladder that routed the model, earned by failure and bounded by the policy's ceiling (ticfac's tick 5eq). Null for a record no dispatch produced: a deterministic check, a run-level checkpoint. Required-and-null rather than omitted, because 'no tier was derived' and 'the tier was not recorded' are different claims — and an over-tiered run could not be audited from provenance alone until this field existed."
+        },
         "profile_digest": { "type": ["string", "null"] },
         "model": { "type": ["string", "null"] },
         "context_manifest_digest": { "type": ["string", "null"] }
@@ -706,7 +745,7 @@
       ],
       "additionalProperties": false,
       "properties": {
-        "schema_version": { "type": "integer", "enum": [1] },
+        "schema_version": { "type": "integer", "enum": [2] },
         "key": {
           "type": "string",
           "description": "The record's identity within its run, and its filename: .ticfac/runs/<run-id>/evidence/<key>.json (SPEC §10.4). A JobResult or a RoleResult cites evidence by this key — see evidence_ref."
@@ -906,12 +945,13 @@
             "commits": 2
           },
           "role_result": {
-            "schema_version": 1,
+            "schema_version": 2,
             "schema_id": "ticfac.job-result.implement-tick.v1",
             "role": "implement-tick",
             "status": "DONE",
             "summary": "Added the executor protocol schemas and both readers.",
             "result": { "files_changed": 5, "tests_added": ["internal/factory/jobprotocol/contract_test.go"] },
+            "findings": [],
             "evidence": [
               {
                 "key": "ev-run-42-abc-gate",
@@ -962,15 +1002,24 @@
       {
         "name": "a blocked implement-tick envelope",
         "record": "role_result",
-        "source": "SPEC §4.4 — 'every LLM call is a bounded job with a role-specific contract'",
-        "$comment": "BLOCKED is one of the four collect-vocabulary statuses. A worker can commit nothing and still return a well-formed envelope; the envelope is what the reconciler validates, the verdict is what it decides.",
+        "source": "SPEC §4.4 — 'every LLM call is a bounded job with a role-specific contract'; 4.0.0's findings channel (ticfac's tick 7vn)",
+        "$comment": "BLOCKED is one of the four collect-vocabulary statuses. A worker can commit nothing and still return a well-formed envelope; the envelope is what the reconciler validates, the verdict is what it decides. The findings list is the other half of the example: the BLOCKED worker discovered something OUTSIDE its tick and reports it as data rather than prose an orchestrator must read — a draft a person triages, never a tick the worker files. The other role_result goldens carry findings: [] so that 'no findings' is stated, never implied.",
         "document": {
-          "schema_version": 1,
+          "schema_version": 2,
           "schema_id": "ticfac.job-result.implement-tick.v1",
           "role": "implement-tick",
           "status": "BLOCKED",
           "summary": "The migration this tick depends on has not landed on the base ref.",
           "result": { "blocked_on": ["tick-mno"], "files_changed": 0 },
+          "findings": [
+            {
+              "kind": "proposed-tick",
+              "title": "Split the migration this tick blocks on into a tick of its own",
+              "body": "tick-mno's migration is not on the base ref and this attempt cannot proceed without it; the split is worth carrying whether this attempt lands or not.",
+              "severity": "medium",
+              "target": ""
+            }
+          ],
           "decisions": [
             {
               "question": "Stub the missing migration or stop?",
@@ -985,7 +1034,7 @@
         "record": "evidence",
         "source": "SPEC §10.1 — the minimal evidence record",
         "document": {
-          "schema_version": 1,
+          "schema_version": 2,
           "key": "ev-run-42-abc-gate",
           "provenance": {
             "run_id": "run-42",
@@ -999,6 +1048,7 @@
             "workspace_id": "ws_01H8XK",
             "backend": "container-shell",
             "role": null,
+            "tier": null,
             "profile_digest": null,
             "model": null,
             "context_manifest_digest": null
@@ -1025,9 +1075,9 @@
         "name": "a review-role check with no process, output spilled to an artifact",
         "record": "evidence",
         "source": "SPEC §10.1 — 'stdout/stderr or artifact URI (bounded and redacted)'; SPEC §6.3 — review-epic runs against the integrated EpicRun ref and is required",
-        "$comment": "exit_code is null because nothing ran; role/model/profile_digest are set because an LLM did. The mirror image of the gate above, and the reason each of those fields is nullable rather than optional. It is EPIC-level, and the three fields that say so are load-bearing: SPEC §6.3 puts review-epic at the epic boundary, running read-only against the integrated ref, so tick_id is null (it belongs to no single tick), source_ref IS the integration ref rather than an attempt branch, and acceptance is `required` — there is no implementation-role fallback for a required frontier review. An earlier cut of this example had all three the other way and was a review-epic record no §6.3 review could have produced.",
+        "$comment": "exit_code is null because nothing ran; role/model/profile_digest/tier are set because an LLM did — tier names the rung of the ladder that routed the model. The mirror image of the gate above, and the reason each of those fields is nullable rather than optional. It is EPIC-level, and the three fields that say so are load-bearing: SPEC §6.3 puts review-epic at the epic boundary, running read-only against the integrated ref, so tick_id is null (it belongs to no single tick), source_ref IS the integration ref rather than an attempt branch, and acceptance is `required` — there is no implementation-role fallback for a required frontier review. An earlier cut of this example had all three the other way and was a review-epic record no §6.3 review could have produced.",
         "document": {
-          "schema_version": 1,
+          "schema_version": 2,
           "key": "ev-run-42-review-692",
           "provenance": {
             "run_id": "run-42",
@@ -1041,6 +1091,7 @@
             "workspace_id": "ws_01H8XM",
             "backend": "worker-javascript",
             "role": "review-epic",
+            "tier": "strong",
             "profile_digest": "sha256:aa11bb22cc33dd44ee55ff6600112233445566778899aabbccddeeff00112233",
             "model": "claude-opus-5",
             "context_manifest_digest": "sha256:bb22cc33dd44ee55ff6600112233445566778899aabbccddeeff001122334455"
@@ -1310,7 +1361,7 @@
         "why": "THE VERDICT-INVERSION BUG collect-vocabulary.json was written to stop. A fifth spelling of 'done' makes a cloud run and a herd run disagree about what happened to the same tick, and nothing fails — the report just quietly means something else.",
         "expect_error_contains": "$.status: COMPLETE is not one of the permitted values",
         "document": {
-          "schema_version": 1,
+          "schema_version": 2,
           "schema_id": "ticfac.job-result.implement-tick.v1",
           "role": "implement-tick",
           "status": "COMPLETE",
@@ -1324,7 +1375,7 @@
         "why": "Evidence is 'a record that a check ran AGAINST A NAMED SOURCE REF' (SPEC §10.1). Without the sha it is a record that a check ran, which proves nothing about the tree anyone is about to merge.",
         "expect_error_contains": "$.provenance: missing required property \"source_sha\"",
         "document": {
-          "schema_version": 1,
+          "schema_version": 2,
           "key": "ev-run-42-abc-gate",
           "provenance": {
             "run_id": "run-42",
@@ -1337,6 +1388,7 @@
             "workspace_id": "ws_01H8XK",
             "backend": "container-shell",
             "role": null,
+            "tier": null,
             "profile_digest": null,
             "model": null,
             "context_manifest_digest": null
@@ -1358,7 +1410,7 @@
         "why": "SPEC §10.1 requires output be bounded AND redacted. Both flags are required so an old record cannot be silent about the two questions its reader always has; silence here is how a token reaches an artifact store.",
         "expect_error_contains": "$.output: value matches none of the anyOf alternatives",
         "document": {
-          "schema_version": 1,
+          "schema_version": 2,
           "key": "ev-run-42-abc-gate",
           "provenance": {
             "run_id": "run-42",
@@ -1372,6 +1424,7 @@
             "workspace_id": "ws_01H8XK",
             "backend": "container-shell",
             "role": null,
+            "tier": null,
             "profile_digest": null,
             "model": null,
             "context_manifest_digest": null
@@ -1393,7 +1446,7 @@
         "why": "The phase is what makes a record reproducible — the same command against the same ref at a different phase answers a different question. An unknown phase silently joins no gate and blocks no closure.",
         "expect_error_contains": "$.provenance.phase: smoke is not one of the permitted values",
         "document": {
-          "schema_version": 1,
+          "schema_version": 2,
           "key": "ev-run-42-abc-smoke",
           "provenance": {
             "run_id": "run-42",
@@ -1407,6 +1460,7 @@
             "workspace_id": null,
             "backend": null,
             "role": null,
+            "tier": null,
             "profile_digest": null,
             "model": null,
             "context_manifest_digest": null
@@ -1460,6 +1514,42 @@
         "why": "The other half of the same reconciliation: the run-state golden example said acceptance was \"accepted\", which is a RESULT dressed as an acceptance. Acceptance says whether the record gates closure (required) or merely informs it (advisory); whether it passed is `result`. Two vocabularies for one field is how a gate stops gating without anything failing.",
         "expect_error_contains": "$.acceptance: accepted is not one of the permitted values",
         "document": {
+          "schema_version": 2,
+          "key": "ev-run-42-abc-gate",
+          "provenance": {
+            "run_id": "run-42",
+            "tick_id": null,
+            "attempt": 1,
+            "source_ref": "refs/heads/ticfac/run-42/epic-692/integration",
+            "source_sha": "b204d17",
+            "integration_ref": "refs/heads/ticfac/run-42/epic-692/integration",
+            "phase": "integrated",
+            "executor": "cloudflare-computer",
+            "workspace_id": "ws_01H8XK",
+            "backend": "container-shell",
+            "role": null,
+            "tier": null,
+            "profile_digest": null,
+            "model": null,
+            "context_manifest_digest": null
+          },
+          "check": { "id": "go-test", "kind": "command", "command": ["go", "test", "./..."] },
+          "started_at": "2026-09-02T10:11:00Z",
+          "finished_at": "2026-09-02T10:14:37Z",
+          "exit_code": 0,
+          "output": { "mode": "inline", "stdout": "ok\n", "stderr": "", "truncated": false, "redacted": true, "max_bytes": 65536 },
+          "result": "pass",
+          "acceptance": "accepted",
+          "content_digest": "sha256:5c1d0e77aa2b41c9f0a6b8d3e274915f8c0b6a4d3e2f1908c7b6a5d4e3f21098",
+          "persistence_uri": "r2://ticfac/runs/run-42/evidence/ev-run-42-abc-gate.json"
+        }
+      },
+      {
+        "name": "the evidence record bundle 3.0.0 shipped",
+        "record": "evidence",
+        "why": "THE REGRESSION CONTROL FOR THE 4.0.0 BUMP. 3.0.0's provenance had fourteen fields and could not say which tier routed the model, so an over-tiered run could not be audited from provenance alone. The closed-records rule makes the bump a NEW schema_version, so the old record is refused by name rather than half-validated — a record whose provenance omits tier is not an older evidence record that still counts.",
+        "expect_error_contains": "$.schema_version: 1 is not one of the permitted values",
+        "document": {
           "schema_version": 1,
           "key": "ev-run-42-abc-gate",
           "provenance": {
@@ -1484,9 +1574,105 @@
           "exit_code": 0,
           "output": { "mode": "inline", "stdout": "ok\n", "stderr": "", "truncated": false, "redacted": true, "max_bytes": 65536 },
           "result": "pass",
-          "acceptance": "accepted",
+          "acceptance": "required",
           "content_digest": "sha256:5c1d0e77aa2b41c9f0a6b8d3e274915f8c0b6a4d3e2f1908c7b6a5d4e3f21098",
           "persistence_uri": "r2://ticfac/runs/run-42/evidence/ev-run-42-abc-gate.json"
+        }
+      },
+      {
+        "name": "provenance that never says whether a tier was derived",
+        "record": "evidence",
+        "why": "tier is REQUIRED-and-nullable like every provenance field: 'no tier was derived' (a deterministic check) and 'the tier was not recorded' are different claims, and only the first is evidence. Omitting the field is how a pre-4.0.0 record would silently pass as current, which is what the closed-records rule exists to prevent.",
+        "expect_error_contains": "$.provenance: missing required property \"tier\"",
+        "document": {
+          "schema_version": 2,
+          "key": "ev-run-42-abc-gate",
+          "provenance": {
+            "run_id": "run-42",
+            "tick_id": null,
+            "attempt": 1,
+            "source_ref": "refs/heads/ticfac/run-42/epic-692/integration",
+            "source_sha": "b204d17",
+            "integration_ref": "refs/heads/ticfac/run-42/epic-692/integration",
+            "phase": "integrated",
+            "executor": "cloudflare-computer",
+            "workspace_id": "ws_01H8XK",
+            "backend": "container-shell",
+            "role": null,
+            "profile_digest": null,
+            "model": null,
+            "context_manifest_digest": null
+          },
+          "check": { "id": "go-test", "kind": "command", "command": ["go", "test", "./..."] },
+          "started_at": "2026-09-02T10:11:00Z",
+          "finished_at": "2026-09-02T10:14:37Z",
+          "exit_code": 0,
+          "output": { "mode": "inline", "stdout": "ok\n", "stderr": "", "truncated": false, "redacted": true, "max_bytes": 65536 },
+          "result": "pass",
+          "acceptance": "required",
+          "content_digest": "sha256:5c1d0e77aa2b41c9f0a6b8d3e274915f8c0b6a4d3e2f1908c7b6a5d4e3f21098",
+          "persistence_uri": "r2://ticfac/runs/run-42/evidence/ev-run-42-abc-gate.json"
+        }
+      },
+      {
+        "name": "a role-result envelope from the previous major",
+        "record": "role_result",
+        "why": "The closed-records rule, made executable for the 4.0.0 bump: adding findings (and tier, through provenance) is a NEW schema_version, not a compatible extension, so a 3.0.0 envelope is refused by name. A reader that still admitted it would accept an envelope whose findings ride in the open payload — the exact state the bump retires.",
+        "expect_error_contains": "$.schema_version: 1 is not one of the permitted values",
+        "document": {
+          "schema_version": 1,
+          "schema_id": "ticfac.job-result.implement-tick.v1",
+          "role": "implement-tick",
+          "status": "DONE",
+          "summary": "Landed, findings riding in result.",
+          "result": { "findings": [] }
+        }
+      },
+      {
+        "name": "a finding of a kind nobody declared",
+        "record": "role_result",
+        "why": "The kind is a closed vocabulary for the same reason status is: a fifth spelling would make a worker's report mean something the reconciler drafts differently, and nothing would fail — the report would just quietly route nowhere. 'bug-report' is not a kind; a defect outside the tick's scope is a 'defect'.",
+        "expect_error_contains": "$.findings[0].kind: bug-report is not one of the permitted values",
+        "document": {
+          "schema_version": 2,
+          "schema_id": "ticfac.job-result.implement-tick.v1",
+          "role": "implement-tick",
+          "status": "DONE",
+          "summary": "Landed, and reported a defect outside the tick.",
+          "result": { "files_changed": 3 },
+          "findings": [
+            {
+              "kind": "bug-report",
+              "title": "The gate reader double-closes the manifest",
+              "body": "Observed in a sibling tick's gate run; not caused by this tick's change.",
+              "severity": "low",
+              "target": ""
+            }
+          ]
+        }
+      },
+      {
+        "name": "a finding with a field of its own invention",
+        "record": "role_result",
+        "why": "findings are CLOSED like every record in this protocol: a field one side invents and the other ignores is the bug the closed-records rule exists for. An 'assignee' a worker self-serves into the record is a triage decision smuggled in as data — routing a finding is a person's attributed decision, never a field the reporting side sets.",
+        "expect_error_contains": "$.findings[0]: unexpected property \"assignee\"",
+        "document": {
+          "schema_version": 2,
+          "schema_id": "ticfac.job-result.implement-tick.v1",
+          "role": "implement-tick",
+          "status": "DONE",
+          "summary": "Landed, and reported a defect outside the tick.",
+          "result": { "files_changed": 3 },
+          "findings": [
+            {
+              "kind": "defect",
+              "title": "The gate reader double-closes the manifest",
+              "body": "Observed in a sibling tick's gate run; not caused by this tick's change.",
+              "severity": "low",
+              "target": "",
+              "assignee": "worker@example.com"
+            }
+          ]
         }
       }
     ]

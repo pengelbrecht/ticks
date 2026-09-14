@@ -111,7 +111,7 @@ the implementations disagreeing.
 | `collect-vocabulary.json` | the collect verdict/status vocabulary and the status-line parse cases | `internal/herd/collect/contract_test.go`, `internal/cloud/collect/contract_test.go` |
 | `tk-json-manifest.json` | the published `tk --json` command surface: every command a consumer may call, its argv, its output schema, and the contract version this build serves | `cmd/tk/cmd/tk_json_contract_test.go`, `internal/tkcontract` |
 | `credential-ownership.json` | which product owns each credential type, the `~/.ticfacrc` key set and its redacted example, and the stop/cost/security lifecycle rules | `internal/factory/credentials/contract_test.go` |
-| `job-protocol.json` | the versioned record schemas for the four-operation executor protocol (JobSpec, JobHandle, JobStatus, cancel acknowledgement, JobResult), the role-result envelope and **the bundle's one evidence record** (`ticfac.evidence.v1`, referenced by `ticfac-run-state.json`), with the golden documents each admits and the negative documents each must refuse | `internal/factory/jobprotocol/contract_test.go`, `internal/factory/jobprotocol/evidence_cross_contract_test.go` |
+| `job-protocol.json` | the versioned record schemas for the four-operation executor protocol (JobSpec, JobHandle, JobStatus, cancel acknowledgement, JobResult), the role-result envelope and **the bundle's one evidence record** (`ticfac.evidence.v2`, referenced by `ticfac-run-state.json`), with the golden documents each admits and the negative documents each must refuse | `internal/factory/jobprotocol/contract_test.go`, `internal/factory/jobprotocol/evidence_cross_contract_test.go` |
 | `ticfac-run-state.json` | the `.ticfac/` layout, the persistence policy (durable means pushed on origin) and the compare-and-swap rules, with record schemas, a reference to the evidence record it places but does not define, golden and negative examples, the `.gitignore` fragment and executable CAS sequences | `internal/factory/runstate/contract_test.go`, `internal/factory/runstate/cas_fake_test.go`, `internal/factory/runstate/evidence_cross_contract_test.go` |
 | `lifecycle-invariants.json` | SPEC Appendix A's thirteen lifecycle invariants as a conformance suite: each invariant's statement, the live failure that earned it, the symbols it lives in today, and executable sequences against a fake reconciler/executor harness with a named guard per rule | `internal/factory/lifecycle` (`invariants_test.go`, `harness_test.go`, `contract_test.go`) |
 
@@ -127,6 +127,15 @@ copies of a parity fixture is the one arrangement guaranteed to defeat it: a
 one-sided edit then passes both suites. `cloud/factory/CONTRACTS.md` records how
 the factory keeps reaching these files once it is extracted into its own
 repository, which is the only reason a copy will ever exist again.
+
+A second consumer reached that point: the **ticfac** repository pins this
+bundle by exact version (`contracts.pin.json`, byte-verified on every test run
+against a pinned ticks commit), and its readers — `internal/contracts/parity`,
+the live role-result validator `internal/reconcile/roleresult.go`, and
+`internal/runconfig` for the runners-config split — run the same fixtures
+through their own implementations. `job-protocol.json`, `ticfac-run-state.json`,
+`runners-config-contract.json` and `lifecycle-invariants.json` name those
+readers where they exist.
 
 ### `job-protocol.json` carries schemas, and is still not `schemas/`
 
@@ -232,7 +241,7 @@ for both jobs.
 
 Two smaller things worth knowing. The evidence record's own fields are **not**
 pinned here and no longer have a second schema here either: `references.evidence`
-names `job-protocol.json`'s `records.evidence` (`ticfac.evidence.v1`) by
+names `job-protocol.json`'s `records.evidence` (`ticfac.evidence.v2`) by
 schema_id, and this contract pins the path, the guard and the envelope. One
 contract owns where an evidence file goes and how it is written, the other owns
 what is in it.

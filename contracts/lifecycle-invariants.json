@@ -168,7 +168,7 @@
         "contract": "ticfac.job-protocol",
         "file": "job-protocol.json",
         "pointer": "#/$defs/provenance",
-        "schema_id": "ticfac.evidence.v1"
+        "schema_id": "ticfac.evidence.v2"
       },
       "fields": [
         { "appendix_a": "source SHA", "provenance_field": "source_sha" },

@@ -23,7 +23,7 @@
     "run on both sides against an in-memory git fake, and a fake that disagrees",
     "with the fixture is a reconciler that would disagree with git."
   ],
-  "schema_version": 1,
+  "schema_version": 2,
   "contract": "ticfac.run_state",
   "spec": "docs/projects/2026-09-01-ticfac-architecture/SPEC.md",
   "spec_sections": ["4.2", "10.1", "10.4", "12 Phase 0 step 6"],
@@ -61,7 +61,7 @@
         "path": ".ticfac/runs/<run-id>/evidence/<key>.json",
         "record": "evidence",
         "record_defined_in": "job-protocol.json",
-        "schema_id": "ticfac.evidence.v1",
+        "schema_id": "ticfac.evidence.v2",
         "committed": true,
         "cardinality": "one per evidence key",
         "cas": "create_if_absent",
@@ -187,7 +187,7 @@
     "evidence": {
       "record": "evidence",
       "why": "A record this contract PLACES but does not DEFINE. Bundle 1.2.0 defined the evidence record twice — flat and closed there, nested and open here — and no document could satisfy both; neither suite saw it, because each validated its own examples against its own schema. There is now one definition, and this is the pointer to it.",
-      "schema_id": "ticfac.evidence.v1",
+      "schema_id": "ticfac.evidence.v2",
       "contract": "ticfac.job-protocol",
       "file": "job-protocol.json",
       "pointer": "#/records/evidence",
@@ -212,6 +212,7 @@
         "workspace_id",
         "backend",
         "role",
+        "tier",
         "profile_digest",
         "model",
         "context_manifest_digest"
@@ -240,6 +241,10 @@
         "role": {
           "anyOf": [{ "$ref": "#/$defs/role" }, { "type": "null" }],
           "description": "Null for a deterministic check with no LLM behind it — a test command is evidence too."
+        },
+        "tier": {
+          "type": ["string", "null"],
+          "description": "The capability tier this dispatch was derived under — the rung of the runners-config [tier_policy] ladder that routed the model, earned by failure and bounded by the policy's ceiling (ticfac's tick 5eq). Null for a record no dispatch produced: a deterministic check, a run-level checkpoint. Required-and-null rather than omitted, because 'no tier was derived' and 'the tier was not recorded' are different claims — and an over-tiered run could not be audited from provenance alone until this field existed."
         },
         "profile_digest": { "type": ["string", "null"] },
         "model": { "type": ["string", "null"] },
@@ -366,7 +371,7 @@
 
   "golden": {
     "checkpoint": {
-      "schema_version": 1,
+      "schema_version": 2,
       "run_id": "r-2f9c",
       "epic_id": "692",
       "sequence": 7,
@@ -391,13 +396,14 @@
         "workspace_id": null,
         "backend": null,
         "role": null,
+        "tier": null,
         "profile_digest": null,
         "model": null,
         "context_manifest_digest": null
       }
     },
     "attempt": {
-      "schema_version": 1,
+      "schema_version": 2,
       "attempt": 2,
       "tick_id": "mrq",
       "dispatched_at": "2026-09-02T09:41:02Z",
@@ -418,13 +424,14 @@
         "workspace_id": "wt-mrq-2",
         "backend": "subprocess",
         "role": "implement-tick",
+        "tier": "strong",
         "profile_digest": "sha256:3f1c0a",
         "model": "claude-opus-5",
         "context_manifest_digest": "sha256:9b22de"
       }
     },
     "decision": {
-      "schema_version": 1,
+      "schema_version": 2,
       "decision": 1,
       "role": "review-epic",
       "request": {
@@ -452,13 +459,14 @@
         "workspace_id": null,
         "backend": null,
         "role": "review-epic",
+        "tier": "strong",
         "profile_digest": "sha256:3f1c0a",
         "model": "claude-opus-5",
         "context_manifest_digest": "sha256:71aa04"
       }
     },
     "evidence": {
-      "schema_version": 1,
+      "schema_version": 2,
       "key": "gate-integrated-go-test",
       "provenance": {
         "run_id": "r-2f9c",
@@ -472,6 +480,7 @@
         "workspace_id": "wt-gate-1",
         "backend": "subprocess",
         "role": null,
+        "tier": null,
         "profile_digest": null,
         "model": null,
         "context_manifest_digest": null
@@ -500,7 +509,7 @@
       "why": "no provenance — SPEC 10.4 requires it on every committed file, and a checkpoint that does not name the source sha it reconciled cannot be replayed",
       "expect_error_contains": "$: missing required property \"provenance\"",
       "document": {
-        "schema_version": 1,
+        "schema_version": 2,
         "run_id": "r-2f9c",
         "epic_id": "692",
         "sequence": 1,
@@ -514,7 +523,7 @@
       "why": "a state nobody agreed to: 'in_flight' is not in the enum, and a state meaning 'in flight' that no other reconciler can settle is the exact failure this vocabulary is closed to prevent",
       "expect_error_contains": "$.state: in_flight is not one of the permitted values",
       "document": {
-        "schema_version": 1,
+        "schema_version": 2,
         "run_id": "r-2f9c",
         "epic_id": "692",
         "sequence": 2,
@@ -533,6 +542,7 @@
           "workspace_id": null,
           "backend": null,
           "role": null,
+          "tier": null,
           "profile_digest": null,
           "model": null,
           "context_manifest_digest": null
@@ -544,7 +554,7 @@
       "why": "no job_handle — the marker proves a dispatch happened, and without the handle nothing can inspect, cancel or collect the job it started",
       "expect_error_contains": "$: missing required property \"job_handle\"",
       "document": {
-        "schema_version": 1,
+        "schema_version": 2,
         "attempt": 1,
         "tick_id": "mrq",
         "dispatched_at": "2026-09-02T09:41:02Z",
@@ -560,6 +570,7 @@
           "workspace_id": "wt-mrq-1",
           "backend": "subprocess",
           "role": "implement-tick",
+          "tier": "strong",
           "profile_digest": null,
           "model": null,
           "context_manifest_digest": null
@@ -571,7 +582,7 @@
       "why": "attempt is a string — <n> in the path is a number and a record whose attempt is \"2\" cannot be compared to one whose attempt is 2",
       "expect_error_contains": "$.attempt: expected type integer, got string",
       "document": {
-        "schema_version": 1,
+        "schema_version": 2,
         "attempt": "2",
         "tick_id": "mrq",
         "dispatched_at": "2026-09-02T09:41:02Z",
@@ -588,6 +599,7 @@
           "workspace_id": "wt-mrq-1",
           "backend": "subprocess",
           "role": "implement-tick",
+          "tier": "strong",
           "profile_digest": null,
           "model": null,
           "context_manifest_digest": null
@@ -599,7 +611,7 @@
       "why": "no validated flag — an unvalidated model response landing as a decision is how a hallucinated wave gets dispatched",
       "expect_error_contains": "$: missing required property \"validated\"",
       "document": {
-        "schema_version": 1,
+        "schema_version": 2,
         "decision": 1,
         "role": "frontier_review",
         "request": { "question": "ready?" },
@@ -618,6 +630,7 @@
           "workspace_id": null,
           "backend": null,
           "role": "review-epic",
+          "tier": "strong",
           "profile_digest": null,
           "model": null,
           "context_manifest_digest": null
@@ -626,11 +639,11 @@
     },
     {
       "record": "evidence",
-      "validated_against": "ticfac.evidence.v1",
+      "validated_against": "ticfac.evidence.v2",
       "why": "provenance without integration_ref — evidence that does not name the ref it was produced against proves nothing about the ref being gated. Refused by the referenced definition (references.evidence), not by a second schema kept here.",
       "expect_error_contains": "$.provenance: missing required property \"integration_ref\"",
       "document": {
-        "schema_version": 1,
+        "schema_version": 2,
         "key": "gate-integrated-go-test",
         "provenance": {
           "run_id": "r-2f9c",
@@ -643,6 +656,7 @@
           "workspace_id": "wt-gate-1",
           "backend": "subprocess",
           "role": null,
+          "tier": null,
           "profile_digest": null,
           "model": null,
           "context_manifest_digest": null
@@ -660,7 +674,7 @@
     },
     {
       "record": "evidence",
-      "validated_against": "ticfac.evidence.v1",
+      "validated_against": "ticfac.evidence.v2",
       "why": "THE DOCUMENT BUNDLE 1.2.0 SHIPPED AS THIS CONTRACT'S GOLDEN EVIDENCE EXAMPLE. It carried a bare `command` string, an `output_uri`, no `check` and an acceptance of \"accepted\", and it validated here because this contract's envelope was open past schema_version, key and provenance — while job-protocol.json's records.evidence refused it 22 ways. Kept as the negative control for the reconciliation: the open envelope is gone, and the shape that only ever validated against half the bundle is now refused by the half that defines the record.",
       "expect_error_contains": "$: unexpected property \"command\"",
       "document": {
@@ -683,6 +697,36 @@
           "executor": "local-subprocess",
           "workspace_id": "wt-gate-1",
           "backend": "subprocess"
+        }
+      }
+    },
+    {
+      "record": "checkpoint",
+      "why": "THE DOCUMENT BUNDLE 3.0.0 SHIPPED, AS THE RUN-STATE GOLDEN OF ITS DAY. Its provenance is the fourteen-field object 3.0.0 defined; 4.0.0 adds tier, required-and-null, so the older record is refused for the one field it cannot state rather than half-validated. That is the whole reason the bump is a MAJOR: a closed record's shape moved, and an unchanged consumer is now wrong.",
+      "expect_error_contains": "$.provenance: missing required property \"tier\"",
+      "document": {
+        "schema_version": 1,
+        "run_id": "r-2f9c",
+        "epic_id": "692",
+        "sequence": 7,
+        "state": "gating",
+        "reason": "wave 1 fan-in complete: 4 of 4 ticks reported",
+        "updated_at": "2026-09-02T10:14:33Z",
+        "provenance": {
+          "run_id": "r-2f9c",
+          "tick_id": null,
+          "attempt": null,
+          "source_ref": "refs/heads/main",
+          "source_sha": "acb08b9493dd8647918efbebac27079c64339946",
+          "integration_ref": "refs/heads/epic/692",
+          "phase": "post-wave",
+          "executor": null,
+          "workspace_id": null,
+          "backend": null,
+          "role": null,
+          "profile_digest": null,
+          "model": null,
+          "context_manifest_digest": null
         }
       }
     }
