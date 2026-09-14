@@ -2,10 +2,10 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 47,
-  "state": "publishing",
-  "reason": "closing 3r2 behind the integrated gate on c9383a5394b7",
-  "updated_at": "2026-09-14T20:41:48Z",
+  "sequence": 48,
+  "state": "running",
+  "reason": "3r2 is closed",
+  "updated_at": "2026-09-14T20:42:07Z",
   "ticks": [
     {
       "tick_id": "azq",
@@ -19,7 +19,7 @@
     },
     {
       "tick_id": "3r2",
-      "state": "integrated",
+      "state": "closed",
       "attempt": 6
     },
     {
