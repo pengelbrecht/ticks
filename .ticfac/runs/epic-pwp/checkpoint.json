@@ -2,10 +2,10 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 52,
-  "state": "failed",
-  "reason": "gms did not pass: the run stopped rather than integrating over an unproven change. Running the epic again under this run id resumes it — a rejected attempt that left nothing is redispatched, a gate that FAILED runs again once the check or the tree is fixed (its evidence is keyed by the commit it ran on, so a fixed tree is a different commit and a new record), an attempt that was rejected holding commits nothing merged is reported rather than dispatched over, and nothing that already passed is redone",
-  "updated_at": "2026-09-14T20:56:37Z",
+  "sequence": 53,
+  "state": "admitted",
+  "reason": "the epic graph is read and the run is admitted",
+  "updated_at": "2026-09-14T20:57:12Z",
   "ticks": [
     {
       "tick_id": "azq",
@@ -51,7 +51,7 @@
     "tick_id": null,
     "attempt": null,
     "source_ref": "refs/heads/epic/pwp",
-    "source_sha": "7c27648571aeac3a51b0c51b5801f2faa30309a0",
+    "source_sha": "81a527c81fef6c1f3ba54d6eccdce1918bbc8886",
     "integration_ref": "refs/heads/epic/pwp",
     "phase": "worker",
     "executor": null,
