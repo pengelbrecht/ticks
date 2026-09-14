@@ -14,8 +14,7 @@ import (
 	cloudcollect "github.com/pengelbrecht/ticks/internal/cloud/collect"
 	cloudlease "github.com/pengelbrecht/ticks/internal/cloud/lease"
 	cloudstate "github.com/pengelbrecht/ticks/internal/cloud/state"
-	"github.com/pengelbrecht/ticks/internal/factory"
-	"github.com/pengelbrecht/ticks/internal/factory/credentials"
+	"github.com/pengelbrecht/ticks/internal/cloudcredentials"
 )
 
 // The `tk cloud` dispatch verb family: spawn, wait, collect, reconcile (D19).
@@ -129,12 +128,12 @@ func cloudArbiter(ctx context.Context) (cloudlease.Arbiter, *cloudClient, string
 // cloudFactoryConfigured reports whether ~/.ticfacrc names a factory at all. It
 // reads the file and nothing else: the answer must not cost a request.
 func cloudFactoryConfigured() bool {
-	config, err := factory.LoadCredentials()
+	config, err := cloudcredentials.Load()
 	if err != nil {
 		return false
 	}
-	return strings.TrimSpace(config.Get(credentials.KeyURL)) != "" &&
-		strings.TrimSpace(config.Get(credentials.KeyToken)) != ""
+	return strings.TrimSpace(config.Get(cloudcredentials.KeyURL)) != "" &&
+		strings.TrimSpace(config.Get(cloudcredentials.KeyToken)) != ""
 }
 
 func cloudProjectEnrolled(ctx context.Context, client *cloudClient, project string) (bool, error) {

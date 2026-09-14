@@ -423,32 +423,14 @@ func TestARejectedCredentialIsReportedAsARejectedCredential(t *testing.T) {
 }
 
 // The two ends of this contract are written in different languages and neither
-// imports the other: the door is TypeScript in cloud/factory/src, the container
+// imports the other: the door is TypeScript in the factory's own repo
+// (ticfac, since tick 3r2 — formerly cloud/factory/src here), the container
 // is bash in cloud/sandbox. `.tick/learnings.md` already has the rule — a
-// constant crossing that boundary needs a test that reads both sides — and this
-// one had no test at all, which is how a door that parsed Basic without ever
-// asking for it shipped.
-func TestTheDoorAndTheContainerAgreeAboutTheChallenge(t *testing.T) {
-	dir, err := Dir()
-	if err != nil {
-		t.Fatalf("locating cloud/sandbox: %v", err)
-	}
-	door, err := os.ReadFile(filepath.Join(filepath.Dir(dir), "factory", "src", "credentials.ts"))
-	if err != nil {
-		t.Fatalf("reading the door: %v", err)
-	}
-	for _, want := range []string{
-		// The scheme must be Basic: it is the only one git's credential helper
-		// can answer with a username and a password.
-		`GIT_AUTH_CHALLENGE = 'Basic `,
-		// And it must actually be attached to the 401, not merely declared.
-		`"WWW-Authenticate": GIT_AUTH_CHALLENGE`,
-	} {
-		if !strings.Contains(string(door), want) {
-			t.Errorf("cloud/factory/src/credentials.ts no longer contains %q — a 401 without a Basic challenge is a clone a read-only run cannot make", want)
-		}
-	}
-
+// constant crossing a repo boundary needs a test that reads both sides — but
+// with the door's half no longer checked out here, this repo can only assert
+// its own half: the container still looks for the challenge it expects the
+// door to send. The door's half of this contract is ticfac's to keep proving.
+func TestTheContainerStillLooksForTheAuthChallenge(t *testing.T) {
 	common, err := Path(CommonScript)
 	if err != nil {
 		t.Fatalf("locating %s: %v", CommonScript, err)

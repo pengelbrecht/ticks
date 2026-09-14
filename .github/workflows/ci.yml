@@ -49,11 +49,13 @@ jobs:
       # fails a build: internal/contracts re-hashes contracts/ against the
       # manifest and refuses a version re-cut with different bytes, and every
       # contract/parity test below executes the behavioural fixtures
-      # themselves. Go never reads cloud/factory/contracts.pin.json — the pin
-      # is the CONSUMER's statement and only the TypeScript half checks it,
-      # which is the whole point of there being two halves. That half runs in
-      # the `factory` and `ticks-runner` jobs against the SAME files
-      # (contracts/README.md).
+      # themselves. Go never reads a consumer's own contracts pin — the pin is
+      # the CONSUMER's statement and only the consumer checks it, which is the
+      # whole point of there being two halves. That half runs in the
+      # `ticks-runner` job and in ticfac's own CI, against the SAME files
+      # (contracts/README.md). The factory's own pin check ran in this repo's
+      # `factory` job until the factory command surface and its cloud/factory
+      # worker moved to ticfac (tick 3r2); that job moved with them.
       #
       # Every Go package with a reader of contracts/ belongs in this list. A
       # reader missing from it still runs in the full `Test` step below, but
@@ -63,10 +65,6 @@ jobs:
           go test -short \
             ./internal/contracts/... \
             ./internal/tkcontract/... \
-            ./internal/factory/credentials/... \
-            ./internal/factory/jobprotocol/... \
-            ./internal/factory/runstate/... \
-            ./internal/factory/lifecycle/... \
             ./internal/runnersconfig/... \
             ./internal/herd/collect/... \
             ./internal/cloud/collect/... \
@@ -137,9 +135,10 @@ jobs:
               - '.github/workflows/ci.yml'
 
   # The orchestrator sandbox image. Build only, never push: the operator pushes
-  # it into their own registry at `tk factory deploy` cadence (D16). This job
-  # exists because "the image builds" is the one thing the Go tests cannot
-  # prove — they check pin discipline and run the scripts, not docker.
+  # it into their own registry at `ticfac factory deploy` cadence (D16, moved
+  # from `tk factory deploy` at tick 3r2). This job exists because "the image
+  # builds" is the one thing the Go tests cannot prove — they check pin
+  # discipline and run the scripts, not docker.
   sandbox:
     needs: changes
     if: needs.changes.outputs.sandbox == 'true'
@@ -157,7 +156,7 @@ jobs:
         # required-tk-commands against the tk it just built — so any PR that
         # adds a subcommand the entrypoint needs cannot build against a release
         # that predates it, and this job would fail until the next release cut.
-        # Pinning the commit under test is also what `tk factory deploy` does.
+        # Pinning the commit under test is also what `ticfac factory deploy` does.
         # The commit must be PUSHED — `go install` inside the image resolves it
         # through the module proxy, which fetches public commits on demand.
         run: cloud/sandbox/build.sh --tk-ref "$TK_REF"
@@ -214,58 +213,7 @@ jobs:
       - name: Test
         run: node --test --no-warnings extensions/ticks-runner/*.test.ts
 
-  factory:
-    runs-on: ubuntu-latest
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-    defaults:
-      run:
-        working-directory: cloud/factory
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          # packageManager lives in the nested UI package.json, not the repo root
-          package_json_file: internal/tickboard/ui/package.json
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: cloud/factory/pnpm-lock.yaml
-
-      - name: Install
-        run: pnpm install --frozen-lockfile
-
-      # The factory's vitest suite imports the cross-language contracts from
-      # the repository root. This asserts, offline, that every contract a test
-      # imports is pinned in contracts.pin.json and present — and, once the
-      # factory is extracted and the pin flips to "pinned" mode, that the
-      # vendored copy still hashes to what ticks published.
-      #
-      # A separate step so a contracts problem is named as one in the CI log
-      # rather than surfacing as a module-resolution error inside vitest.
-      # `pnpm test` and `pnpm typecheck` chain the same check, so this cannot
-      # be the only place it runs.
-      - name: Verify the contracts pin
-        run: pnpm contracts:check
-
-      # The negative controls: each deliberately breaks the bundle in a
-      # throwaway copy and asserts the check refuses it. Mirrors
-      # internal/contracts/bundle_test.go. Without these, `contracts:check`
-      # passing proves only that it ran — not that it can fail.
-      #
-      # Plain `node --test`, not vitest: the factory suite executes inside
-      # workerd, which has no filesystem to build a broken bundle in.
-      - name: Prove the contracts check fails on a broken bundle
-        run: pnpm contracts:test
-
-      - name: Typecheck
-        run: pnpm typecheck
-
-      - name: Test
-        run: pnpm test
+  # The `factory` job (cloud/factory's vitest suite, its contracts-pin checks,
+  # typecheck) left with the factory command surface and its Worker (tick
+  # 3r2, to ticfac). That job, and the contracts-pin verification it ran, is
+  # ticfac's own CI to keep now.

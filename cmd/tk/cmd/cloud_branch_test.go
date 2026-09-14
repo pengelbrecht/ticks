@@ -4,8 +4,6 @@ import (
 	"net/http"
 	"strings"
 	"testing"
-
-	"github.com/pengelbrecht/ticks/internal/factory"
 )
 
 // Tick t4y.
@@ -130,42 +128,8 @@ func TestCloudBranchWithoutAFactoryCredentialSaysWhatThatCosts(t *testing.T) {
 	}
 }
 
-// The record must not depend on an agent choosing to write it. Both sandbox
-// entrypoints create a branch, and both have to record the one they created —
-// `.tick/learnings.md`, tick dxk: a boundary the substrate can enforce must
-// not rest on instruction-following.
-func TestSandboxScriptsRecordTheBranchesTheyCreate(t *testing.T) {
-	for _, name := range []string{"entrypoint.sh", "worker.sh"} {
-		data, err := factory.ReadSandboxFile(name)
-		if err != nil {
-			t.Fatalf("reading %s: %v", name, err)
-		}
-		if !strings.Contains(string(data), "record_branch \"$") {
-			t.Errorf("%s creates a branch and never records it with the factory", name)
-		}
-	}
-
-	common, err := factory.ReadSandboxFile("common.sh")
-	if err != nil {
-		t.Fatalf("reading common.sh: %v", err)
-	}
-	if !strings.Contains(string(common), "tk cloud branch") {
-		t.Error("common.sh's record_branch does not call `tk cloud branch`")
-	}
-
-	// And the image has to have the subcommand, or a container boots and dies
-	// mid-run with "unknown command".
-	commands, err := factory.EntrypointTkCommands()
-	if err != nil {
-		t.Fatalf("EntrypointTkCommands: %v", err)
-	}
-	found := false
-	for _, c := range commands {
-		if c == "cloud branch" {
-			found = true
-		}
-	}
-	if !found {
-		t.Errorf("`cloud branch` is not in the derived required-tk-commands set: %q", commands)
-	}
-}
+// The sandbox scripts' own contract test — that entrypoint.sh, worker.sh and
+// common.sh actually call `tk cloud branch` when they create one, and that
+// the container image install-checks the subcommand — moved with
+// cloud/sandbox to ticfac (tick 3r2). It is no longer this repo's to prove:
+// cloud/sandbox no longer lives here for a test in this package to read.
