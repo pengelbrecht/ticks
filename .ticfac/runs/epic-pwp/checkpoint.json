@@ -2,10 +2,10 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 37,
-  "state": "collecting",
-  "reason": "collecting os6 attempt 5",
-  "updated_at": "2026-09-14T20:09:06Z",
+  "sequence": 38,
+  "state": "integrating",
+  "reason": "integrating os6 attempt 5 into epic/pwp",
+  "updated_at": "2026-09-14T20:09:09Z",
   "ticks": [
     {
       "tick_id": "azq",
@@ -36,7 +36,7 @@
     },
     {
       "tick_id": "os6",
-      "state": "dispatched",
+      "state": "reported",
       "attempt": 5
     },
     {
