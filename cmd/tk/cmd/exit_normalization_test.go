@@ -76,7 +76,6 @@ func TestNoRepoExitsNoRepo(t *testing.T) {
 		{"approve", []string{"approve", "abc"}},
 		{"reject", []string{"reject", "abc", "not good enough"}},
 		{"merge", []string{"merge", "abc"}},
-		{"herd collect", []string{"herd", "collect", "--epic", "ep1"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := runOutsideRepo(t, tc.args)
@@ -164,42 +163,6 @@ func TestCorruptTickIsNotNotFound(t *testing.T) {
 	}
 	if code := GetExitCode(err); code != ExitGeneric {
 		t.Errorf("exit code = %d, want %d (generic): %v", code, ExitGeneric, err)
-	}
-}
-
-// TestHerdSpawnTickLookupClassification pins the same boundary on the one
-// lookup that sat outside it: `herd spawn` mapped EVERY store.Read failure to
-// 4, so a corrupt tick file told the orchestrator the id had never been
-// created — and its recovery for that is to create the tick and spawn again,
-// on top of the damaged file. The lookup runs before the config is read or
-// herdr is dialled, so both cases are reachable without a fake server.
-func TestHerdSpawnTickLookupClassification(t *testing.T) {
-	for _, tc := range []struct {
-		name    string
-		id      string
-		corrupt bool
-		want    int
-	}{
-		{"missing tick is not found", "zzz", false, ExitNotFound},
-		{"corrupt tick is a real failure", "bbb", true, ExitGeneric},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			repoDir := seedTickRepo(t)
-			if tc.corrupt {
-				corrupt := filepath.Join(repoDir, ".tick", "issues", tc.id+".json")
-				if err := os.WriteFile(corrupt, []byte("{not json"), 0o644); err != nil {
-					t.Fatalf("write corrupt tick: %v", err)
-				}
-			}
-			captureCmdOutput(t)
-			_, err := captureStdoutStr(t, func() error { return ExecuteArgs([]string{"herd", "spawn", tc.id}) })
-			if err == nil {
-				t.Fatalf("tk herd spawn %s returned nil error", tc.id)
-			}
-			if code := GetExitCode(err); code != tc.want {
-				t.Errorf("exit code = %d, want %d: %v", code, tc.want, err)
-			}
-		})
 	}
 }
 

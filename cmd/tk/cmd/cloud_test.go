@@ -457,24 +457,19 @@ func TestCloudExposesOnlyTheClosedCommandVocabulary(t *testing.T) {
 	}
 }
 
-// The dispatch verbs mirror `tk herd`'s vocabulary on purpose: an orchestrator
-// swapping substrates must not have to relearn its commands (D19). If one
-// family grows a verb the other lacks, that promise has quietly lapsed.
+// D19 mirrored the dispatch verbs across `tk cloud` and `tk herd` so an
+// orchestrator swapping substrates would not have to relearn its commands.
+// Tick nkf retired herd's execution vocabulary (spawn/wait/collect/reconcile
+// moved to ticfac, per SPEC 2.3), so that mirror is gone by design; this now
+// pins only that `tk cloud` itself kept its own dispatch surface.
 func TestCloudDispatchVerbsMirrorTheHerdVocabulary(t *testing.T) {
 	cloudVerbs := map[string]bool{}
 	for _, command := range cloudCmd.Commands() {
 		cloudVerbs[command.Name()] = true
 	}
-	herdVerbs := map[string]bool{}
-	for _, command := range herdCmd.Commands() {
-		herdVerbs[command.Name()] = true
-	}
 	for _, verb := range []string{"spawn", "wait", "collect", "reconcile"} {
 		if !cloudVerbs[verb] {
 			t.Errorf("tk cloud has no %s verb; the cloud substrate is not drivable by a local orchestrator without it", verb)
-		}
-		if !herdVerbs[verb] {
-			t.Errorf("tk herd has no %s verb; the two families no longer mirror each other", verb)
 		}
 	}
 }
