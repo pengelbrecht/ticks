@@ -2,10 +2,10 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 11,
+  "sequence": 12,
   "state": "failed",
-  "reason": "attempt 2 of nkf still reads running 1s past the wall clock of 3600s it was issued: its supervisor never settled it, and a pid that outlives its job is a number the host reuses. Nobody can say whether it is running; release it with `ticfac settle pwp nkf 2 --release \"<who>\"` once you have looked",
-  "updated_at": "2026-09-14T18:56:37Z",
+  "reason": "nkf did not pass: the run stopped rather than integrating over an unproven change. Running the epic again under this run id resumes it — a rejected attempt that left nothing is redispatched, a gate that FAILED runs again once the check or the tree is fixed (its evidence is keyed by the commit it ran on, so a fixed tree is a different commit and a new record), an attempt that was rejected holding commits nothing merged is reported rather than dispatched over, and nothing that already passed is redone",
+  "updated_at": "2026-09-14T18:56:44Z",
   "ticks": [
     {
       "tick_id": "azq",
