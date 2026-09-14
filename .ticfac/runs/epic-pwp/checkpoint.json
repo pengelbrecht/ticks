@@ -2,10 +2,10 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 21,
+  "sequence": 22,
   "state": "failed",
-  "reason": "nkf reported 3 finding(s) nobody has triaged — \"Redesign internal/herd/dashboard to stop depending on the deleted execution state, or move it to ticfac\" (proposed-tick, for this repository); \"skills/ticks docs still document the deleted tk herd spawn/wait/collect/reconcile/cleanup/notify/paint/watch/plugin commands\" (proposed-tick, for this repository); \"Add a thin tk-side caller for internal/herd/relay now that herd_wait.go is gone\" (proposed-tick, for this repository) — and the tick is NOT closed: a finding that falls on the floor is the failure this gate exists to stop. Triage each with `ticfac finding pwp 27114cbb4a8441a02efc147e9f574f066d221533fa8f9bb4a105ded16be61702|4911955c6d7b135347b2be259c1fc71028a4e33d1e7678fedb0d55f00c9ec11a|7a5e96fb79ef432bfaf624691428af400c0a71300ff9a071f45d2c816045d6ee --promote-as <tick> --by \"<who>\"` (promote into the repository it targets) or `ticfac finding pwp 27114cbb4a8441a02efc147e9f574f066d221533fa8f9bb4a105ded16be61702|4911955c6d7b135347b2be259c1fc71028a4e33d1e7678fedb0d55f00c9ec11a|7a5e96fb79ef432bfaf624691428af400c0a71300ff9a071f45d2c816045d6ee --discard --by \"<who>\"`, then run the epic again under this run id: the gate has already passed, so the close is the only step left. The drafts are key 27114cbb4a8441a02efc147e9f574f066d221533fa8f9bb4a105ded16be61702, 4911955c6d7b135347b2be259c1fc71028a4e33d1e7678fedb0d55f00c9ec11a, 7a5e96fb79ef432bfaf624691428af400c0a71300ff9a071f45d2c816045d6ee under .ticfac/runs/epic-pwp/findings/ on origin",
-  "updated_at": "2026-09-14T19:34:58Z",
+  "reason": "nkf did not pass: the run stopped rather than integrating over an unproven change. Running the epic again under this run id resumes it — a rejected attempt that left nothing is redispatched, a gate that FAILED runs again once the check or the tree is fixed (its evidence is keyed by the commit it ran on, so a fixed tree is a different commit and a new record), an attempt that was rejected holding commits nothing merged is reported rather than dispatched over, and nothing that already passed is redone",
+  "updated_at": "2026-09-14T19:35:02Z",
   "ticks": [
     {
       "tick_id": "azq",
