@@ -2,10 +2,10 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 24,
-  "state": "dispatching",
-  "reason": "dispatching hvj as attempt 4",
-  "updated_at": "2026-09-14T19:41:46Z",
+  "sequence": 25,
+  "state": "running",
+  "reason": "hvj is running as attempt 4",
+  "updated_at": "2026-09-14T19:42:03Z",
   "ticks": [
     {
       "tick_id": "azq",
@@ -31,7 +31,8 @@
     },
     {
       "tick_id": "hvj",
-      "state": "ready"
+      "state": "dispatched",
+      "attempt": 4
     },
     {
       "tick_id": "os6",
