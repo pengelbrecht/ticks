@@ -2451,3 +2451,4 @@
 {"ts":"2026-09-14T19:39:40.390267Z","tick":"gms","action":"create","actor":"claude:orchestrator","epic":"pwp","data":{"priority":2,"title":"skills/ticks docs still document the deleted tk herd commands","type":"task"}}
 {"ts":"2026-09-14T19:41:54.139329Z","tick":"hvj","action":"start","actor":"ticfac","epic":"pwp","data":{"title":"Add a thin tk-side caller for internal/herd/relay now that herd_wait.go is gone"}}
 {"ts":"2026-09-14T19:54:14.132096Z","tick":"hvj","action":"note","actor":"ticfac","epic":"pwp","data":{"note":"2026-09-14 21:54 - ticfac run epic-pwp: attempt 4 merged into epic/pwp as 83b792e459db; the integrated gate (go, pi-runner) passed.","title":"Add a thin tk-side caller for internal/herd/relay now that herd_wait.go is gone"}}
+{"ts":"2026-09-14T19:54:20.783538Z","tick":"hvj","action":"close","actor":"ticfac","epic":"pwp","data":{"title":"Add a thin tk-side caller for internal/herd/relay now that herd_wait.go is gone"}}
