@@ -2,10 +2,10 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 3,
-  "state": "running",
-  "reason": "azq is running as attempt 1",
-  "updated_at": "2026-09-14T17:11:30Z",
+  "sequence": 4,
+  "state": "collecting",
+  "reason": "collecting azq attempt 1",
+  "updated_at": "2026-09-14T17:31:24Z",
   "ticks": [
     {
       "tick_id": "azq",
