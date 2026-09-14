@@ -1,0 +1,13 @@
+{
+  "id": "pwp",
+  "title": "Retire the execution machinery: delete what ticfac now owns",
+  "description": "ticfac Phase 2 copied the execution machinery out of this repository behind a\nclean, pinned, dependency-free boundary — and removed nothing. Until the\noriginals go, \"extracted\" means \"copied\", and two implementations drift.\n\nThis epic is planned HERE, in the tracker of the repository whose code it\ndeletes, and run by ticfac against this checkout (`ticfac run-epic \u003cepic\u003e\n--repo ~/Development/ticks`). That is why it needs no cross-repo dispatch\nmachinery: the tracker lives with the code.\n\nIt is also the PRODUCTION run ticfac Phase 3 asks for. Phase 2's proof was a\nthrowaway repository whose implement ticks wrote one note each; this is real\nwork on a real repository, and the run that performs it is the evidence.\n\nOne safety property worth stating: this deletes the packages `tk herd` runs on.\nBecause ticfac drives the run with its OWN herdr executor, the run never uses\nthe thing it is removing. Do NOT orchestrate this epic through `tk herd`.\n\nScope, from ticfac epic av8's retro (`.tick/logs/herd/av8/RETRO.md` in ticfac):\n\n- The execution half of `internal/herd/**`: client, herdtest, gitcmd, spawn,\n  wait, reconcile, cleanup, state, and whatever of notify/paint/collect moves\n  with them. `relay` and `dashboard` STAY — relay is the durable operator\n  question and is tracker domain; dashboard exists to join tracker state with\n  run state and has no seam inside its types.\n- `internal/factory/**`, `internal/gatewaytrace`, `cloud/factory`,\n  `cloud/sandbox`, the factory and cloud commands in `cmd/tk`, and the\n  module-root embeds those leave unused.\n- NOT `internal/tkcontract` — `cmd/tk`'s own version and root contract gate use\n  it.\n- The ten direct `.tick/` reads the retired packages hold.\n\nPlan the child ticks at the start of this epic, not now. Sequence matters: the\ndeletions are irreversible and `tk` must keep working at every step.",
+  "status": "open",
+  "priority": 1,
+  "type": "epic",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "internal/herd contains only relay and dashboard plus what they need; internal/factory, internal/gatewaytrace, cloud/factory and cloud/sandbox are gone along with the factory and cloud commands and the embeds they leave unused; internal/tkcontract is untouched; the ten direct .tick/ reads in the retired packages are gone; tk builds and its tests pass; the same commands work from the ticfac CLI; and this epic was RUN by ticfac against this repository, not by tk herd, with the run shown.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-14T16:29:42.627075Z",
+  "updated_at": "2026-09-14T16:29:42.627075Z"
+}
