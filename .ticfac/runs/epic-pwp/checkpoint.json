@@ -2,10 +2,10 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 22,
-  "state": "failed",
-  "reason": "nkf did not pass: the run stopped rather than integrating over an unproven change. Running the epic again under this run id resumes it — a rejected attempt that left nothing is redispatched, a gate that FAILED runs again once the check or the tree is fixed (its evidence is keyed by the commit it ran on, so a fixed tree is a different commit and a new record), an attempt that was rejected holding commits nothing merged is reported rather than dispatched over, and nothing that already passed is redone",
-  "updated_at": "2026-09-14T19:35:02Z",
+  "sequence": 23,
+  "state": "admitted",
+  "reason": "the epic graph is read and the run is admitted",
+  "updated_at": "2026-09-14T19:41:38Z",
   "ticks": [
     {
       "tick_id": "azq",
@@ -28,6 +28,18 @@
     {
       "tick_id": "8vl",
       "state": "ready"
+    },
+    {
+      "tick_id": "hvj",
+      "state": "ready"
+    },
+    {
+      "tick_id": "os6",
+      "state": "ready"
+    },
+    {
+      "tick_id": "gms",
+      "state": "ready"
     }
   ],
   "provenance": {
@@ -35,7 +47,7 @@
     "tick_id": null,
     "attempt": null,
     "source_ref": "refs/heads/epic/pwp",
-    "source_sha": "d77b91e1318dd8044b0d5c89acfd9b5c6b33f7dd",
+    "source_sha": "2ea8d9a9bc549c081674dafc304255ce15cb3d91",
     "integration_ref": "refs/heads/epic/pwp",
     "phase": "worker",
     "executor": null,
