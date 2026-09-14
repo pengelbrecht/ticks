@@ -2,7 +2,7 @@
   "id": "gms",
   "title": "skills/ticks docs still document the deleted tk herd commands",
   "description": "Filed from a worker finding on tick nkf attempt 3. The skill references still describe tk herd spawn/wait/collect/reconcile/cleanup/notify/paint/watch/plugin, which no longer exist. A reader following them gets an unknown-command error. Point them at ticfac run-epic instead, and keep whatever is still true about the substrate.",
-  "notes": "2026-09-14 23:06 - ticfac run epic-pwp: attempt 8 reported a finding drafted for triage — proposed-tick \"repo-wiki pages (herd-helper-cli.md and others) still document the deleted tk herd commands\" (key 392e2988438c739255c86b6ddcf79e65be416d1e7cf6f242426f42f630562328, severity low, for this repository). Triage with `ticfac finding pwp 392e2988438c739255c86b6ddcf79e65be416d1e7cf6f242426f42f630562328 --promote-as \u003ctick\u003e --by \"\u003cwho\u003e\"` or `--discard --by \"\u003cwho\u003e\"`; the tick cannot close while it is untriaged.",
+  "notes": "2026-09-14 23:06 - ticfac run epic-pwp: attempt 8 reported a finding drafted for triage — proposed-tick \"repo-wiki pages (herd-helper-cli.md and others) still document the deleted tk herd commands\" (key 392e2988438c739255c86b6ddcf79e65be416d1e7cf6f242426f42f630562328, severity low, for this repository). Triage with `ticfac finding pwp 392e2988438c739255c86b6ddcf79e65be416d1e7cf6f242426f42f630562328 --promote-as \u003ctick\u003e --by \"\u003cwho\u003e\"` or `--discard --by \"\u003cwho\u003e\"`; the tick cannot close while it is untriaged.\n2026-09-14 23:12 - ticfac run epic-pwp: attempt 8 merged into epic/pwp as 4f5b37d2dcd8; the integrated gate (go, pi-runner) passed.",
   "status": "in_progress",
   "priority": 2,
   "type": "task",
@@ -11,6 +11,6 @@
   "acceptance_criteria": "No skill reference documents a deleted tk herd command; what replaced them is stated; the herdr-runner and agent-runner references agree with the commands that now exist.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-14T19:39:40.390005Z",
-  "updated_at": "2026-09-14T21:06:35.860505Z",
+  "updated_at": "2026-09-14T21:12:41.238196Z",
   "started_at": "2026-09-14T20:57:31.340128Z"
 }
