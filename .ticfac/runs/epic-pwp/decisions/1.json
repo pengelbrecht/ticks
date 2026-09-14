@@ -1,0 +1,42 @@
+{
+  "schema_version": 3,
+  "decision": 1,
+  "role": "triage-failure",
+  "request": {
+    "attempt": 2,
+    "epic_id": "pwp",
+    "job_id": "run-epic-pwp/tick-nkf/attempt-2",
+    "op": "settle_attempt",
+    "run_id": "epic-pwp",
+    "state": "lost",
+    "tick_id": "nkf"
+  },
+  "response": {
+    "disposition": "unaddressable",
+    "released_by": "peter@engelbrecht.dk (via claude:orchestrator)",
+    "settled": true,
+    "state": "lost"
+  },
+  "validated": true,
+  "requested_at": "2026-09-14T19:10:54Z",
+  "answered_at": "2026-09-14T19:10:54Z",
+  "provenance": {
+    "run_id": "epic-pwp",
+    "tick_id": "nkf",
+    "attempt": 2,
+    "source_ref": "refs/heads/epic/pwp",
+    "source_sha": "2ad9049cc745772c371ab7851a30bbd5e38fcd2b",
+    "integration_ref": "refs/heads/epic/pwp",
+    "phase": "worker",
+    "executor": "herdr",
+    "workspace_id": null,
+    "backend": null,
+    "role": "implement-tick",
+    "tier": null,
+    "profile_digest": "sha256:8584d4f5e4be586aff51d20e315e62c0fab16616406bb54edfeaa863ed72627f",
+    "model": "sonnet",
+    "context_manifest_digest": "sha256:0cf644d69158e095c78727ed089548d1",
+    "substrate_protocol": 22,
+    "substrate_server_version": "0.9.0"
+  }
+}
