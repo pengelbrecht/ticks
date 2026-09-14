@@ -2437,3 +2437,4 @@
 {"ts":"2026-09-14T16:41:58.770208Z","tick":"8vl","action":"create","actor":"claude:orchestrator","epic":"pwp","data":{"priority":2,"title":"Close out the deletion: retro, and confirm ticfac ran it","type":"task"}}
 {"ts":"2026-09-14T16:42:02.776957Z","tick":"sx5","action":"block","actor":"claude:orchestrator","epic":"pwp","data":{"blockers":["nkf","3r2"],"title":"Final review of the deletion diff"}}
 {"ts":"2026-09-14T16:42:02.801265Z","tick":"8vl","action":"block","actor":"claude:orchestrator","epic":"pwp","data":{"blockers":["sx5"],"title":"Close out the deletion: retro, and confirm ticfac ran it"}}
+{"ts":"2026-09-14T17:11:20.563914Z","tick":"azq","action":"start","actor":"ticfac","epic":"pwp","data":{"title":"Cut the dependencies that block the deletions"}}
