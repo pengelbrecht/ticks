@@ -10,7 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	herdconfig "github.com/pengelbrecht/ticks/internal/herd/config"
+	herdconfig "github.com/pengelbrecht/ticks/internal/runnersconfig"
 )
 
 var (

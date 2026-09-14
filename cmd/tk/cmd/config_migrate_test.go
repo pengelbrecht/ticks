@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	herdconfig "github.com/pengelbrecht/ticks/internal/herd/config"
+	herdconfig "github.com/pengelbrecht/ticks/internal/runnersconfig"
 )
 
 const legacyConfigForMigration = `# Tick Run Configuration

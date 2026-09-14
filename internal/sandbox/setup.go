@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/pengelbrecht/ticks/internal/herd/config"
+	"github.com/pengelbrecht/ticks/internal/runnersconfig"
 )
 
 // This file is the per-repo sandbox definition in force: the `[sandbox]` table

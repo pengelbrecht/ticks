@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pengelbrecht/ticks/internal/herd/spawn"
 	"github.com/pengelbrecht/ticks/internal/herd/state"
+	"github.com/pengelbrecht/ticks/internal/workerprompt"
 )
 
 // ---------------------------------------------------------------------------
@@ -737,7 +737,7 @@ func TestApplyConsumesOnlyResultFileAndArchivesIt(t *testing.T) {
 	repo, base := newRepo(t)
 	workerBranch(t, repo, "tick/nhk", base, true)
 	wt := worktreeDir(t, repo, "tick/nhk")
-	resultPath := filepath.Join(wt, spawn.ResultFile("nhk"))
+	resultPath := filepath.Join(wt, workerprompt.ResultFile("nhk"))
 	writeFile(t, resultPath, "STATUS: DONE\n")
 
 	m := newManifest("nhk", "tick/nhk")
@@ -791,7 +791,7 @@ func TestApplyRefusesWhenOtherUntrackedFileAccompaniesResult(t *testing.T) {
 	repo, base := newRepo(t)
 	workerBranch(t, repo, "tick/nhk", base, true)
 	wt := worktreeDir(t, repo, "tick/nhk")
-	resultPath := filepath.Join(wt, spawn.ResultFile("nhk"))
+	resultPath := filepath.Join(wt, workerprompt.ResultFile("nhk"))
 	writeFile(t, resultPath, "STATUS: DONE\n")
 	writeFile(t, filepath.Join(wt, "scratch.txt"), "leftover\n")
 
@@ -828,7 +828,7 @@ func TestApplyRefusesWhenResultAccompaniesModifiedTrackedFile(t *testing.T) {
 	repo, base := newRepo(t)
 	workerBranch(t, repo, "tick/nhk", base, true)
 	wt := worktreeDir(t, repo, "tick/nhk")
-	resultPath := filepath.Join(wt, spawn.ResultFile("nhk"))
+	resultPath := filepath.Join(wt, workerprompt.ResultFile("nhk"))
 	writeFile(t, resultPath, "STATUS: DONE\n")
 	// workerBranch commits "tick-nhk.go" on this branch; modify it in place.
 	writeFile(t, filepath.Join(wt, "tick-nhk.go"), "package a\n\n// modified\n")

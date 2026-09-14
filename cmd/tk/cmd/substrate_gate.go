@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 
-	herdconfig "github.com/pengelbrecht/ticks/internal/herd/config"
+	herdconfig "github.com/pengelbrecht/ticks/internal/runnersconfig"
 )
 
 // The dispatch-verb substrate gate.

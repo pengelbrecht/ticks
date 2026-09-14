@@ -10,10 +10,10 @@ import (
 
 	"github.com/spf13/cobra"
 
-	herdconfig "github.com/pengelbrecht/ticks/internal/herd/config"
-	"github.com/pengelbrecht/ticks/internal/herd/spawn"
+	herdconfig "github.com/pengelbrecht/ticks/internal/runnersconfig"
 	"github.com/pengelbrecht/ticks/internal/sandbox"
 	"github.com/pengelbrecht/ticks/internal/tick"
+	"github.com/pengelbrecht/ticks/internal/workerprompt"
 )
 
 // `tk sandbox` is the per-repo sandbox definition — the `[sandbox]` table of
@@ -415,9 +415,9 @@ func sandboxEnvironmentTimeout() time.Duration {
 // learns the tracker format — the same delegation as `tk sandbox model` and
 // `tk sandbox setup` — and, more importantly, so a container-per-tick worker
 // and a herdr-pane worker are handed the SAME job. Both render
-// internal/herd/spawn.BuildPrompt. Two templates for one substrate boundary is
-// the shape of divergence this repository has already paid for once, and it
-// would show up as two substrates disagreeing about what a tick asked for.
+// internal/workerprompt.BuildPrompt. Two templates for one substrate boundary
+// is the shape of divergence this repository has already paid for once, and
+// it would show up as two substrates disagreeing about what a tick asked for.
 //
 // The container addendum is the only difference, and it is the difference that
 // is REAL: a herdr worker lives in a worktree beside its orchestrator, while
@@ -473,7 +473,7 @@ func runSandboxWorkerPrompt(cmd *cobra.Command, args []string) error {
 		branch = sandbox.WorkerBranch(epic.ID, t.ID)
 	}
 
-	prompt := spawn.BuildPrompt(spawn.PromptInput{
+	prompt := workerprompt.BuildPrompt(workerprompt.PromptInput{
 		TickID:      t.ID,
 		Title:       t.Title,
 		Description: t.Description,

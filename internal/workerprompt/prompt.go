@@ -1,4 +1,11 @@
-package spawn
+// Package workerprompt renders the worker prompt template from
+// skills/ticks/references/herdr-runner.md — the one job description every
+// worker substrate hands a worker, whether it wakes up in a herdr pane
+// (internal/herd/spawn) or a per-tick container (tk sandbox worker-prompt).
+// It lives outside internal/herd because the container substrate is not
+// retiring even though the herdr pane substrate is; two copies of this
+// template is the divergence this repository has already paid for once.
+package workerprompt
 
 import (
 	"fmt"

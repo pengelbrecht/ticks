@@ -5,17 +5,41 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/spf13/cobra"
 
 	"github.com/pengelbrecht/ticks/internal/config"
 	"github.com/pengelbrecht/ticks/internal/github"
-	herdcollect "github.com/pengelbrecht/ticks/internal/herd/collect"
 	"github.com/pengelbrecht/ticks/internal/herd/state"
 	"github.com/pengelbrecht/ticks/internal/query"
 	"github.com/pengelbrecht/ticks/internal/tick"
 )
+
+// reportStatusLine matches a worker report's final STATUS: line, the same
+// contract internal/herd/collect.ParseStatus reads — frontier only needs to
+// know whether a status exists, not its detail, so it keeps its own tiny copy
+// rather than importing a package that is otherwise unrelated to it.
+var reportStatusLine = regexp.MustCompile(
+	`^STATUS:[ \t]*(DONE_WITH_CONCERNS|DONE|NEEDS_CONTEXT|BLOCKED)\b`)
+
+// reportStatusDecoration is the markdown a report line may be wrapped in.
+const reportStatusDecoration = " \t>-*#`"
+
+// hasReportStatus reports whether body carries a recognisable final STATUS:
+// line, mirroring herd/collect's ParseStatus closely enough that "frontier
+// sees a result" never disagrees with "collect can read it".
+func hasReportStatus(body string) bool {
+	found := false
+	for _, raw := range strings.Split(body, "\n") {
+		trimmed := strings.Trim(strings.TrimRight(raw, "\r"), reportStatusDecoration)
+		if reportStatusLine.MatchString(trimmed) {
+			found = true
+		}
+	}
+	return found
+}
 
 // tk frontier is the neutral continuation predicate: is this run legitimately
 // at rest, or is there work an orchestrator should be dispatching right now?
@@ -236,7 +260,7 @@ func evaluateFrontier(root, scopeID, owner string, autonomous bool) (frontierRep
 				// (missing-result needs a STATUS: line). Mirror collect's own
 				// parse so "collect" here never points at a refusal there.
 				if body, readErr := os.ReadFile(resultPath); readErr == nil {
-					if status, _, _ := herdcollect.ParseStatus(string(body)); status != "" {
+					if hasReportStatus(string(body)) {
 						ws.resultPath = resultPath
 					}
 				}

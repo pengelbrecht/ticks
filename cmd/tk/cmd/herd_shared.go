@@ -5,7 +5,7 @@ import (
 	"io"
 
 	"github.com/pengelbrecht/ticks/internal/herd/client"
-	herdconfig "github.com/pengelbrecht/ticks/internal/herd/config"
+	herdconfig "github.com/pengelbrecht/ticks/internal/runnersconfig"
 )
 
 // Helpers every `tk herd` subcommand needs, defined once.

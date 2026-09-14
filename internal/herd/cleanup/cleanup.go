@@ -11,6 +11,7 @@ import (
 	"github.com/pengelbrecht/ticks/internal/herd/gitcmd"
 	"github.com/pengelbrecht/ticks/internal/herd/spawn"
 	"github.com/pengelbrecht/ticks/internal/herd/state"
+	"github.com/pengelbrecht/ticks/internal/workerprompt"
 )
 
 // Herd is the slice of the herdr client this package needs. [client.Client]
@@ -414,11 +415,11 @@ func consumeOwnResultFile(p *Plan) {
 			entries = append(entries, line)
 		}
 	}
-	if len(entries) != 1 || entries[0] != "?? "+spawn.ResultFile(p.Tick) {
+	if len(entries) != 1 || entries[0] != "?? "+workerprompt.ResultFile(p.Tick) {
 		return
 	}
 
-	resultPath := filepath.Join(p.Worktree, spawn.ResultFile(p.Tick))
+	resultPath := filepath.Join(p.Worktree, workerprompt.ResultFile(p.Tick))
 	body, err := os.ReadFile(resultPath)
 	if err != nil {
 		return
@@ -432,7 +433,7 @@ func consumeOwnResultFile(p *Plan) {
 	}
 	p.Notes = append(p.Notes, fmt.Sprintf(
 		"archived %s to %s and removed it — the only dirt in the worktree, so worktree.remove could proceed without force",
-		spawn.ResultFile(p.Tick), archivePath))
+		workerprompt.ResultFile(p.Tick), archivePath))
 }
 
 // liveWorker finds the herdr agent belonging to this tick, if any.

@@ -5,7 +5,7 @@
 // first-round-trip content gate, then the real implementer prompt — against
 // the typed client in internal/herd/client. It does not touch the tracker, does
 // not read `.tick/`, and does not decide routing: the caller resolves the
-// worker with internal/herd/config and hands the compiled argv in.
+// worker with internal/runnersconfig and hands the compiled argv in.
 //
 // # The gate is the point
 //

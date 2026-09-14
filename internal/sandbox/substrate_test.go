@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pengelbrecht/ticks/internal/herd/config"
+	"github.com/pengelbrecht/ticks/internal/runnersconfig"
 )
 
 // noHerdr is the container's reality: no herdr pane, no herdr socket. It is

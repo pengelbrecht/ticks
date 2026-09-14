@@ -8,13 +8,43 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/pengelbrecht/ticks/internal/herd/collect"
 )
+
+// The four statuses a worker's report may end with, and the parser that
+// reads a report's final one. A twin of internal/herd/collect's ParseStatus
+// and StatusX constants — sandbox is not retiring, collect is, so this test
+// keeps its own copy rather than importing a package on its way out.
+const (
+	collectStatusBlocked         = "BLOCKED"
+	collectStatusDoneWithConcern = "DONE_WITH_CONCERNS"
+	collectStatusNeedsContext    = "NEEDS_CONTEXT"
+)
+
+var collectStatusLine = regexp.MustCompile(
+	`^STATUS:[ \t]*(DONE_WITH_CONCERNS|DONE|NEEDS_CONTEXT|BLOCKED)\b[ \t]*(?:[-–—:][ \t]*)?(.*)$`)
+
+const collectStatusDecoration = " \t>-*#`"
+
+// collectParseStatus finds the FINAL status line of a report and splits it
+// into the status word, the detail after it, and the raw line.
+func collectParseStatus(body string) (status, detail, line string) {
+	for _, raw := range strings.Split(body, "\n") {
+		trimmed := strings.Trim(strings.TrimRight(raw, "\r"), collectStatusDecoration)
+		m := collectStatusLine.FindStringSubmatch(trimmed)
+		if m == nil {
+			continue
+		}
+		status = m[1]
+		detail = strings.TrimSpace(strings.Trim(m[2], collectStatusDecoration))
+		line = trimmed
+	}
+	return status, detail, line
+}
 
 // safeBuffer collects a still-running container's output while the test reads
 // it. `exec.Cmd` writes from its own goroutine, so a plain bytes.Buffer here is
@@ -361,7 +391,7 @@ func TestWorkerPushesTheBranchAndTheReport(t *testing.T) {
 	mustContain(t, report, "STATUS: DONE", "the agent's own verdict")
 	mustContain(t, report, "ticks-worker", "the container facts the entrypoint prepends")
 	// The agent's verdict is the LAST status line, which is what
-	// collect.ParseStatus reads. An annotation that moved it would silently
+	// collectParseStatus reads. An annotation that moved it would silently
 	// change every worker's reported outcome.
 	if idx := strings.LastIndex(report, "STATUS:"); idx == -1 || !strings.Contains(report[idx:], "DONE") {
 		t.Errorf("the entrypoint's annotation displaced the agent's status line:\n%s", report)
@@ -493,13 +523,13 @@ func TestWorkerFallbackReportSeparatesTheShapesOfANoReportRun(t *testing.T) {
 		{
 			// run_215b7cbf's 201: nothing ran to completion and nothing
 			// landed. The only shape a re-dispatch is the right advice for.
-			name: "nothing landed", exit: "124", status: collect.StatusBlocked,
+			name: "nothing landed", exit: "124", status: collectStatusBlocked,
 			wantExit: ExitWorkerAgent, reDispatch: true,
 			wantDetails: []string{"exited 124", "nothing"},
 		},
 		{
 			// The same emptiness reached by a harness that claimed success.
-			name: "clean exit, nothing landed", exit: "0", status: collect.StatusBlocked,
+			name: "clean exit, nothing landed", exit: "0", status: collectStatusBlocked,
 			wantExit: ExitWorkerAgent, reDispatch: true,
 			wantDetails: []string{"exited 0", "nothing"},
 		},
@@ -507,19 +537,19 @@ func TestWorkerFallbackReportSeparatesTheShapesOfANoReportRun(t *testing.T) {
 			// 5jo. Exit 0 and real commits is work that landed; the gap is
 			// the agent's account of it, not the work.
 			name: "clean exit, work committed", exit: "0", commit: true,
-			status: collect.StatusDoneWithConcerns, wantExit: ExitWorkerAgent,
+			status: collectStatusDoneWithConcern, wantExit: ExitWorkerAgent,
 			wantDetails: []string{"1 work commit(s)", "no agent report"},
 		},
 		{
 			// 5qj. A killed harness whose tree was salvaged: partial work on
 			// the branch that a re-dispatch would throw away.
 			name: "failed exit, work salvaged", exit: "124", dirty: true,
-			status: collect.StatusNeedsContext, wantExit: ExitWorkerAgent,
+			status: collectStatusNeedsContext, wantExit: ExitWorkerAgent,
 			wantDetails: []string{"exited 124", "salvage"},
 		},
 		{
 			name: "failed exit, work committed", exit: "3", commit: true,
-			status: collect.StatusNeedsContext, wantExit: ExitWorkerAgent,
+			status: collectStatusNeedsContext, wantExit: ExitWorkerAgent,
 			wantDetails: []string{"exited 3", "1 work commit(s)"},
 		},
 	}
@@ -548,7 +578,7 @@ func TestWorkerFallbackReportSeparatesTheShapesOfANoReportRun(t *testing.T) {
 			}
 			// Read with the collector's own parser: a status a container
 			// invents that collect cannot parse is no status at all.
-			status, detail, line := collect.ParseStatus(report)
+			status, detail, line := collectParseStatus(report)
 			if status != tc.status {
 				t.Errorf("status %q, want %q\n  line: %s\n  report:\n%s", status, tc.status, line, report)
 			}
