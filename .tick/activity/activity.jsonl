@@ -2454,3 +2454,4 @@
 {"ts":"2026-09-14T19:54:20.783538Z","tick":"hvj","action":"close","actor":"ticfac","epic":"pwp","data":{"title":"Add a thin tk-side caller for internal/herd/relay now that herd_wait.go is gone"}}
 {"ts":"2026-09-14T19:59:14.252758Z","tick":"nkf","action":"note","actor":"ticfac","epic":"pwp","data":{"note":"\n2026-09-14 21:59 - ticfac run epic-pwp: attempt 3 merged into epic/pwp as 889d9b3033fc; the integrated gate (go, pi-runner) passed.","title":"Delete the herd execution packages and their tk commands"}}
 {"ts":"2026-09-14T19:59:20.435974Z","tick":"nkf","action":"close","actor":"ticfac","epic":"pwp","data":{"title":"Delete the herd execution packages and their tk commands"}}
+{"ts":"2026-09-14T19:59:44.462259Z","tick":"os6","action":"start","actor":"ticfac","epic":"pwp","data":{"title":"Redesign internal/herd/dashboard to stop depending on deleted execution state, or move it to ticfac"}}
