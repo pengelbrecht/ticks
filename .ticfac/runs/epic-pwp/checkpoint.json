@@ -2,10 +2,10 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 27,
-  "state": "integrating",
-  "reason": "integrating hvj attempt 4 into epic/pwp",
-  "updated_at": "2026-09-14T19:49:36Z",
+  "sequence": 28,
+  "state": "gating",
+  "reason": "running the integrated gate for hvj on 83b792e459db",
+  "updated_at": "2026-09-14T19:49:53Z",
   "ticks": [
     {
       "tick_id": "azq",
@@ -31,7 +31,7 @@
     },
     {
       "tick_id": "hvj",
-      "state": "reported",
+      "state": "integrated",
       "attempt": 4
     },
     {
