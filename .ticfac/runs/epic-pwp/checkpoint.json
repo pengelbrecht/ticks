@@ -2,10 +2,10 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 40,
-  "state": "publishing",
-  "reason": "closing os6 behind the integrated gate on 7a9cfe1689dd",
-  "updated_at": "2026-09-14T20:13:44Z",
+  "sequence": 41,
+  "state": "running",
+  "reason": "os6 is closed",
+  "updated_at": "2026-09-14T20:14:08Z",
   "ticks": [
     {
       "tick_id": "azq",
@@ -36,7 +36,7 @@
     },
     {
       "tick_id": "os6",
-      "state": "integrated",
+      "state": "closed",
       "attempt": 5
     },
     {
