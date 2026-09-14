@@ -2440,3 +2440,4 @@
 {"ts":"2026-09-14T17:11:20.563914Z","tick":"azq","action":"start","actor":"ticfac","epic":"pwp","data":{"title":"Cut the dependencies that block the deletions"}}
 {"ts":"2026-09-14T17:36:06.687884Z","tick":"azq","action":"note","actor":"ticfac","epic":"pwp","data":{"note":"2026-09-14 19:36 - ticfac run epic-pwp: attempt 1 merged into epic/pwp as 3df5ea6a2d83; the integrated gate (go, pi-runner) passed.","title":"Cut the dependencies that block the deletions"}}
 {"ts":"2026-09-14T17:36:13.276003Z","tick":"azq","action":"close","actor":"ticfac","epic":"pwp","data":{"title":"Cut the dependencies that block the deletions"}}
+{"ts":"2026-09-14T17:36:43.397894Z","tick":"nkf","action":"start","actor":"ticfac","epic":"pwp","data":{"title":"Delete the herd execution packages and their tk commands"}}
