@@ -13,12 +13,26 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pengelbrecht/ticks/internal/herd/client"
-	"github.com/pengelbrecht/ticks/internal/herd/reconcile"
-	"github.com/pengelbrecht/ticks/internal/herd/wait"
+	"github.com/pengelbrecht/ticks/internal/herdclient"
 	"github.com/pengelbrecht/ticks/internal/operator"
 	"github.com/pengelbrecht/ticks/internal/tick"
 )
+
+// Blocked is the blocked-agent evidence relay needs: the live agent name (or
+// pane id) Herdr reported, and the pane it ran in. It replaces the wait
+// package's Result type now that the wave-wait loop that produced it has
+// moved to ticfac — a caller (a future thin `tk` surface, or ticfac itself)
+// constructs one directly from whatever it learns a blocked agent's identity
+// to be.
+type Blocked struct {
+	// Name is the caller's own target — a pane id when Herdr's blocked status
+	// did not carry a live agent name.
+	Name string
+	// AgentName is the live herdr agent name, when known.
+	AgentName string
+	// PaneID is the pane the agent ran in.
+	PaneID string
+}
 
 const (
 	// DefaultPromptTimeout bounds the confirmation that herdr accepted the
@@ -27,10 +41,10 @@ const (
 )
 
 // Controller is the part of the herdr client needed to resume a blocked agent.
-// client.Client satisfies it; the small interface keeps relay tests local.
+// herdclient.Client satisfies it; the small interface keeps relay tests local.
 type Controller interface {
-	AgentPrompt(context.Context, client.AgentPromptParams) (*client.AgentInfo, error)
-	AgentGet(context.Context, string) (*client.AgentInfo, error)
+	AgentPrompt(context.Context, herdclient.AgentPromptParams) (*herdclient.AgentInfo, error)
+	AgentGet(context.Context, string) (*herdclient.AgentInfo, error)
 }
 
 // Options configures one blocked-agent relay.
@@ -61,20 +75,20 @@ type Options struct {
 // blocked result belongs to a worker manifest. It is a preference/identity
 // check, not a requirement for an explicitly enabled orchestrator relay.
 //
-// A respawn is accepted through reconcile.IsWorkerOf. When the wait was keyed
+// A respawn is accepted through isWorkerOf. When the wait was keyed
 // by pane id and Herdr did not include the live name in its result, the
 // manifest's recorded agent name is the best durable target available.
-func ResolveRecordedTarget(repoRoot string, blocked wait.Result) (string, bool, error) {
+func ResolveRecordedTarget(repoRoot string, blocked Blocked) (string, bool, error) {
 	if strings.TrimSpace(repoRoot) == "" {
 		return "", false, errors.New("herd/relay: no repository root")
 	}
-	manifests, err := reconcile.Manifests(repoRoot, "")
+	manifests, err := recordedManifests(repoRoot)
 	if err != nil {
 		return "", false, fmt.Errorf("herd/relay: listing worker manifests: %w", err)
 	}
 	target := TargetFromResult(blocked)
 	for _, manifest := range manifests {
-		if target != "" && manifest.Agent != "" && reconcile.IsWorkerOf(target, manifest.Agent) {
+		if target != "" && manifest.Agent != "" && isWorkerOf(target, manifest.Agent) {
 			// A stale manifest must not authorize a reused agent name in a
 			// different pane (the orchestrator could otherwise inherit an old
 			// tick-* name after Herdr released it). Exact pane evidence wins.
@@ -93,7 +107,7 @@ func ResolveRecordedTarget(repoRoot string, blocked wait.Result) (string, bool, 
 // caller's pane/name target otherwise. A pane id is a valid agent.prompt
 // target, which is important for an orchestrator whose agent name is not
 // recorded as a tick worker.
-func TargetFromResult(blocked wait.Result) string {
+func TargetFromResult(blocked Blocked) string {
 	target := strings.TrimSpace(blocked.AgentName)
 	if target == "" {
 		target = strings.TrimSpace(blocked.Name)
@@ -105,15 +119,15 @@ func TargetFromResult(blocked wait.Result) string {
 // terminal answer, and sends it back to the same Herdr target. It returns the
 // worker state that the outer wait should continue watching: working resumes
 // the existing wait, idle/done settle it, and blocked leaves it blocked.
-func Handle(ctx context.Context, controller Controller, blocked wait.Result, opts Options) (client.AgentStatus, error) {
+func Handle(ctx context.Context, controller Controller, blocked Blocked, opts Options) (herdclient.AgentStatus, error) {
 	if controller == nil {
-		return client.StatusBlocked, errors.New("herd/relay: no herdr controller")
+		return herdclient.StatusBlocked, errors.New("herd/relay: no herdr controller")
 	}
 	if strings.TrimSpace(opts.RepoRoot) == "" {
-		return client.StatusBlocked, errors.New("herd/relay: no repository root")
+		return herdclient.StatusBlocked, errors.New("herd/relay: no repository root")
 	}
 	if opts.Grace < 0 {
-		return client.StatusBlocked, errors.New("herd/relay: grace period cannot be negative")
+		return herdclient.StatusBlocked, errors.New("herd/relay: grace period cannot be negative")
 	}
 
 	target := TargetFromResult(blocked)
@@ -124,14 +138,14 @@ func Handle(ctx context.Context, controller Controller, blocked wait.Result, opt
 	tickID, tickErr := tickIDFromAgent(target)
 	if tickErr != nil {
 		if !opts.AllowUnscoped {
-			return client.StatusBlocked, tickErr
+			return herdclient.StatusBlocked, tickErr
 		}
 		return handleAgent(ctx, controller, blocked, target, engine, opts)
 	}
 	return handleTick(ctx, controller, blocked, target, tickID, engine, opts)
 }
 
-func handleTick(ctx context.Context, controller Controller, blocked wait.Result, target, tickID string, engine *operator.Engine, opts Options) (client.AgentStatus, error) {
+func handleTick(ctx context.Context, controller Controller, blocked Blocked, target, tickID string, engine *operator.Engine, opts Options) (herdclient.AgentStatus, error) {
 	now := time.Now()
 	pending, err := engine.Register(operator.Registration{
 		TickID:   tickID,
@@ -147,7 +161,7 @@ func handleTick(ctx context.Context, controller Controller, blocked wait.Result,
 		NotBefore: now.Add(opts.Grace),
 	})
 	if err != nil {
-		return client.StatusBlocked, fmt.Errorf("herd/relay: registering the blocked-agent question: %w", err)
+		return herdclient.StatusBlocked, fmt.Errorf("herd/relay: registering the blocked-agent question: %w", err)
 	}
 	if opts.OnPark != nil {
 		opts.OnPark(pending)
@@ -156,9 +170,9 @@ func handleTick(ctx context.Context, controller Controller, blocked wait.Result,
 	applied, err := engine.Await(ctx, pending.ID, opts.PollInterval)
 	if err != nil {
 		if errors.Is(err, context.DeadlineExceeded) {
-			return client.StatusBlocked, nil
+			return herdclient.StatusBlocked, nil
 		}
-		return client.StatusBlocked, fmt.Errorf("herd/relay: waiting for the answer to %s: %w", pending.ID, err)
+		return herdclient.StatusBlocked, fmt.Errorf("herd/relay: waiting for the answer to %s: %w", pending.ID, err)
 	}
 
 	outcome, answered := answerOutcome(applied)
@@ -166,7 +180,7 @@ func handleTick(ctx context.Context, controller Controller, blocked wait.Result,
 		if applied.OutOfBand {
 			return currentState(ctx, controller, target)
 		}
-		return client.StatusBlocked, nil
+		return herdclient.StatusBlocked, nil
 	}
 
 	answer := strings.TrimSpace(outcome.Text)
@@ -174,7 +188,7 @@ func handleTick(ctx context.Context, controller Controller, blocked wait.Result,
 		answer = strings.Join(outcome.OptionIDs, ", ")
 	}
 	if answer == "" {
-		return client.StatusBlocked, fmt.Errorf("herd/relay: operator answer to %s was empty", pending.ID)
+		return herdclient.StatusBlocked, fmt.Errorf("herd/relay: operator answer to %s was empty", pending.ID)
 	}
 
 	return prompt(ctx, controller, target, answer, opts.PromptTimeout)
@@ -184,7 +198,7 @@ func handleTick(ctx context.Context, controller Controller, blocked wait.Result,
 // orchestrator's question; the durable pending entry is correlated directly
 // to the Herdr target and is canceled if the operator handles the pane in the
 // terminal during the grace window.
-func handleAgent(ctx context.Context, controller Controller, blocked wait.Result, target string, engine *operator.Engine, opts Options) (client.AgentStatus, error) {
+func handleAgent(ctx context.Context, controller Controller, blocked Blocked, target string, engine *operator.Engine, opts Options) (herdclient.AgentStatus, error) {
 	pending, err := engine.RegisterAgentRelay(target, operator.Question{
 		Header: "Orchestrator blocked",
 		Text: fmt.Sprintf(
@@ -193,7 +207,7 @@ func handleAgent(ctx context.Context, controller Controller, blocked wait.Result
 		),
 	}, time.Now().Add(opts.Grace))
 	if err != nil {
-		return client.StatusBlocked, fmt.Errorf("herd/relay: registering the orchestrator question: %w", err)
+		return herdclient.StatusBlocked, fmt.Errorf("herd/relay: registering the orchestrator question: %w", err)
 	}
 	if opts.OnPark != nil {
 		opts.OnPark(pending)
@@ -206,12 +220,12 @@ func handleAgent(ctx context.Context, controller Controller, blocked wait.Result
 	for {
 		stored, loadErr := engine.Pending().Load(pending.ID)
 		if loadErr != nil {
-			return client.StatusBlocked, fmt.Errorf("herd/relay: waiting for the answer to %s: %w", pending.ID, loadErr)
+			return herdclient.StatusBlocked, fmt.Errorf("herd/relay: waiting for the answer to %s: %w", pending.ID, loadErr)
 		}
 		if stored.Resolved() {
 			applied, applyErr := engine.Apply(stored)
 			if applyErr != nil {
-				return client.StatusBlocked, fmt.Errorf("herd/relay: applying the answer to %s: %w", pending.ID, applyErr)
+				return herdclient.StatusBlocked, fmt.Errorf("herd/relay: applying the answer to %s: %w", pending.ID, applyErr)
 			}
 			outcome, answered := answerOutcome(applied)
 			if !answered {
@@ -222,16 +236,16 @@ func handleAgent(ctx context.Context, controller Controller, blocked wait.Result
 				answer = strings.Join(outcome.OptionIDs, ", ")
 			}
 			if answer == "" {
-				return client.StatusBlocked, fmt.Errorf("herd/relay: operator answer to %s was empty", pending.ID)
+				return herdclient.StatusBlocked, fmt.Errorf("herd/relay: operator answer to %s was empty", pending.ID)
 			}
 			return prompt(ctx, controller, target, answer, opts.PromptTimeout)
 		}
 
 		state, stateErr := currentState(ctx, controller, target)
 		if stateErr != nil {
-			return client.StatusBlocked, stateErr
+			return herdclient.StatusBlocked, stateErr
 		}
-		if state != client.StatusBlocked {
+		if state != herdclient.StatusBlocked {
 			// A terminal operator handled the pane directly. Resolve the durable
 			// question as moot so a consumer cannot deliver it after the grace
 			// deadline.
@@ -241,7 +255,7 @@ func handleAgent(ctx context.Context, controller Controller, blocked wait.Result
 				AnsweredAt: time.Now().UTC(),
 			})
 			if resolveErr != nil && !errors.Is(resolveErr, operator.ErrAlreadyResolved) {
-				return client.StatusBlocked, fmt.Errorf("herd/relay: canceling the terminal-handled question %s: %w", pending.ID, resolveErr)
+				return herdclient.StatusBlocked, fmt.Errorf("herd/relay: canceling the terminal-handled question %s: %w", pending.ID, resolveErr)
 			}
 			return state, nil
 		}
@@ -249,9 +263,9 @@ func handleAgent(ctx context.Context, controller Controller, blocked wait.Result
 		select {
 		case <-ctx.Done():
 			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-				return client.StatusBlocked, nil
+				return herdclient.StatusBlocked, nil
 			}
-			return client.StatusBlocked, ctx.Err()
+			return herdclient.StatusBlocked, ctx.Err()
 		case <-time.After(interval):
 		}
 	}
@@ -271,31 +285,31 @@ func answerOutcome(applied operator.Applied) (operator.Outcome, bool) {
 	return operator.Outcome{}, false
 }
 
-func currentState(ctx context.Context, controller Controller, target string) (client.AgentStatus, error) {
+func currentState(ctx context.Context, controller Controller, target string) (herdclient.AgentStatus, error) {
 	info, err := controller.AgentGet(ctx, target)
 	if err != nil {
-		return client.StatusBlocked, fmt.Errorf("herd/relay: checking %q after an out-of-band answer: %w", target, err)
+		return herdclient.StatusBlocked, fmt.Errorf("herd/relay: checking %q after an out-of-band answer: %w", target, err)
 	}
 	if info == nil {
-		return client.StatusBlocked, fmt.Errorf("herd/relay: Herdr returned no agent for %q", target)
+		return herdclient.StatusBlocked, fmt.Errorf("herd/relay: Herdr returned no agent for %q", target)
 	}
 	switch info.AgentStatus {
-	case client.StatusWorking, client.StatusIdle, client.StatusDone, client.StatusBlocked:
+	case herdclient.StatusWorking, herdclient.StatusIdle, herdclient.StatusDone, herdclient.StatusBlocked:
 		return info.AgentStatus, nil
 	default:
-		return client.StatusBlocked, fmt.Errorf("herd/relay: %q returned unknown status %q after an out-of-band answer", target, info.AgentStatus)
+		return herdclient.StatusBlocked, fmt.Errorf("herd/relay: %q returned unknown status %q after an out-of-band answer", target, info.AgentStatus)
 	}
 }
 
-func prompt(ctx context.Context, controller Controller, target, answer string, timeout time.Duration) (client.AgentStatus, error) {
+func prompt(ctx context.Context, controller Controller, target, answer string, timeout time.Duration) (herdclient.AgentStatus, error) {
 	if timeout <= 0 {
 		timeout = DefaultPromptTimeout
 	}
-	info, err := controller.AgentPrompt(ctx, client.AgentPromptParams{
+	info, err := controller.AgentPrompt(ctx, herdclient.AgentPromptParams{
 		Target: target,
 		Text:   answer,
-		Wait: &client.AgentWaitOptions{
-			Until:   []client.AgentStatus{client.StatusWorking},
+		Wait: &herdclient.AgentWaitOptions{
+			Until:   []herdclient.AgentStatus{herdclient.StatusWorking},
 			Timeout: timeout,
 		},
 	})
@@ -303,33 +317,33 @@ func prompt(ctx context.Context, controller Controller, target, answer string, t
 		// A short prompt confirmation can race a trivial answer or Herdr's
 		// stall detector. Match spawn's verified fallback: inspect the live
 		// state before declaring that the operator answer was lost.
-		if client.IsTimeout(err) || client.IsCode(err, client.CodeAgentPromptStalled) {
+		if herdclient.IsTimeout(err) || herdclient.IsCode(err, herdclient.CodeAgentPromptStalled) {
 			after, getErr := controller.AgentGet(ctx, target)
-			if getErr == nil && after.AgentStatus != client.StatusUnknown {
+			if getErr == nil && after.AgentStatus != herdclient.StatusUnknown {
 				return checkedState(target, after.AgentStatus)
 			}
 		}
-		return client.StatusBlocked, fmt.Errorf("herd/relay: sending the operator answer to %q: %w", target, err)
+		return herdclient.StatusBlocked, fmt.Errorf("herd/relay: sending the operator answer to %q: %w", target, err)
 	}
 	if info == nil {
-		return client.StatusBlocked, fmt.Errorf("herd/relay: Herdr returned no agent after prompting %q", target)
+		return herdclient.StatusBlocked, fmt.Errorf("herd/relay: Herdr returned no agent after prompting %q", target)
 	}
 	return checkedState(target, info.AgentStatus)
 }
 
-func checkedState(target string, state client.AgentStatus) (client.AgentStatus, error) {
+func checkedState(target string, state herdclient.AgentStatus) (herdclient.AgentStatus, error) {
 	switch state {
-	case client.StatusWorking, client.StatusIdle, client.StatusDone:
+	case herdclient.StatusWorking, herdclient.StatusIdle, herdclient.StatusDone:
 		return state, nil
-	case client.StatusBlocked:
-		return client.StatusBlocked, fmt.Errorf("herd/relay: %q is still blocked after the operator answer", target)
+	case herdclient.StatusBlocked:
+		return herdclient.StatusBlocked, fmt.Errorf("herd/relay: %q is still blocked after the operator answer", target)
 	default:
-		return client.StatusBlocked, fmt.Errorf("herd/relay: %q returned unknown status %q after prompting", target, state)
+		return herdclient.StatusBlocked, fmt.Errorf("herd/relay: %q returned unknown status %q after prompting", target, state)
 	}
 }
 
 func tickIDFromAgent(agent string) (string, error) {
-	base, _ := reconcile.SplitRespawn(agent)
+	base, _ := splitRespawn(agent)
 	if !strings.HasPrefix(base, "tick-") || len(base) == len("tick-") {
 		return "", fmt.Errorf("herd/relay: agent %q is not a tick worker; use a tick-<id> agent name", agent)
 	}

@@ -256,9 +256,9 @@ func runSandboxModel(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if sandboxModelTier != "" && !herdSpawnKnownTier(sandboxModelTier) {
+	if sandboxModelTier != "" && !knownTier(sandboxModelTier) {
 		return NewExitError(ExitUsage, "unknown --tier %q (want one of %s)",
-			sandboxModelTier, strings.Join(herdSpawnTierNames(), ", "))
+			sandboxModelTier, strings.Join(tierNames(), ", "))
 	}
 	var routed sandbox.RoutedModel
 	var err2 error

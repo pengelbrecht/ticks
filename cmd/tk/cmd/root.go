@@ -7,7 +7,6 @@ import (
 	"os"
 	"strconv"
 	"sync"
-	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -582,25 +581,6 @@ func ResetFlags() {
 	mergeDryRun = false
 	mergeYes = false
 
-	// Reset herd wait flags
-	herdWaitAgents = nil
-	herdWaitTimeout = defaultHerdWaitTimeoutMs
-	herdWaitSocket = ""
-	herdWaitJSON = false
-	herdWaitRelayAfter = 0
-
-	// Reset herd spawn flags
-	herdSpawnRole = "implement"
-	herdSpawnTier = ""
-	herdSpawnConfig = ""
-	herdSpawnSocket = ""
-	herdSpawnBase = ""
-	herdSpawnJSON = false
-	herdSpawnWait = false
-	herdSpawnStartupTimeout = defaultHerdSpawnStartupTimeoutMs
-	herdSpawnGateTimeout = defaultHerdSpawnGateTimeoutMs
-	herdSpawnPromptTimeout = defaultHerdSpawnPromptTimeoutMs
-
 	// Reset sandbox flags
 	sandboxRoot = ""
 	sandboxForce = false
@@ -613,35 +593,8 @@ func ResetFlags() {
 	sandboxPromptBranch = ""
 	sandboxPromptBase = ""
 
-	// Reset herd reconcile flags
-	herdReconcileEpic, herdReconcileConfig, herdReconcileSocket, herdReconcileJSON, herdReconcileAdopt = "", "", "", false, false
-
-	// Reset herd watch flags
-	watchClear = false
-	watchScope = ""
-	watchStatus = false
-	watchNudgeMax = 3
-	watchNudgeInterval = 2 * time.Minute
-
-	// Reset herd guard flags
-	guardSocket = ""
-	guardDryRun = false
-	guardJSON = false
-	// Reset herd collect flags
-	herdCollectEpic, herdCollectJSON = "", false
-
 	// Reset herd dashboard flags
 	herdDashboardEpic, herdDashboardSocket, herdDashboardInterval = "", "", defaultHerdDashboardIntervalMs
-
-	// Reset herd cleanup flags
-	herdCleanupEpic, herdCleanupSocket, herdCleanupJSON = "", "", false
-	herdCleanupPreview, herdCleanupApply = false, false
-
-	// Reset herd paint flags
-	herdPaintEpic, herdPaintTick, herdPaintSocket, herdPaintTTLMs, herdPaintSeq, herdPaintDryRun, herdPaintJSON = "", "", "", defaultHerdPaintTTLMs, 0, false, false
-
-	// Reset herd notify flags
-	herdNotifyEpic, herdNotifySocket, herdNotifyDryRun, herdNotifyJSON = "", "", false, false
 
 	// Reset board flags
 	boardPort = 3000
