@@ -2,10 +2,10 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 48,
-  "state": "running",
-  "reason": "3r2 is closed",
-  "updated_at": "2026-09-14T20:42:07Z",
+  "sequence": 49,
+  "state": "dispatching",
+  "reason": "dispatching gms as attempt 7",
+  "updated_at": "2026-09-14T20:42:19Z",
   "ticks": [
     {
       "tick_id": "azq",
