@@ -2,10 +2,10 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 10,
-  "state": "running",
-  "reason": "nkf is running as attempt 2",
-  "updated_at": "2026-09-14T17:36:52Z",
+  "sequence": 11,
+  "state": "failed",
+  "reason": "attempt 2 of nkf still reads running 1s past the wall clock of 3600s it was issued: its supervisor never settled it, and a pid that outlives its job is a number the host reuses. Nobody can say whether it is running; release it with `ticfac settle pwp nkf 2 --release \"<who>\"` once you have looked",
+  "updated_at": "2026-09-14T18:56:37Z",
   "ticks": [
     {
       "tick_id": "azq",
@@ -14,7 +14,7 @@
     },
     {
       "tick_id": "nkf",
-      "state": "dispatched",
+      "state": "rejected",
       "attempt": 2
     },
     {
