@@ -198,11 +198,12 @@ func referenced(c runStateContract, record string) bool {
 
 func TestContractIdentifiesItself(t *testing.T) {
 	c := load(t)
-	// 4.0.0: every record this contract places carries provenance, and
-	// provenance gained the tier field — a moved shape under the
-	// closed-records rule, so the contract's own version moved with it.
-	if c.SchemaVersion != 2 {
-		t.Errorf("schema_version = %d, want 2", c.SchemaVersion)
+	// 5.0.0: every record this contract places carries provenance, and
+	// provenance gained the substrate — protocol and server version — a moved
+	// shape under the closed-records rule, so the contract's own version moved
+	// with it.
+	if c.SchemaVersion != 3 {
+		t.Errorf("schema_version = %d, want 3", c.SchemaVersion)
 	}
 	if c.Contract != "ticfac.run_state" {
 		t.Errorf("contract = %q, want ticfac.run_state", c.Contract)

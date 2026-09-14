@@ -142,11 +142,11 @@ func decode(t *testing.T, raw json.RawMessage) any {
 func TestContractIdentity(t *testing.T) {
 	c := load(t)
 
-	// 4.0.0: the records themselves moved (provenance gained tier, the
-	// role-result envelope gained findings), which under the closed-records
-	// rule is a new file version, not an extension of the old one.
-	if c.SchemaVersion != 2 {
-		t.Errorf("schema_version = %d, want 2", c.SchemaVersion)
+	// 5.0.0: the records moved again (provenance gained the substrate —
+	// protocol and server version), which under the closed-records rule is a
+	// new file version, not an extension of the old one.
+	if c.SchemaVersion != 3 {
+		t.Errorf("schema_version = %d, want 3", c.SchemaVersion)
 	}
 	if c.Contract != Contract {
 		t.Errorf("contract = %q, want %q", c.Contract, Contract)
@@ -639,6 +639,7 @@ func TestEvidenceCarriesTheMinimalRecord(t *testing.T) {
 		"run_id", "tick_id", "attempt",
 		"source_ref", "source_sha", "integration_ref",
 		"phase", "executor", "workspace_id", "backend",
+		"substrate_protocol", "substrate_server_version",
 		"role", "tier", "profile_digest", "model", "context_manifest_digest",
 	} {
 		if !contains(provenance.Required, field) {
