@@ -9,8 +9,8 @@ import (
 	"strings"
 
 	"github.com/pengelbrecht/ticks/internal/herd/gitcmd"
-	"github.com/pengelbrecht/ticks/internal/herd/spawn"
 	"github.com/pengelbrecht/ticks/internal/herd/state"
+	"github.com/pengelbrecht/ticks/internal/workerprompt"
 )
 
 // Verdict is the structured answer for one worker.
@@ -145,7 +145,7 @@ func Collect(repoRoot string, m state.Manifest, manifestPath string) (Report, er
 	// that reported BLOCKED without committing says so here, and that is
 	// the most useful thing the operator can be told.
 	if m.Worktree != "" {
-		r.ResultPath = filepath.Join(m.Worktree, spawn.ResultFile(m.Tick))
+		r.ResultPath = filepath.Join(m.Worktree, workerprompt.ResultFile(m.Tick))
 		if body, err := os.ReadFile(r.ResultPath); err == nil {
 			r.ResultExists = true
 			r.Status, r.StatusDetail, r.StatusLine = ParseStatus(string(body))

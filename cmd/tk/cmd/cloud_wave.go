@@ -57,7 +57,7 @@ type cloudWaveVerb struct {
 // [orchestration].substrate itself, through cloudConfiguredSubstrate
 // (cloud_substrate.go) — a narrow, DUPLICATED reader, not the shared
 // package. See that file's header comment for why: this command leaves ticks
-// with the factory, internal/herd/config does not, and Go forbids an
+// with the factory, internal/runnersconfig does not, and Go forbids an
 // external module from importing another module's internal/ package.
 //
 // It is deliberately cheaper than the full decision procedure — the request

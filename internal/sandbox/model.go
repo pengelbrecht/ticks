@@ -4,7 +4,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/pengelbrecht/ticks/internal/herd/config"
+	"github.com/pengelbrecht/ticks/internal/runnersconfig"
 )
 
 // This file answers one question for a boot: which model does the orchestrator

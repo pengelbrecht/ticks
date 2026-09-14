@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	herdconfig "github.com/pengelbrecht/ticks/internal/herd/config"
 	"github.com/pengelbrecht/ticks/internal/herd/herdtest"
+	herdconfig "github.com/pengelbrecht/ticks/internal/runnersconfig"
 )
 
 // `tk sandbox` is how the cloud entrypoint reaches the repository's own

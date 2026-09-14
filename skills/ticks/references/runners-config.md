@@ -197,7 +197,7 @@ as the `Model` pattern `^@?[A-Za-z0-9][A-Za-z0-9_.+-]*(/@?[A-Za-z0-9][A-Za-z0-9_
 
 **A `:` is still rejected.** Effort is its own key; pi's `model:thinking` shorthand is what the spawner *emits*, never what the config carries.
 
-The pattern is enforced in four places that must agree — `runners-config.schema.json`, the Go loader (`internal/herd/config`), the Python reference validator (`scripts/verify-runners-config.py`, which reads the schema) and the pi extension (`extensions/ticks-runner/config.ts`) — because a file that one reader accepts and another rejects is worse than a file both refuse.
+The pattern is enforced in four places that must agree — `runners-config.schema.json`, the Go loader (`internal/runnersconfig`), the Python reference validator (`scripts/verify-runners-config.py`, which reads the schema) and the pi extension (`extensions/ticks-runner/config.ts`) — because a file that one reader accepts and another rejects is worse than a file both refuse.
 
 ### Shape versus compatibility
 

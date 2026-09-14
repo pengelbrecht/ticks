@@ -14,11 +14,12 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/pengelbrecht/ticks/internal/github"
-	herdconfig "github.com/pengelbrecht/ticks/internal/herd/config"
 	"github.com/pengelbrecht/ticks/internal/herd/spawn"
 	"github.com/pengelbrecht/ticks/internal/herd/state"
+	herdconfig "github.com/pengelbrecht/ticks/internal/runnersconfig"
 	"github.com/pengelbrecht/ticks/internal/sandbox"
 	"github.com/pengelbrecht/ticks/internal/tick"
+	"github.com/pengelbrecht/ticks/internal/workerprompt"
 )
 
 var (
@@ -254,7 +255,7 @@ func runHerdSpawn(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	prompt := spawn.BuildPrompt(spawn.PromptInput{
+	prompt := workerprompt.BuildPrompt(workerprompt.PromptInput{
 		TickID:      t.ID,
 		Title:       t.Title,
 		Description: t.Description,

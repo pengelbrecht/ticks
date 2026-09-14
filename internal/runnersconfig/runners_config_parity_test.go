@@ -19,7 +19,7 @@ import (
 // before a container exists to read anything.
 //
 // They were kept in sync by a comment saying "mirrored from
-// internal/herd/config/load.go" — the one Go/TS contract in this epic with no
+// internal/runnersconfig/load.go" — the one Go/TS contract in this epic with no
 // cross-implementation test, while the tracker layout and the worker boot
 // contract both have one. .tick/learnings.md records exactly why a comment is
 // not enough: each side stays internally consistent, so both suites stay green
@@ -31,7 +31,7 @@ import (
 // container at run time to an edit at test time. The cases live in a file the
 // other side reads too, so a rule changed here and not there fails over there.
 
-const runnersConfigContractFile = "../../../contracts/runners-config-contract.json"
+const runnersConfigContractFile = "../../contracts/runners-config-contract.json"
 
 type runnersConfigContract struct {
 	Image struct {

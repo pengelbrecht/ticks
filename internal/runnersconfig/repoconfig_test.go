@@ -20,7 +20,7 @@ func repoRootForTest(t *testing.T) string {
 	if !ok {
 		t.Fatal("runtime.Caller(0) failed; cannot locate the repo root")
 	}
-	root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", "..", ".."))
+	root := filepath.Clean(filepath.Join(filepath.Dir(file), "..", ".."))
 	if _, err := os.Stat(filepath.Join(root, "go.mod")); err != nil {
 		t.Fatalf("expected a go.mod at %s: %v", root, err)
 	}

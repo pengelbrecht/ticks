@@ -67,7 +67,7 @@ jobs:
             ./internal/factory/jobprotocol/... \
             ./internal/factory/runstate/... \
             ./internal/factory/lifecycle/... \
-            ./internal/herd/config/... \
+            ./internal/runnersconfig/... \
             ./internal/herd/collect/... \
             ./internal/cloud/collect/... \
             ./internal/sandbox/... \

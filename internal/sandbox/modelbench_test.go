@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/pengelbrecht/ticks/internal/herd/config"
+	"github.com/pengelbrecht/ticks/internal/runnersconfig"
 )
 
 // The Workers AI model choice (tick y45) is the inference half of what tick kuf

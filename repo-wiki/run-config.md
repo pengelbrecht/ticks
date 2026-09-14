@@ -1,7 +1,7 @@
 # Run config: `.tick/runners.toml` + `.tick/config.md`
 
 Owner docs: `skills/ticks/references/runners-config.md` (semantics),
-`runners-config.schema.json` (shape), `internal/herd/config` (Go loader),
+`runners-config.schema.json` (shape), `internal/runnersconfig` (Go loader),
 `extensions/ticks-runner/config.ts` (TS loader). Epic `48d`.
 
 ## One shape, one fallback
@@ -43,7 +43,7 @@ this repo migrated, installed `tk` 0.30.0 died on every `tk herd` command with
 Nothing was wrong with fail-closed unknown keys; the reader was simply older
 than the file and had no way to say so.
 
-The rules now, enforced in both readers (`internal/herd/config`, and
+The rules now, enforced in both readers (`internal/runnersconfig`, and
 `extensions/ticks-runner/config.ts` for pi):
 
 - A file carrying `[testing]`/`[evidence]`/`[environment]` is **version 2**
@@ -82,7 +82,7 @@ Two judgement calls worth knowing:
   to `[roles.implement]`. Dropping them keeps spawn behaviour byte-identical to
   pre-migration. A comment in `.tick/runners.toml` records this.
 
-Guarded by `internal/herd/config/repoconfig_test.go` (the migration is a no-op
+Guarded by `internal/runnersconfig/repoconfig_test.go` (the migration is a no-op
 on this repo's own files; every role×tier cell resolves and compiles) and
 `internal/skills/runconfig_docs_test.go` (no skill file presents the markdown
 sections as current; the fallback has exactly one home).
@@ -128,7 +128,7 @@ boot-side half (route selection, the one-token gateway probe, exit 7).
 
 ## `substrate = "cloud"` is a real value now (tick `ddv`)
 
-`Substrate` in `internal/herd/config/types.go` knew `herdr`, `harness` and
+`Substrate` in `internal/runnersconfig/types.go` knew `herdr`, `harness` and
 `auto`. That is why the Run Workflow's per-tick fan-out (tick `b6e`) triggers on
 a **submission** carrying `tick_ids` rather than on repo config: there was no
 config to read. The cost of the workaround was a repository whose declared

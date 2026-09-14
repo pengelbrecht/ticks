@@ -201,7 +201,7 @@ func WorkerBranch(epic, tick string) string {
 }
 
 // WorkerResultFile is the report a worker's branch must carry. It mirrors
-// internal/herd/spawn.ResultFile: the filename carries the tick id because
+// internal/workerprompt.ResultFile: the filename carries the tick id because
 // every worker of a wave branches from the same commit, and a shared name is
 // an add/add conflict on the second merge.
 func WorkerResultFile(tick string) string { return "RESULT-" + tick + ".md" }

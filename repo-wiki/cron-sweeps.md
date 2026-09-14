@@ -2,7 +2,7 @@
 
 Owner code: `cloud/factory/src/sweeps.ts` (policy + selection, pure),
 `cloud/factory/src/sweep-dispatch.ts` (frontier read, epic, submission,
-record), `internal/herd/config` (author-time validation). Tick `hye`, D14/D15,
+record), `internal/runnersconfig` (author-time validation). Tick `hye`, D14/D15,
 design doc UC7.
 
 ## What a sweep is
@@ -79,7 +79,7 @@ policy instead of a flag.
 ## Cross-language pins
 
 Three readers, two languages: `internal/tick` owns the record format,
-`internal/herd/config` validates the policy at author time, and
+`internal/runnersconfig` validates the policy at author time, and
 `cloud/factory/src/sweeps.ts` acts on both. The TypeScript reader is tolerant
 by design, so a Go rename would not throw — it would sweep from keys that are
 no longer there, quietly, on a schedule. Hence:
