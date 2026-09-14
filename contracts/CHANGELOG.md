@@ -45,6 +45,28 @@ precisely why it is the one the version exists to make loud.
 
 ---
 
+## 5.2.0
+
+MINOR. One contract added (ticfac tick u9l, epic av8); no existing fixture
+byte changed, so an unchanged consumer is still correct but no longer
+complete.
+
+- `run-event-feed.json` — the run event feed: one append-only JSONL stream per
+  run at `.ticfac/logs/<run-id>/events.jsonl`, written locally by the
+  reconciler, that a non-participant subscribes to — opens the file once and
+  follows the appends — to learn WHEN TO LOOK. Run/tick/attempt identity on
+  every line (`ticfac.run_event.v1`, closed, required-and-null where a claim
+  can be genuinely absent), golden and negative line documents.
+
+  It is deliberately not a record and not durable: the durable truth of a tick
+  stays the evidence on the integration branch — commits plus the report — and
+  the contract says so as a rule rather than a hope: a line means *worth
+  looking now, never the work is finished*, and a lost, late or untruthful
+  line changes no verdict. Consumers have nothing to DO — no existing schema
+  moved, no path the layout pins changed (the feed is exhaust under the
+  `.ticfac/logs/` entry `ticfac-run-state.json` already carries) — and a
+  consumer that wants to follow a run may add a reader.
+
 ## 1.0.0
 
 First cut. Freezes the nine contracts that already existed, unchanged, as
