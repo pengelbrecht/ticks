@@ -10,8 +10,11 @@
   "target": "",
   "tick_id": "nkf",
   "attempt": 3,
-  "status": "proposed",
+  "status": "promoted",
   "proposed_at": "2026-09-14T19:29:41Z",
+  "triaged_at": "2026-09-14T19:41:05Z",
+  "triaged_by": "claude:orchestrator",
+  "promoted_as": "gms",
   "provenance": {
     "run_id": "epic-pwp",
     "tick_id": "nkf",
