@@ -3,10 +3,10 @@
   "title": "Final review of the deletion diff",
   "description": "Review the full deletion diff. The checklist is what must SURVIVE, not what went: tk builds and its tests pass; internal/tkcontract is untouched; relay and dashboard still work and how they get run state is stated; no .tick/ read was left orphaned; and nothing was deleted that ticfac does not actually provide — check each removed command against its ticfac equivalent rather than trusting the plan. Verify a claimed defect against the base commit before any repair is built on it.",
   "notes": "2026-09-14 21:35 - CHECK THIS FIRST, found by the orchestrator on the epic branch after nkf's gate passed: the deletion left TWO herdr clients in this repository. internal/herd/client survives (21 files, still imported by cmd/tk/cmd/herd_shared.go and internal/herd/dashboard) alongside the NEW internal/herdclient (8 files, imported by internal/herd/relay and internal/runnersconfig). nkf's acceptance says internal/herd contains only relay and dashboard 'plus what they need', and dashboard does need a client — but the result is two clients where the epic exists to remove a duplicate, and ticfac has a third. Decide: point dashboard and herd_shared at internal/herdclient and delete internal/herd/client, or delete internal/herdclient and have relay use the existing one. Also still present: cmd/tk/cmd/herd_shared.go, which nkf listed for deletion. Note the gate cannot catch this — it proves the tree builds and tests, not that a duplicate is gone. internal/tkcontract is correctly untouched.",
-  "status": "open",
+  "status": "in_progress",
   "priority": 2,
   "type": "task",
-  "owner": "noreply@anthropic.com",
+  "owner": "ticfac",
   "blocked_by": [
     "nkf",
     "3r2"
@@ -15,5 +15,6 @@
   "role": "review",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-14T16:41:58.722844Z",
-  "updated_at": "2026-09-14T19:35:28.625484Z"
+  "updated_at": "2026-09-14T21:14:30.11728Z",
+  "started_at": "2026-09-14T21:14:30.117279Z"
 }
