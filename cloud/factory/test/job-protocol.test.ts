@@ -25,15 +25,22 @@ import { parseDefs, parseSchema, validate, type Defs, type Schema } from "./json
  * that has quietly stopped checking the thing the case was written about.
  */
 
-/** The seven records, and the schema_id each one publishes. */
+/**
+ * The seven records, and the schema_id each one publishes. 4.0.0 moved the two
+ * closed records that changed shape: evidence (provenance gained `tier`) and
+ * role_result (the findings channel became a first-class field); 5.0.0 moved
+ * evidence again (provenance gained the substrate — protocol and server
+ * version) — under the closed-records rule that is a new schema_id, not a new
+ * field on the old one.
+ */
 const SCHEMA_IDS: Record<string, string> = {
   job_spec: "ticfac.job-spec.v1",
   job_handle: "ticfac.job-handle.v1",
   job_status: "ticfac.job-status.v1",
   cancel_ack: "ticfac.cancel-ack.v1",
   job_result: "ticfac.job-result.v1",
-  role_result: "ticfac.role-result.v1",
-  evidence: "ticfac.evidence.v1",
+  role_result: "ticfac.role-result.v2",
+  evidence: "ticfac.evidence.v3",
 };
 
 /** The one golden example that is SPEC §4.3's printed JobSpec byte for byte. */
@@ -64,7 +71,10 @@ function def(name: string): Schema {
 
 describe("the job protocol contract is what a consumer can pin", () => {
   it("declares its version and name", () => {
-    expect(contract.schema_version).toBe(1);
+    // 5.0.0: the records moved again (provenance gained the substrate —
+    // protocol and server version), which under the closed-records rule is a
+    // new file version rather than an extension of the old one.
+    expect(contract.schema_version).toBe(3);
     expect(contract.contract).toBe("ticfac.job-protocol");
   });
 
@@ -291,6 +301,30 @@ describe("the role result stays on the vocabulary this repository already has", 
   });
 });
 
+describe("the role result carries the findings channel", () => {
+  // 4.0.0: a worker's typed discoveries outside its tick are part of the
+  // ENVELOPE, so the closed five fields are validated here rather than trusted
+  // from `result`'s open payload — the state ticfac's tick 7vn shipped with
+  // the field riding in `result`, waiting for this bump.
+  it("requires findings, as an array of $defs.finding", () => {
+    const role = resolved("role_result");
+    expect(role.required).toContain("findings");
+    expect(role.properties?.findings.items?.$ref).toBe("#/$defs/finding");
+    // The bump is real: a v1 envelope is refused by name, which is what makes
+    // "findings in the open payload" a retired state rather than a tolerated
+    // one. The negative example pins the message; this pins the enum.
+    expect(role.properties?.schema_version.enum).toEqual([2]);
+  });
+
+  it("pins the finding record closed, with its vocabularies", () => {
+    const finding = def("finding");
+    expect(finding.required).toEqual(["kind", "title", "body", "severity", "target"]);
+    expect(finding.properties?.kind.enum).toEqual(["proposed-tick", "upstream-tick", "contract", "defect"]);
+    expect(finding.properties?.severity.enum).toEqual(["low", "medium", "high"]);
+    expect(finding.additionalProperties).toBe(false);
+  });
+});
+
 describe("the evidence record carries SPEC §10.1's minimum", () => {
   it("requires its own fields, including the key that is also its filename", () => {
     const minimal = [
@@ -333,7 +367,17 @@ describe("the evidence record carries SPEC §10.1's minimum", () => {
         "executor",
         "workspace_id",
         "backend",
+        // 5.0.0: the substrate this dispatch ran on — its protocol version
+        // and the server version observed at the handshake — the pair that
+        // makes a run spanning a substrate upgrade diagnosable from
+        // provenance alone.
+        "substrate_protocol",
+        "substrate_server_version",
         "role",
+        // 4.0.0: the tier this dispatch was derived under — the rung of the
+        // runners-config [tier_policy] ladder that routed the model, which
+        // until this bump an over-tiered run could not be audited from.
+        "tier",
         "profile_digest",
         "model",
         "context_manifest_digest",

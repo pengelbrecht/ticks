@@ -1,0 +1,228 @@
+{
+  "why": [
+    "Nothing outside a run could learn that it finished. A worker drove a real",
+    "run in the background and then slept blind in a loop — fifteen minutes of",
+    "waiting for runs that finished in seconds — and an orchestrator wrote",
+    "three hand-rolled watchers that were each wrong in a different way,",
+    "because the only observables were guessing an interval or watching a file,",
+    "and both were used badly (ticfac tick u9l, epic av8; the backlog's run",
+    "feed, ticfac tick n0r, proposed for dashboards and independently",
+    "motivated by a worker and an orchestrator both waiting badly).",
+    "",
+    "This contract pins the third option: one append-only JSONL event stream",
+    "per run, written locally under the run-state root, that a NON-PARTICIPANT",
+    "can subscribe to — open the file once and follow the appends — and learn",
+    "WHEN TO LOOK. It is the reconciler's journal made readable while the run",
+    "is live: the same stages, the same order, with run/tick/attempt identity",
+    "on every line so a line can never be mistaken for a verdict.",
+    "",
+    "It is deliberately NOT a record and NOT durable. The durable truth of a",
+    "tick is the evidence on the integration branch — commits plus the report",
+    "with its STATUS line — and the feed exists so nobody polls that truth or",
+    "sleeps against it. A feed line is a hint about when to look; it is never",
+    "evidence about what happened. That division is the whole design."
+  ],
+  "schema_version": 1,
+  "contract": "ticfac.run_event_feed",
+  "spec": "docs/projects/2026-09-01-ticfac-architecture/SPEC.md",
+  "spec_sections": ["9", "10.4"],
+
+  "layout": {
+    "path": ".ticfac/logs/<run-id>/events.jsonl",
+    "committed": false,
+    "rebuildable": false,
+    "cardinality": "exactly one per run",
+    "written_by": "the reconciler, one line per journal event, at the moment the event happens",
+    "classified_by": "contracts/ticfac-run-state.json layout.entries — the `.ticfac/logs/` entry. The feed is exhaust, not a record: it is covered by that contract's gitignore fragment, and it never lands on the integration branch.",
+    "host_path_is": "<run-id> is the run's own id, the same one that names .ticfac/runs/<run-id>/, so a subscriber that knows a run's id knows where its feed is without asking the run"
+  },
+
+  "identity": {
+    "every_line_carries": ["run_id", "tick_id", "attempt"],
+    "run_id_is": "the run's id, the same one that names the run directory and the run tag",
+    "tick_id_is": "null for run-level events (the run finished, the run resumed); a tick id for everything a tick passed through",
+    "attempt_is": "null before the tick's first dispatch is recorded and for run-level events; the 1-based attempt number otherwise",
+    "required_and_null": "tick_id and attempt are required-and-null rather than omittable, for the same reason every nullable provenance field is: a line that omits tick_id and one that states it as null are different claims, and only the second is a claim at all.",
+    "attempt_is_1_based": "The schema subset has no minimum, so the readers check it beyond the schema: an integer attempt below 1 is refused by both, as an event that claims an attempt that was never dispatched."
+  },
+
+  "append_only": {
+    "lines_are_only_ever_appended": true,
+    "a_line_is_never_rewritten_or_removed": true,
+    "one_json_object_per_line": true,
+    "newline_terminated": true,
+    "a_reader_resumes_from": "the byte offset it stopped at",
+    "why": [
+      "A subscriber must be able to miss nothing: follow the file from offset",
+      "zero, or from the offset a previous session remembered, and the lines",
+      "between are the events that happened while nobody watched.",
+      "A rewritten line is a feed a dashboard cannot trust, and a feed nobody",
+      "trusts is one more hand-rolled watcher waiting to be wrong."
+    ]
+  },
+
+  "subscribe": {
+    "how": "Open the file and follow the appends — read to the end, then each new line as it lands. The follower's own read cadence is an implementation detail of the follower, not a guess about the work; the subscriber never names an interval and never decides anything on one.",
+    "a_line_means": "worth looking now, never 'the work is finished' — the rule tk herd wait's own documentation states, observed exactly: it reported three agents settled while two had zero commits and no report.",
+    "completion_is_decided_by": "durable evidence alone: the commits on the attempt branch plus the report with its STATUS line (ticfac tick 2xu). The feed is not in that list and must never be added to it.",
+    "a_lost_or_late_or_untruthful_line": "changes no verdict. A record written by the thing that may be gone is not evidence of its liveness (Appendix A2): the signal wakes, the evidence decides, and a lost signal is then harmless.",
+    "why_not_pushed": "The feed is local exhaust at the run's write cadence, like the rest of .ticfac/logs/. A hosted mirror is a subscriber like any other — publish to one by following this file, never by making the run push to it."
+  },
+
+  "boundary": {
+    "only_writer": "the reconciler",
+    "workers_write": false,
+    "non_participants_may": "read and follow",
+    "is_authority": false,
+    "why": "One writer per run, because two append-only feeds interleaved is neither append-only nor a feed. Workers and non-participants read; a worker that could write its own 'done' line could write a lie, and the whole point of the evidence boundary is that nobody's say-so is the verdict."
+  },
+
+  "records": {
+    "feed_event": {
+      "schema_id": "ticfac.run_event.v1",
+      "schema": {
+      "type": "object",
+      "description": "One line of the run event feed. Closed: a field this schema does not name is a field no reader parses, and a feed that grows a field nobody versioned is a feed that breaks its subscribers silently. `at` is RFC3339 and `attempt` is 1-based — both are checked beyond the schema, because the subset has neither format nor minimum.",
+      "required": ["schema_version", "at", "run_id", "tick_id", "attempt", "stage", "detail"],
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "type": "integer",
+          "enum": [1],
+          "description": "The line schema's version. A subscriber that meets a schema_version it does not know refuses the line rather than guessing at it."
+        },
+        "at": {
+          "type": "string",
+          "description": "RFC3339. When the event happened, stamped by the writer at the moment it did."
+        },
+        "run_id": {
+          "type": "string",
+          "description": "The run's id — the identity that names .ticfac/runs/<run-id>/ and ticfac/run-<run-id>."
+        },
+        "tick_id": {
+          "anyOf": [{ "type": "string" }, { "type": "null" }],
+          "description": "Null for run-level events. Required-and-null rather than omitted."
+        },
+        "attempt": {
+          "anyOf": [{ "type": "integer" }, { "type": "null" }],
+          "description": "The 1-based attempt number the event belongs to. Null before the tick's first dispatch is recorded and for run-level events."
+        },
+        "stage": {
+          "type": "string",
+          "description": "The journal stage — dispatched, settled, collected, run_finished — the ordered vocabulary a tick passes through."
+        },
+        "detail": {
+          "type": "string",
+          "description": "Human-readable, and deliberately last: it is the line a person reads, not a field a program parses."
+        }
+      }
+      }
+    }
+  },
+
+  "golden": {
+    "feed_event": {
+      "schema_version": 1,
+      "at": "2026-09-14T12:00:00Z",
+      "run_id": "epic-av8",
+      "tick_id": "u9l",
+      "attempt": 1,
+      "stage": "dispatched",
+      "detail": "attempt 1 started as job-7f2a"
+    },
+    "feed_event_run_level": {
+      "schema_version": 1,
+      "at": "2026-09-14T12:41:03Z",
+      "run_id": "epic-av8",
+      "tick_id": null,
+      "attempt": null,
+      "stage": "run_finished",
+      "detail": "completed: every tick closed behind the gate"
+    }
+  },
+
+  "invalid": [
+    {
+      "record": "feed_event",
+      "why": "no run_id — a line without run identity is a line a multi-run dashboard cannot place, which is the one thing the identity on every line exists to prevent",
+      "expect_error_contains": "$: missing required property \"run_id\"",
+      "document": {
+        "schema_version": 1,
+        "at": "2026-09-14T12:00:00Z",
+        "tick_id": "u9l",
+        "attempt": 1,
+        "stage": "dispatched",
+        "detail": "attempt 1 started as job-7f2a"
+      }
+    },
+    {
+      "record": "feed_event",
+      "why": "tick_id omitted rather than null — required-and-null is the rule, because 'no tick' and 'the tick was not recorded' are different claims",
+      "expect_error_contains": "$: missing required property \"tick_id\"",
+      "document": {
+        "schema_version": 1,
+        "at": "2026-09-14T12:41:03Z",
+        "run_id": "epic-av8",
+        "attempt": null,
+        "stage": "run_finished",
+        "detail": "completed: every tick closed behind the gate"
+      }
+    },
+    {
+      "record": "feed_event",
+      "why": "attempt omitted rather than null — same rule, same reason",
+      "expect_error_contains": "$: missing required property \"attempt\"",
+      "document": {
+        "schema_version": 1,
+        "at": "2026-09-14T12:00:00Z",
+        "run_id": "epic-av8",
+        "tick_id": null,
+        "stage": "run_finished",
+        "detail": "completed: every tick closed behind the gate"
+      }
+    },
+    {
+      "record": "feed_event",
+      "why": "an unversioned extra field — the schema is closed, because a feed that grows a field no subscriber versioned is a feed that breaks silently",
+      "expect_error_contains": "$: unexpected property \"cost_usd\"",
+      "document": {
+        "schema_version": 1,
+        "at": "2026-09-14T12:00:00Z",
+        "run_id": "epic-av8",
+        "tick_id": "u9l",
+        "attempt": 1,
+        "stage": "collected",
+        "detail": "verdict done",
+        "cost_usd": 1.24
+      }
+    },
+    {
+      "record": "feed_event",
+      "why": "attempt as a string — the identity fields are machine-read by every subscriber, and a string in one of them is a dashboard that sorts attempts alphabetically",
+      "expect_error_contains": "$.attempt: value matches none of the anyOf alternatives",
+      "document": {
+        "schema_version": 1,
+        "at": "2026-09-14T12:00:00Z",
+        "run_id": "epic-av8",
+        "tick_id": "u9l",
+        "attempt": "1",
+        "stage": "dispatched",
+        "detail": "attempt 1 started as job-7f2a"
+      }
+    },
+    {
+      "record": "feed_event",
+      "why": "a schema_version the feed has never carried — a subscriber that meets an unknown version refuses the line rather than guessing at it, and the fixture holds the readers to that",
+      "expect_error_contains": "$.schema_version: 2 is not one of the permitted values",
+      "document": {
+        "schema_version": 2,
+        "at": "2026-09-14T12:00:00Z",
+        "run_id": "epic-av8",
+        "tick_id": "u9l",
+        "attempt": 1,
+        "stage": "dispatched",
+        "detail": "attempt 1 started as job-7f2a"
+      }
+    }
+  ]
+}
