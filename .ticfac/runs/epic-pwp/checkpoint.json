@@ -2,10 +2,10 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 61,
-  "state": "dispatching",
-  "reason": "dispatching sx5 as attempt 9",
-  "updated_at": "2026-09-14T21:14:22Z",
+  "sequence": 62,
+  "state": "running",
+  "reason": "sx5 is running as attempt 9",
+  "updated_at": "2026-09-14T21:14:38Z",
   "ticks": [
     {
       "tick_id": "azq",
@@ -24,7 +24,8 @@
     },
     {
       "tick_id": "sx5",
-      "state": "ready"
+      "state": "dispatched",
+      "attempt": 9
     },
     {
       "tick_id": "8vl",
