@@ -2,10 +2,10 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 64,
-  "state": "publishing",
-  "reason": "closing sx5 behind its validated review-epic answer",
-  "updated_at": "2026-09-14T21:30:12Z",
+  "sequence": 65,
+  "state": "failed",
+  "reason": "sx5 reported 5 finding(s) nobody has triaged — \"tk herd --help still advertises the deleted spawn/wait/collect command family\" (proposed-tick, for this repository); \"ticfac should own the operator surfaces tk dropped without replacement: factory webhook, herdr paint/notify\" (upstream-tick, for pengelbrecht/ticfac); \"Ship-or-remove: plugins/herdr-ticks calls deleted tk herd commands\" (proposed-tick, for this repository); \"Decide who writes .tick/logs/herd manifests, or re-point the three readers left on a dead contract\" (proposed-tick, for this repository); \"Consolidate the two herdr clients the deletion epic left behind\" (proposed-tick, for this repository) — and the tick is NOT closed: a finding that falls on the floor is the failure this gate exists to stop. Triage each with `ticfac finding pwp 104a2589f452e26cad4f703ab9bf2ec755e33b8d0c0346ee6da6ffe9b6a3b069|5f815cfb1e66d2fc208a12b8a4d88da00e93d21861f34369318397d1a10aac08|6e5495e54bfae823f9b3dc12cae435d018df5fcc0d21c8ca6b5c86fb15468837|8c37e11784c8a6538fe138e4d5957483a640a8d9a3c98c0ac58063730d0e913e|ddfae7c378c4a129b2d1874ff0c42677724ae3e4e68a15cb00ae0332d64f7454 --promote-as <tick> --by \"<who>\"` (promote into the repository it targets) or `ticfac finding pwp 104a2589f452e26cad4f703ab9bf2ec755e33b8d0c0346ee6da6ffe9b6a3b069|5f815cfb1e66d2fc208a12b8a4d88da00e93d21861f34369318397d1a10aac08|6e5495e54bfae823f9b3dc12cae435d018df5fcc0d21c8ca6b5c86fb15468837|8c37e11784c8a6538fe138e4d5957483a640a8d9a3c98c0ac58063730d0e913e|ddfae7c378c4a129b2d1874ff0c42677724ae3e4e68a15cb00ae0332d64f7454 --discard --by \"<who>\"`, then run the epic again under this run id: the gate has already passed, so the close is the only step left. The drafts are key 104a2589f452e26cad4f703ab9bf2ec755e33b8d0c0346ee6da6ffe9b6a3b069, 5f815cfb1e66d2fc208a12b8a4d88da00e93d21861f34369318397d1a10aac08, 6e5495e54bfae823f9b3dc12cae435d018df5fcc0d21c8ca6b5c86fb15468837, 8c37e11784c8a6538fe138e4d5957483a640a8d9a3c98c0ac58063730d0e913e, ddfae7c378c4a129b2d1874ff0c42677724ae3e4e68a15cb00ae0332d64f7454 under .ticfac/runs/epic-pwp/findings/ on origin",
+  "updated_at": "2026-09-14T21:30:18Z",
   "ticks": [
     {
       "tick_id": "azq",
@@ -24,7 +24,7 @@
     },
     {
       "tick_id": "sx5",
-      "state": "reported",
+      "state": "rejected",
       "attempt": 9
     },
     {
