@@ -1,0 +1,14 @@
+{
+  "id": "azq",
+  "title": "Cut the dependencies that block the deletions",
+  "description": "Cut the three small dependencies that make the bigger deletions impossible, and\ndelete nothing else. This tick is the one that unblocks the rest.\n\nThree call sites reach into packages that are going away, for one small thing\neach:\n\n1. `cmd/tk/cmd/frontier.go:239` calls `herdcollect.ParseStatus` to read a STATUS\n   line out of a report body. That is a four-line string function, not a reason\n   to keep the collect package. Move it somewhere frontier owns, or inline it.\n2. `internal/sandbox` imports `internal/herd/collect`, `internal/herd/config`\n   and `internal/herd/spawn`. Sandbox is NOT being retired. Find what it\n   actually uses from each — the earlier survey counted 21 exported identifiers\n   from config alone — and give it a home that survives. `config` in particular\n   is the run-config reader; ticfac has its own copy now, so decide whether\n   ticks keeps one for sandbox or sandbox stops needing it.\n3. Anything else `go build ./...` finds once those two are done.\n\nDo NOT delete any package in this tick. The deletions are irreversible and `tk`\nmust build and test green at every step; this tick exists so the next ones can\ndelete without a compile error deciding the design under time pressure.",
+  "status": "open",
+  "priority": 1,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "pwp",
+  "acceptance_criteria": "No file outside internal/herd imports internal/herd/collect, internal/herd/spawn or internal/herd/config, except the herd commands in cmd/tk that are themselves being retired; internal/sandbox builds and passes with no dependency on a retiring package, and where its needs went is stated; frontier reads a report's STATUS without importing collect; go build ./... and go test -short -count=1 ./... green; NOTHING is deleted in this tick.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-14T16:41:22.152935Z",
+  "updated_at": "2026-09-14T16:41:22.152935Z"
+}
