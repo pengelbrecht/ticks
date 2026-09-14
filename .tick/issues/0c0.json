@@ -1,0 +1,13 @@
+{
+  "id": "0c0",
+  "title": "repo-wiki pages still document the deleted tk herd commands",
+  "description": "Discovered by the pwp deletion epic (worker on tick gms, attempt 8) while updating skills/ticks docs.\n\nThe repo wiki still carries pages describing the tk herd command family that pwp deleted: herd-helper-cli.md and others. A reader following the wiki will try commands that no longer exist.\n\nScope: sweep the wiki pages for references to tk herd spawn/wait/collect/reconcile/cleanup/notify/paint/watch/plugin and either delete the page or rewrite it to point at ticfac, matching what gms did for skills/ticks.\n\nVerification: grep the wiki source for 'tk herd' returns no hits describing live commands.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "No repo-wiki page documents a tk herd subcommand as a live command; a grep for 'tk herd' across the wiki source returns only historical references explicitly marked as removed",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-14T21:09:07.384654Z",
+  "updated_at": "2026-09-14T21:09:07.384654Z"
+}

@@ -2442,3 +2442,4 @@
 {"ts":"2026-09-14T19:39:40.338096Z","tick":"os6","action":"create","actor":"claude:orchestrator","epic":"pwp","data":{"priority":1,"title":"Redesign internal/herd/dashboard to stop depending on deleted execution state, or move it to ticfac","type":"task"}}
 {"ts":"2026-09-14T19:39:40.364566Z","tick":"hvj","action":"create","actor":"claude:orchestrator","epic":"pwp","data":{"priority":1,"title":"Add a thin tk-side caller for internal/herd/relay now that herd_wait.go is gone","type":"task"}}
 {"ts":"2026-09-14T19:39:40.390267Z","tick":"gms","action":"create","actor":"claude:orchestrator","epic":"pwp","data":{"priority":2,"title":"skills/ticks docs still document the deleted tk herd commands","type":"task"}}
+{"ts":"2026-09-14T21:09:07.38537Z","tick":"0c0","action":"create","actor":"claude:orchestrator","data":{"priority":2,"title":"repo-wiki pages still document the deleted tk herd commands","type":"task"}}
