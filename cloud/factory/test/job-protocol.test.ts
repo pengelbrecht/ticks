@@ -28,8 +28,10 @@ import { parseDefs, parseSchema, validate, type Defs, type Schema } from "./json
 /**
  * The seven records, and the schema_id each one publishes. 4.0.0 moved the two
  * closed records that changed shape: evidence (provenance gained `tier`) and
- * role_result (the findings channel became a first-class field) — under the
- * closed-records rule that is a new schema_id, not a new field on the old one.
+ * role_result (the findings channel became a first-class field); 5.0.0 moved
+ * evidence again (provenance gained the substrate — protocol and server
+ * version) — under the closed-records rule that is a new schema_id, not a new
+ * field on the old one.
  */
 const SCHEMA_IDS: Record<string, string> = {
   job_spec: "ticfac.job-spec.v1",
@@ -38,7 +40,7 @@ const SCHEMA_IDS: Record<string, string> = {
   cancel_ack: "ticfac.cancel-ack.v1",
   job_result: "ticfac.job-result.v1",
   role_result: "ticfac.role-result.v2",
-  evidence: "ticfac.evidence.v2",
+  evidence: "ticfac.evidence.v3",
 };
 
 /** The one golden example that is SPEC §4.3's printed JobSpec byte for byte. */
@@ -69,10 +71,10 @@ function def(name: string): Schema {
 
 describe("the job protocol contract is what a consumer can pin", () => {
   it("declares its version and name", () => {
-    // 4.0.0: the records themselves moved (provenance gained tier, the
-    // role-result envelope gained findings), which under the closed-records
-    // rule is a new file version rather than an extension of the old one.
-    expect(contract.schema_version).toBe(2);
+    // 5.0.0: the records moved again (provenance gained the substrate —
+    // protocol and server version), which under the closed-records rule is a
+    // new file version rather than an extension of the old one.
+    expect(contract.schema_version).toBe(3);
     expect(contract.contract).toBe("ticfac.job-protocol");
   });
 
@@ -365,6 +367,12 @@ describe("the evidence record carries SPEC §10.1's minimum", () => {
         "executor",
         "workspace_id",
         "backend",
+        // 5.0.0: the substrate this dispatch ran on — its protocol version
+        // and the server version observed at the handshake — the pair that
+        // makes a run spanning a substrate upgrade diagnosable from
+        // provenance alone.
+        "substrate_protocol",
+        "substrate_server_version",
         "role",
         // 4.0.0: the tier this dispatch was derived under — the rung of the
         // runners-config [tier_policy] ladder that routed the model, which
