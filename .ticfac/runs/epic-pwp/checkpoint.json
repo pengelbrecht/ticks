@@ -2,14 +2,14 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 7,
-  "state": "publishing",
-  "reason": "closing azq behind the integrated gate on 3df5ea6a2d83",
-  "updated_at": "2026-09-14T17:36:00Z",
+  "sequence": 8,
+  "state": "running",
+  "reason": "azq is closed",
+  "updated_at": "2026-09-14T17:36:18Z",
   "ticks": [
     {
       "tick_id": "azq",
-      "state": "integrated",
+      "state": "closed",
       "attempt": 1
     },
     {
