@@ -2,10 +2,10 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 17,
-  "state": "integrating",
-  "reason": "integrating nkf attempt 3 into epic/pwp",
-  "updated_at": "2026-09-14T19:30:07Z",
+  "sequence": 18,
+  "state": "gating",
+  "reason": "running the integrated gate for nkf on 0527106f8c56",
+  "updated_at": "2026-09-14T19:30:24Z",
   "ticks": [
     {
       "tick_id": "azq",
@@ -14,7 +14,7 @@
     },
     {
       "tick_id": "nkf",
-      "state": "reported",
+      "state": "integrated",
       "attempt": 3
     },
     {
