@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/pengelbrecht/ticks/internal/herd/client"
+	"github.com/pengelbrecht/ticks/internal/herdclient"
 )
 
 // EnvVar is the environment variable herdr exports inside a managed pane. The
@@ -21,7 +21,7 @@ const EnvValue = "1"
 // SocketEnvVar is the environment variable holding the socket path herdr's
 // server is listening on, re-exported from the client package so callers of
 // this package need not import both.
-const SocketEnvVar = client.SocketPathEnv
+const SocketEnvVar = herdclient.SocketPathEnv
 
 // DefaultProbeTimeout bounds the socket probe. It is deliberately short: a
 // stale socket file can be connectable yet never answer, and the availability
@@ -117,7 +117,7 @@ func (d DefaultProber) ProbeSocket(ctx context.Context, socketPath string) Probe
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	c, err := client.New(ctx, client.Options{
+	c, err := herdclient.New(ctx, herdclient.Options{
 		SocketPath:  socketPath,
 		DialTimeout: timeout,
 		CallTimeout: timeout,
@@ -352,7 +352,7 @@ func ResolveSocket(cfg *Config) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return client.ResolveSocketPath(explicit)
+	return herdclient.ResolveSocketPath(explicit)
 }
 
 func expandHome(path string) (string, error) {
@@ -364,7 +364,7 @@ func expandHome(path string) (string, error) {
 	}
 	home, err := os.UserHomeDir()
 	if err != nil || home == "" {
-		return "", client.ErrNoHomeDir
+		return "", herdclient.ErrNoHomeDir
 	}
 	if path == "~" {
 		return home, nil
