@@ -596,6 +596,10 @@ func ResetFlags() {
 	// Reset herd dashboard flags
 	herdDashboardEpic, herdDashboardSocket, herdDashboardInterval = "", "", defaultHerdDashboardIntervalMs
 
+	// Reset herd relay flags
+	herdRelayAgent, herdRelayPane, herdRelaySocket = "", "", ""
+	herdRelayGrace, herdRelayTimeout = 0, defaultHerdRelayTimeout
+
 	// Reset board flags
 	boardPort = 3000
 	boardCloud = false
