@@ -2439,3 +2439,4 @@
 {"ts":"2026-09-14T16:42:02.801265Z","tick":"8vl","action":"block","actor":"claude:orchestrator","epic":"pwp","data":{"blockers":["sx5"],"title":"Close out the deletion: retro, and confirm ticfac ran it"}}
 {"ts":"2026-09-14T17:11:20.563914Z","tick":"azq","action":"start","actor":"ticfac","epic":"pwp","data":{"title":"Cut the dependencies that block the deletions"}}
 {"ts":"2026-09-14T17:36:06.687884Z","tick":"azq","action":"note","actor":"ticfac","epic":"pwp","data":{"note":"2026-09-14 19:36 - ticfac run epic-pwp: attempt 1 merged into epic/pwp as 3df5ea6a2d83; the integrated gate (go, pi-runner) passed.","title":"Cut the dependencies that block the deletions"}}
+{"ts":"2026-09-14T17:36:13.276003Z","tick":"azq","action":"close","actor":"ticfac","epic":"pwp","data":{"title":"Cut the dependencies that block the deletions"}}
