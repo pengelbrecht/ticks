@@ -2,10 +2,10 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 25,
-  "state": "running",
-  "reason": "hvj is running as attempt 4",
-  "updated_at": "2026-09-14T19:42:03Z",
+  "sequence": 26,
+  "state": "collecting",
+  "reason": "collecting hvj attempt 4",
+  "updated_at": "2026-09-14T19:49:34Z",
   "ticks": [
     {
       "tick_id": "azq",
