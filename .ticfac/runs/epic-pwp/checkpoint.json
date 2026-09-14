@@ -2,14 +2,15 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 2,
-  "state": "dispatching",
-  "reason": "dispatching azq as attempt 1",
-  "updated_at": "2026-09-14T17:11:10Z",
+  "sequence": 3,
+  "state": "running",
+  "reason": "azq is running as attempt 1",
+  "updated_at": "2026-09-14T17:11:30Z",
   "ticks": [
     {
       "tick_id": "azq",
-      "state": "ready"
+      "state": "dispatched",
+      "attempt": 1
     },
     {
       "tick_id": "nkf",
