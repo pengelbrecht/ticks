@@ -2,10 +2,10 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 32,
-  "state": "gating",
-  "reason": "running the integrated gate for nkf on 889d9b3033fc",
-  "updated_at": "2026-09-14T19:54:57Z",
+  "sequence": 33,
+  "state": "publishing",
+  "reason": "closing nkf behind the integrated gate on 889d9b3033fc",
+  "updated_at": "2026-09-14T19:59:06Z",
   "ticks": [
     {
       "tick_id": "azq",
