@@ -131,9 +131,10 @@ const schemas: Record<string, Schema> = Object.fromEntries(
 
 describe("the .ticfac/ run-state contract identifies itself", () => {
   it("is the contract this reader was written against", () => {
-    // 4.0.0: every record this contract places carries provenance, which
-    // gained the tier field — a moved shape under the closed-records rule.
-    expect(contract.schema_version).toBe(2);
+    // 5.0.0: every record this contract places carries provenance, which
+    // gained the substrate — protocol and server version — a moved shape
+    // under the closed-records rule.
+    expect(contract.schema_version).toBe(3);
     expect(contract.contract).toBe("ticfac.run_state");
     expect(contract.spec_sections).toContain("10.4");
     expect(contract.spec_sections).toContain("4.2");
@@ -294,6 +295,12 @@ describe("every committed record carries the envelope", () => {
       "executor",
       "workspace_id",
       "backend",
+      // 5.0.0: the substrate this dispatch ran on — its protocol version and
+      // the server version observed at the handshake, required-and-null for a
+      // record no dispatch produced — the pair that makes a run spanning a
+      // substrate upgrade diagnosable from provenance alone.
+      "substrate_protocol",
+      "substrate_server_version",
       "role",
       // 4.0.0: the tier this dispatch was derived under, required-and-null
       // for a record no dispatch produced — the field that makes an

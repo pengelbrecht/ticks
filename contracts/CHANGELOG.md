@@ -45,6 +45,28 @@ precisely why it is the one the version exists to make loud.
 
 ---
 
+## 5.2.0
+
+MINOR. One contract added (ticfac tick u9l, epic av8); no existing fixture
+byte changed, so an unchanged consumer is still correct but no longer
+complete.
+
+- `run-event-feed.json` — the run event feed: one append-only JSONL stream per
+  run at `.ticfac/logs/<run-id>/events.jsonl`, written locally by the
+  reconciler, that a non-participant subscribes to — opens the file once and
+  follows the appends — to learn WHEN TO LOOK. Run/tick/attempt identity on
+  every line (`ticfac.run_event.v1`, closed, required-and-null where a claim
+  can be genuinely absent), golden and negative line documents.
+
+  It is deliberately not a record and not durable: the durable truth of a tick
+  stays the evidence on the integration branch — commits plus the report — and
+  the contract says so as a rule rather than a hope: a line means *worth
+  looking now, never the work is finished*, and a lost, late or untruthful
+  line changes no verdict. Consumers have nothing to DO — no existing schema
+  moved, no path the layout pins changed (the feed is exhaust under the
+  `.ticfac/logs/` entry `ticfac-run-state.json` already carries) — and a
+  consumer that wants to follow a run may add a reader.
+
 ## 1.0.0
 
 First cut. Freezes the nine contracts that already existed, unchanged, as
@@ -465,3 +487,70 @@ reader has anything to follow beyond the version string; the ledger entry for
 4.1.0 stays untouched for the same reason 4.0.0's does — it is append-only and
 records what was cut, not what shipped. The lesson for whoever cuts the next
 bump: finish every fixture edit, then cut once.
+
+---
+
+## 5.1.0
+
+MAJOR, and the version a consumer actually adopts: it supersedes the `5.0.0`
+cut made minutes before it in the same change. The first `5.0.0` re-cut was
+made before `$defs.provenance`'s two new properties had landed in
+`job-protocol.json` (they had landed only in `ticfac-run-state.json`'s copy),
+so the manifest recorded a bundle whose two halves of the ONE provenance
+definition disagreed — the exact drift the cross-file readers exist to catch,
+and they caught it. The ledger entry for `5.0.0` stays in `bundle.json`
+untouched, exactly as `4.0.0`'s did: the ledger is append-only and records
+what was CUT, not what shipped. No consumer ever pinned `5.0.0`. The lesson
+is 4.1.1's own: finish every fixture edit, then cut once.
+
+MAJOR. One closed record moved shape: `$defs.provenance` gains the substrate.
+An unchanged consumer is now **wrong**, and under the closed-records rule that
+means a new schema_version, not a compatible extension.
+
+Cut for ticfac's tick to1 (epic av8) — the second bump cut for the pinning
+consumer's side of the split, in the same shape as 4.0.0's tier item. The
+epic's own constraint said it from the start: "the substrate goes in
+PROVENANCE — executor, model and profile digest are already recorded; add the
+Herdr protocol and server version, so a run that spans an upgrade can be
+diagnosed rather than guessed at." The executor recorded both values on its
+private attempt state and nowhere a run's records could reach, so a run that
+spanned a herdr upgrade was diagnosable only from the executor's private
+directory — which a fresh clone, a different host, or a disposed attempt does
+not have.
+
+- **`job-protocol.json` — `$defs.provenance` gains `substrate_protocol` and
+  `substrate_server_version`** (from ticfac's tick to1). Both are
+  required-and-null like every provenance field: "this substrate has no
+  protocol version" (a local process, a run-level record) and "the protocol
+  was not recorded" are different claims. `substrate_protocol` is an integer —
+  herdr's API protocol version, the number between the client's hard floor and
+  its warn line; `substrate_server_version` is a string — the server binary
+  version observed at the handshake. The two travel together, so a protocol
+  number can always be read against the server that spoke it. The evidence
+  record moves with it — `ticfac.evidence.v2` → `ticfac.evidence.v3`,
+  schema_version enum `[3]` — and `contracts/ticfac-run-state.json`'s
+  field-for-field copy moves in lockstep (the cross-file readers compare them
+  structurally), with `lifecycle-invariants.json`'s
+  `fingerprint_fields.defined_by.schema_id` following the pointer.
+- **Goldens and negatives.** The run-state attempt golden now tells the herdr
+  story — executor `herdr`, a workspace id, and a stated substrate (protocol
+  22, server "0.9.0") — so the populated shape is documented by an example
+  rather than only by a description. New regression controls on both sides of
+  the bundle: a provenance that omits `substrate_protocol` is refused by name,
+  and the 4.1.1 evidence record (and the 4.1.1 run-state golden of its day)
+  joins the negatives as the bump's regression control, refused by its
+  `schema_version` / for the field it cannot state.
+
+Readers that moved with the bump, in the same commit: `internal/contracts`
+(the schema-id control), `internal/factory/jobprotocol` (the version pin and
+the provenance walk) and `internal/factory/runstate` (the identity pin), plus
+the TypeScript halves (`job-protocol.test.ts`, `evidence-record.test.ts`,
+`ticfac-run-state.test.ts`, `scripts/contracts.test.mjs`).
+
+Consumers: `cloud/factory` moves its pin (nothing to follow beyond the
+version — the Worker does not read provenance). **ticfac must move `ref` and
+`bundleVersion` together and follow**: `internal/runstate`'s Provenance gains
+the two fields (and the envelope's `schema_version` moves to 3), every writer
+of a dispatch record states the substrate its dispatch observed, and its
+parity readers assert the new ids. An implementation that still writes v2
+evidence records is now writing documents its own bundle refuses.
