@@ -1,14 +1,21 @@
 // Package ticks is the module-root package. Its only job is to embed the
 // bundles that ship inside the tk binary: the distributable skill tree and
-// the deployable cloud factory worker.
+// the published tk --json contract manifest.
 //
 // This file has to live at the module root because a //go:embed directive can
 // only reference paths at or below its own package directory, and never
-// through a symlink. skills/ticks/** and cloud/factory/** live at the repo
-// root, so no package under internal/ can reach them. Consumers should not
-// import this package directly — use internal/skills or internal/factory,
-// which wrap the bundles with a small API and document the freshness
-// guarantees.
+// through a symlink. skills/ticks/** and contracts/tk-json-manifest.json live
+// at the repo root, so no package under internal/ can reach them. Consumers
+// should not import this package directly — use internal/skills or
+// internal/tkcontract, which wrap the bundles with a small API and document
+// the freshness guarantees.
+//
+// The deployable cloud factory worker (cloud/factory) and the sandbox image's
+// build context (cloud/sandbox) used to be embedded here too, for `tk factory
+// deploy`. That command left with the rest of the factory command surface
+// (tick 3r2, to ticfac); cloud/sandbox stays in this repo (internal/sandbox
+// still uses it to warm local worktrees) but is no longer embedded, since
+// nothing left in this binary needs to ship it.
 package ticks
 
 import "embed"
@@ -28,60 +35,10 @@ func SkillsFS() embed.FS {
 	return skillsFS
 }
 
-// factoryFS holds the deployable factory worker (cloud/factory), so `tk factory
-// deploy` installs the bundle that shipped with this exact tk build — the
-// version pin in D16 ("upgrades ride the repo").
-//
-// The patterns are enumerated rather than "all:cloud/factory" on purpose: a
-// wildcard would sweep in node_modules/, .wrangler/ and dist/ from a developer
-// who ran pnpm install in that directory, and go:embed resolves at compile
-// time, so the binary's size would depend on the build machine's state. Only
-// what `wrangler deploy` reads is embedded — the vitest suite stays out.
-//
-// The lockfile and the workspace file are embedded alongside package.json
-// because the deployed Worker has a runtime dependency (the Cloudflare Sandbox
-// SDK): `tk factory deploy` installs the staged bundle before deploying it, and
-// an install without the lockfile would resolve a different dependency tree
-// than this build was tested with — which is the version pin, undone.
-//
-//go:embed cloud/factory/wrangler.toml cloud/factory/package.json cloud/factory/tsconfig.json cloud/factory/README.md
-//go:embed cloud/factory/pnpm-lock.yaml cloud/factory/pnpm-workspace.yaml
-//go:embed cloud/factory/src cloud/factory/migrations cloud/factory/scripts
-var factoryFS embed.FS
-
-// FactoryFS returns the embedded factory worker bundle. Paths inside it are
-// rooted at "cloud/factory", e.g. "cloud/factory/wrangler.toml".
-func FactoryFS() embed.FS {
-	return factoryFS
-}
-
-// sandboxFS holds the sandbox image's build context (cloud/sandbox) — the
-// container a cloud run boots, in either of its two roles: the orchestrator
-// entrypoint, the per-tick worker entrypoint, and the common half both source. It ships in the binary
-// for the same reason the worker bundle does: `tk factory deploy` builds and
-// pushes this image into the operator's own registry, so the image a
-// deployment runs is the one that shipped with this tk build.
-//
-// Enumerated, not wildcarded, matching the factory bundle above: the build
-// context is exactly the Dockerfile and what it copies.
-//
-//go:embed cloud/sandbox/Dockerfile cloud/sandbox/entrypoint.sh cloud/sandbox/preflight.sh
-//go:embed cloud/sandbox/worker.sh cloud/sandbox/common.sh
-//go:embed cloud/sandbox/build.sh cloud/sandbox/README.md
-//go:embed cloud/sandbox/required-tk-commands
-var sandboxFS embed.FS
-
-// SandboxFS returns the embedded orchestrator image context. Paths inside it
-// are rooted at "cloud/sandbox", e.g. "cloud/sandbox/Dockerfile".
-func SandboxFS() embed.FS {
-	return sandboxFS
-}
-
 // tkJSONManifest holds contracts/tk-json-manifest.json — the published tk
 // --json command surface and the JSON contract version this build serves.
 //
-// It ships inside the binary for the same reason the factory bundle does: a
-// consumer holding only a tk executable asks it (`tk version --json`) which
+// It ships inside the binary because a consumer holding only a tk executable asks it (`tk version --json`) which
 // contract it serves, and the answer has to come from the same bytes the
 // repository's parity test validates against. A manifest read off disk at
 // runtime would let a binary and its manifest disagree, which is the one thing

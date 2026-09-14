@@ -606,10 +606,6 @@ func ResetFlags() {
 	boardDev = false
 	boardHost = "127.0.0.1"
 
-	// Reset factory webhook flags
-	factoryWebhookDelete = false
-	factoryWebhookStatus = false
-
 	// Reset ask flags
 	askQuestion = ""
 	askJSON = false
@@ -631,45 +627,7 @@ func ResetFlags() {
 	skillsInstallForce = false
 	skillsDiffDir = ""
 
-	// Reset factory flags
-	factoryDeployRotateToken = false
-	factoryDeployURL = ""
-	factoryDeployBundleDir = ""
-	factorySetupRepo = ""
-	factorySetupGitHubToken = ""
-	factorySetupGitHubAPI = ""
-	factorySetupGatewayURL = ""
-	factorySetupProvider = ""
-	factorySetupProviderKey = ""
-	factorySetupCFAPIToken = ""
-	factorySetupCFAPIBase = ""
-	factorySetupBundleDir = ""
-	factoryStatusOffline = false
-	factoryStatusCheck = false
-	factoryStatusGitHubAPI = ""
-	factoryStatusCFAPIBase = ""
-	factoryDashboardProject = ""
-	factoryDashboardInterval = defaultFactoryDashboardIntervalMs
-	factoryDashboardCost = defaultFactoryDashboardCostMs
-	factoryDashboardTailBytes = defaultFactoryDashboardTailBytes
-	factoryDashboardNoCost = false
-
 	// Reset cloud flags
-	cloudRunNotify = ""
-	cloudRunQueue = false
-	cloudRunTickIDs = nil
-	cloudRunMaxCost = 0
-	cloudRunMaxWallClock = 0
-	cloudStopNow = false
-	cloudTraceJSON = false
-	cloudTraceCall = 0
-	cloudTraceTools = false
-	cloudTraceCache = false
-	cloudLogsTail = 0
-	cloudLogsTick = ""
-	cloudLogsFollow = false
-	cloudLogsInterval = defaultCloudLogsInterval
-	cloudSupervisorSteps = 0
 	cloudPRBodyHead = ""
 	cloudPRBodyBase = ""
 	cloudPRBodyRunBase = ""

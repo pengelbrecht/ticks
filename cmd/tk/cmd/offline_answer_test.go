@@ -6,13 +6,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/pengelbrecht/ticks/internal/factory/credentials"
 	"github.com/pengelbrecht/ticks/internal/operator"
 	"github.com/pengelbrecht/ticks/internal/tick"
 )
@@ -33,26 +31,12 @@ import (
 // for "the agent", so the exact mechanism a blocked process relies on is
 // exercised end to end.
 //
-// $HOME is isolated too, not just TK_HOME/TICKS_FACTORY_*, and — this is the
-// regression 1fd actually found — it is populated with a live-looking
-// ~/.ticksrc rather than left empty. Before this tick, an unconfigured
-// `tk ask`/`tk answer` fell back through factoryOperatorChannel() to
-// ~/.ticksrc (internal/ticksrc, via os.UserHomeDir) whenever no channel and
-// no TICKS_FACTORY_* env vars were present. On a machine that has ever run
-// `tk factory deploy`, ~/.ticksrc carries exactly that: a live factory URL
-// and bearer token — and the offline path silently picked it up and made
-// real HTTPS calls to a real deployed worker. Post-removal there is no
-// factoryOperatorChannel() left to fall back through, but this test proves
-// it with a populated file rather than trusting the absence of the code path
-// it used to read. See RESULT-1fd.md.
-//
-// The credential split (tick 0oa) made this structurally impossible rather
-// than merely absent: factory credentials moved to their own file,
-// ~/.ticfacrc, owned by internal/factory/credentials — a package `tk
-// ask`/`tk answer` do not and must not import. This test still populates the
-// legacy ~/.ticksrc, because that is the shape a real upgraded machine has
-// until its next factory command migrates it, and the offline path must
-// ignore that just as completely as it ignores a fresh ~/.ticfacrc.
+// $HOME is isolated too, not just TK_HOME/TICKS_FACTORY_*. The regression
+// this originally guarded (1fd: an unconfigured `tk ask`/`tk answer` falling
+// back through a factory operator channel to a live-looking ~/.ticksrc) is
+// now structurally impossible rather than merely absent: the factory command
+// surface, and the only package that ever read a factory credential file,
+// left this repo for ticfac (tick 3r2). `tk ask`/`tk answer` import neither.
 func TestOfflineParkResolveNotifiesAgent(t *testing.T) {
 	repo, store := setupTestRepo(t)
 	if err := store.Ensure(); err != nil {
@@ -63,39 +47,6 @@ func TestOfflineParkResolveNotifiesAgent(t *testing.T) {
 	t.Setenv("HOME", homeDir)
 	t.Setenv("TICKS_FACTORY_URL", "")
 	t.Setenv("TICKS_FACTORY_TOKEN", "")
-
-	// A populated ~/.ticksrc, exactly as `tk factory deploy` would leave one:
-	// a live-looking factory URL and a bearer token. The 1fd regression was
-	// this file being read at all when no channel is configured; the offline
-	// path must ignore it completely, not merely lack a reason to open it in
-	// this particular test.
-	rcPath := filepath.Join(homeDir, ".ticksrc")
-	rc, err := credentials.LoadFrom(rcPath)
-	if err != nil {
-		t.Fatalf("credentials.LoadFrom: %v", err)
-	}
-	rc.Set(credentials.KeyURL, "https://ticks-factory.example.workers.dev")
-	// Deliberately NOT token-shaped. The point of this fixture is that a
-	// populated ~/.ticksrc exists at all, not that its value looks real —
-	// and the public-repo guard correctly refuses a credential-shaped
-	// literal in a tracked file, which is a guard worth keeping honest.
-	rc.Set(credentials.KeyToken, "not-a-real-credential")
-	if err := rc.Save(); err != nil {
-		t.Fatalf("credentials.Save: %v", err)
-	}
-
-	// The post-split shape too: a populated ~/.ticfacrc, as a migrated or
-	// freshly-deployed machine would have. Same guard, same reason.
-	facPath := filepath.Join(homeDir, credentials.FileName)
-	fac, err := credentials.LoadFrom(facPath)
-	if err != nil {
-		t.Fatalf("credentials.LoadFrom: %v", err)
-	}
-	fac.Set(credentials.KeyURL, "https://ticks-factory.example.workers.dev")
-	fac.Set(credentials.KeyToken, "not-a-real-credential")
-	if err := fac.Save(); err != nil {
-		t.Fatalf("credentials.Save: %v", err)
-	}
 
 	// No network, structurally: any HTTP call made anywhere in this test is a
 	// bug in the offline path, not a fixture to route around.
@@ -108,7 +59,7 @@ func TestOfflineParkResolveNotifiesAgent(t *testing.T) {
 
 	// --- park -----------------------------------------------------------
 	out := captureChannelIO(t, "")
-	err = ExecuteArgs([]string{"ask", "abc123", "--question", "Which region?"})
+	err := ExecuteArgs([]string{"ask", "abc123", "--question", "Which region?"})
 	if err == nil {
 		t.Fatalf("tk ask with no channel configured returned nil error\n%s", out.String())
 	}

@@ -1,13 +1,68 @@
 package sandbox
 
 import (
+	"fmt"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
-
-	"github.com/pengelbrecht/ticks/internal/factory"
 )
+
+// secretGatewayBaseURL mirrors the Worker secret name the deployed factory
+// stores its AI Gateway base URL under (internal/factory.SecretGatewayBaseURL
+// before tick 3r2 moved the factory to ticfac). It is spelled here rather
+// than imported — the factory left this repo, this repo did not follow it —
+// matching the physical-duplication decision cloud_container_env.go already
+// documents for this same boundary.
+const secretGatewayBaseURL = "AI_GATEWAY_BASE_URL"
+
+// requiredTkCommandsFile is the derived command list committed alongside the
+// Dockerfile (cloud/sandbox/required-tk-commands), asserted against the image
+// build's own tk. Spelled here for the same reason as secretGatewayBaseURL
+// above: internal/factory, which used to own this constant, left with the
+// rest of the factory command surface.
+const requiredTkCommandsFile = "required-tk-commands"
+
+// entrypointTkScripts are the shell scripts the image installs and runs, in
+// both roles the image plays (tick x3v).
+var entrypointTkScripts = []string{EntrypointScript, WorkerScript, CommonScript, PreflightScript}
+
+var (
+	tkInvocation = regexp.MustCompile(
+		`(?m)(?:^|\$\(|[;&|]|\bexec[ \t]+|\bthen[ \t]+|\bdo[ \t]+|\belse[ \t]+)[ \t]*` +
+			`tk[ \t]+((?:[a-z][a-z0-9-]*)(?:[ \t]+[a-z][a-z0-9-]*){0,2})`)
+	commentLine = regexp.MustCompile(`(?m)^[ \t]*#.*$`)
+)
+
+// entrypointTkCommands returns every `tk` subcommand chain the image's run
+// scripts invoke, as space-joined paths ("sandbox environment"), sorted and
+// deduplicated. A local copy of internal/factory.EntrypointTkCommands (tick
+// 3r2): that package left with the factory, this test's need to read
+// cloud/sandbox's own scripts off disk did not.
+func entrypointTkCommands() ([]string, error) {
+	seen := make(map[string]bool)
+	for _, name := range entrypointTkScripts {
+		p, err := Path(name)
+		if err != nil {
+			return nil, fmt.Errorf("locating %s: %w", name, err)
+		}
+		data, err := os.ReadFile(p)
+		if err != nil {
+			return nil, fmt.Errorf("reading %s: %w", name, err)
+		}
+		script := commentLine.ReplaceAllString(string(data), "")
+		for _, m := range tkInvocation.FindAllStringSubmatch(script, -1) {
+			seen[strings.Join(strings.Fields(m[1]), " ")] = true
+		}
+	}
+	commands := make([]string, 0, len(seen))
+	for c := range seen {
+		commands = append(commands, c)
+	}
+	sort.Strings(commands)
+	return commands, nil
+}
 
 func readDockerfile(t *testing.T) string {
 	t.Helper()
@@ -132,8 +187,8 @@ func TestDockerfileKeepsTheSandboxServerEntrypoint(t *testing.T) {
 // One value, one spelling: the gateway base URL the factory stores as a Worker
 // secret is the variable the entrypoint reads.
 func TestGatewayEnvMatchesTheFactorySecret(t *testing.T) {
-	if EnvGatewayBaseURL != factory.SecretGatewayBaseURL {
-		t.Errorf("gateway env %q != factory secret %q", EnvGatewayBaseURL, factory.SecretGatewayBaseURL)
+	if EnvGatewayBaseURL != secretGatewayBaseURL {
+		t.Errorf("gateway env %q != factory secret %q", EnvGatewayBaseURL, secretGatewayBaseURL)
 	}
 }
 
@@ -227,9 +282,9 @@ func TestDockerfileBuildsTkFromPinnedSource(t *testing.T) {
 func TestDockerfileAssertsItsTkCanRunTheEntrypoint(t *testing.T) {
 	df := readDockerfile(t)
 
-	if !strings.Contains(df, factory.RequiredTkCommandsFile) {
+	if !strings.Contains(df, requiredTkCommandsFile) {
 		t.Fatalf("the image never reads %s, so nothing checks its tk against the entrypoint",
-			factory.RequiredTkCommandsFile)
+			requiredTkCommandsFile)
 	}
 	if !strings.Contains(df, "tk $sub --help") {
 		t.Error("the image does not run each required subcommand against the tk it built")
@@ -241,7 +296,7 @@ func TestDockerfileAssertsItsTkCanRunTheEntrypoint(t *testing.T) {
 
 // Every command the run scripts invoke is in the list the image asserts.
 func TestRequiredTkCommandsCoverTheEntrypoint(t *testing.T) {
-	commands, err := factory.EntrypointTkCommands()
+	commands, err := entrypointTkCommands()
 	if err != nil {
 		t.Fatalf("EntrypointTkCommands: %v", err)
 	}

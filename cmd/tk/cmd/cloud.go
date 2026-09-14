@@ -18,17 +18,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/pengelbrecht/ticks/internal/factory"
-	"github.com/pengelbrecht/ticks/internal/factory/credentials"
-)
-
-var (
-	cloudRunNotify       string
-	cloudRunQueue        bool
-	cloudRunTickIDs      []string
-	cloudRunMaxCost      float64
-	cloudRunMaxWallClock time.Duration
-	cloudStopNow         bool
+	"github.com/pengelbrecht/ticks/internal/cloudcredentials"
 )
 
 // cloudHTTPClient is a package variable so command tests can exercise the
@@ -38,27 +28,16 @@ var cloudHTTPClient = &http.Client{Timeout: 15 * time.Second}
 
 var cloudCmd = &cobra.Command{
 	Use:   "cloud",
-	Short: "Run and inspect epics in your cloud factory",
-	Long: `Drive the cloud factory's closed command surface.
+	Short: "Drive cloud workers directly from a local checkout",
+	Long: `Drive the cloud factory's worker fan-out from a local orchestrator.
 
-The factory is self-deployed and authenticated with the factory_url and
-factory_token entries in ~/.ticfacrc. There is deliberately no cloud steering
-or mutation command: stop a run, edit the tracker in a normal checkout, and
-submit it again so the new orchestrator follows the reconcile path.
+Igniting, stopping and inspecting a cloud run itself moved to ticfac
+(tick 3r2): use 'ticfac cloud run|stop|status|logs|trace|supervisor'. What
+stays here is where a LOCAL orchestrator drives cloud workers itself (D19) —
+the same verbs tk herd exposes for herdr panes, so swapping substrates costs
+no relearning:
 
-  run    ignite an epic          |  status  runs, leases and queue
-  stop   end one (--now kills)   |  logs    what the container printed (-f follows)
-                                 |  trace   what the model said and decided
-                                 |  supervisor  whether the Workflow is alive
-
-The left column is D21's command vocabulary (with tk answer). The right one
-is observation: it reads records a run left behind and cannot steer one, so
-it does not widen that vocabulary.
-
-A third group is neither, and is where a LOCAL orchestrator drives cloud
-workers itself (D19) — the same verbs tk herd exposes for herdr panes, so
-swapping substrates costs no relearning:
-
+  branch     record a branch a worker container created
   spawn      dispatch a wave, one container per tick
   wait       fan in on the report each container pushed
   collect    the verdict, read off the pushed branches (never merges)
@@ -71,91 +50,7 @@ none of them steers a run that is orchestrating itself in the cloud.`,
 	},
 }
 
-var cloudRunCmd = &cobra.Command{
-	Use:   "run <epic>",
-	Short: "Push the current branch and start a cloud run for an epic",
-	Long: `Push the current branch and start a cloud run for an epic.
-
---max-cost and --max-wall-clock bound this one run. They ride the submission
-into the Workflow that enforces budgets, so trying something cheap is a per-
-invocation choice rather than an edit to the deployment's own budget vars.
-They only ever lower it: the deployment ceiling still bounds the run, and a
-larger value is clamped to it. Omitting them leaves the ceiling standing. The
-EFFECTIVE budget — the number that will actually govern, after clamping — is
-printed on submission, so a flag the deployment lowered says so here rather
-than at the cancellation that ends the run.
-
---tick-ids names a wave, and is what makes this run fan out into one worker
-container per tick instead of one orchestrator sandbox running harness-native
-subagents. The wave is the one the submitter computed (tk next / tk graph);
-this command takes it, it does not compute one. Every named tick must exist in
-this checkout and belong to the epic, checked here so a bad wave costs no push.
-
---tick-ids cannot be combined with --queue. A parked submission is stored
-without its wave — the queued-submission record has no tick_ids column — so it
-would ignite later as a plain single-sandbox run, having silently dropped the
-fan-out that was asked for. The factory refuses the pair with a 400; so does
-this command, before anything is pushed.
-
-  tk cloud run pay-4 --max-cost 2.50 --max-wall-clock 45m
-  tk cloud run pay-4 --tick-ids bmo,s7f,t9s`,
-	Args:         cobra.ExactArgs(1),
-	SilenceUsage: true,
-	RunE:         runCloudRun,
-}
-
-var cloudStopCmd = &cobra.Command{
-	Use:   "stop <run>",
-	Short: "Stop a live cloud run, cleanly or right now",
-	Long: `Stop a live cloud run.
-
-By default this is a clean stop (D15): the in-flight work gets a bounded
-window to land, then review and closeout run, and the run's gateway
-credential dies at the end of it.
-
---now is the kill switch. The run's gateway credential is revoked in this
-request, before anything else happens, so the orchestrator's next model call
-is refused whether or not it is listening — and no later boot of the run may
-mint another. Nothing further is spent, and review and closeout do not run.
-Reach for it when a run is over its budget or wedged, so that stopping it
-never means deleting the container application.`,
-	Args:         cobra.ExactArgs(1),
-	SilenceUsage: true,
-	RunE:         runCloudStop,
-}
-
-var cloudStatusCmd = &cobra.Command{
-	Use:   "status [run]",
-	Short: "Show cloud runs and their lease or queue state",
-	Long: `Show cloud runs and their lease or queue state.
-
-With a run id it reports that run: state, Workflow phase, the container image
-it booted, and — once it has ended — whether anything actually moved. Without
-one it lists the recent runs plus each project's lease and queue.
-
-A truncated run id is resolved against the run index first, so a prefix is
-never answered with "no run <prefix>".
-
-Read-only, like 'tk cloud logs' and 'tk cloud trace': observing a run is not
-commanding one, so the operator-to-orchestrator command vocabulary stays
-run/stop/status/answer (D21).`,
-	Args:         cobra.MaximumNArgs(1),
-	SilenceUsage: true,
-	RunE:         runCloudStatus,
-}
-
 func init() {
-	cloudRunCmd.Flags().StringVar(&cloudRunNotify, "notify", "", "notification channel for this submission")
-	cloudRunCmd.Flags().BoolVar(&cloudRunQueue, "queue", false, "park behind the current project lease instead of refusing")
-	cloudRunCmd.Flags().StringSliceVar(&cloudRunTickIDs, "tick-ids", nil,
-		"dispatch these ticks as one worker container each, comma-separated; cannot be combined with --queue")
-	cloudRunCmd.Flags().Float64Var(&cloudRunMaxCost, "max-cost", 0, "cost ceiling in USD for this run; may lower the deployment budget, never raise it")
-	cloudRunCmd.Flags().DurationVar(&cloudRunMaxWallClock, "max-wall-clock", 0, "wall-clock ceiling for this run (e.g. 45m); may lower the deployment budget, never raise it")
-	cloudStopCmd.Flags().BoolVar(&cloudStopNow, "now", false, "hard stop: revoke the run's gateway credential immediately and skip closeout")
-
-	cloudCmd.AddCommand(cloudRunCmd)
-	cloudCmd.AddCommand(cloudStopCmd)
-	cloudCmd.AddCommand(cloudStatusCmd)
 	rootCmd.AddCommand(cloudCmd)
 }
 
@@ -166,19 +61,19 @@ type cloudClient struct {
 }
 
 func newCloudClient() (*cloudClient, error) {
-	config, err := factory.LoadCredentials()
+	config, err := cloudcredentials.Load()
 	if err != nil {
 		return nil, fmt.Errorf("cannot read factory configuration: %w", err)
 	}
 
-	baseURL := strings.TrimRight(strings.TrimSpace(config.Get(credentials.KeyURL)), "/")
-	token := strings.TrimSpace(config.Get(credentials.KeyToken))
+	baseURL := strings.TrimRight(strings.TrimSpace(config.Get(cloudcredentials.KeyURL)), "/")
+	token := strings.TrimSpace(config.Get(cloudcredentials.KeyToken))
 	if baseURL == "" || token == "" {
-		return nil, fmt.Errorf("no factory is configured; run 'tk factory setup' first")
+		return nil, fmt.Errorf("no factory is configured; run 'ticfac factory setup' first")
 	}
 	parsed, err := url.Parse(baseURL)
 	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") {
-		return nil, fmt.Errorf("factory endpoint is invalid; run 'tk factory setup' to configure it")
+		return nil, fmt.Errorf("factory endpoint is invalid; run 'ticfac factory setup' to configure it")
 	}
 	if cloudHTTPClient == nil {
 		cloudHTTPClient = &http.Client{Timeout: 15 * time.Second}
@@ -379,379 +274,6 @@ func decodeCloudJSON(data []byte, into any) error {
 		return fmt.Errorf("decode factory response: %w", err)
 	}
 	return nil
-}
-
-func runCloudRun(cmd *cobra.Command, args []string) error {
-	client, err := newCloudClient()
-	if err != nil {
-		return NewExitError(ExitGeneric, "%v", err)
-	}
-	// Parsed before anything is pushed: a budget the factory would refuse must
-	// not first cost a push and a lease.
-	budget, err := cloudRunBudget(cmd)
-	if err != nil {
-		return NewExitError(ExitUsage, "%v", err)
-	}
-	wave, err := cloudRunWave(cmd)
-	if err != nil {
-		return err
-	}
-	root, err := repoRoot()
-	if err != nil {
-		return fmt.Errorf("failed to detect repo root: %w", err)
-	}
-	// The wave is proven against this checkout before the push, for the same
-	// reason `tk cloud spawn` proves it: a container clones at the epic's base,
-	// so a tick that is not in this epic would be implemented against a base
-	// its own epic never chose.
-	if len(wave) > 0 {
-		if err := cloudSpawnCheckWave(cmd.Context(), root, args[0], wave); err != nil {
-			return err
-		}
-	}
-
-	baseSHA, project, requestedBy, err := prepareCloudSubmission(cmd.Context(), root, args[0])
-	if err != nil {
-		return NewExitError(ExitGeneric, "%v", err)
-	}
-
-	submission := struct {
-		Project     string   `json:"project"`
-		Epic        string   `json:"epic"`
-		BaseSHA     string   `json:"base_sha"`
-		RequestedBy string   `json:"requested_by"`
-		Notify      string   `json:"notify,omitempty"`
-		Queue       bool     `json:"queue"`
-		TickIDs     []string `json:"tick_ids,omitempty"`
-		MaxCostUSD  float64  `json:"max_cost_usd,omitempty"`
-		MaxWallMS   int64    `json:"max_wall_clock_ms,omitempty"`
-	}{
-		Project: project, Epic: args[0], BaseSHA: baseSHA, RequestedBy: requestedBy,
-		Notify: strings.TrimSpace(cloudRunNotify), Queue: cloudRunQueue,
-		TickIDs:    wave,
-		MaxCostUSD: budget.maxCostUSD, MaxWallMS: budget.maxWallClockMS,
-	}
-
-	data, err := client.request(cmd.Context(), http.MethodPost, "/api/runs", submission)
-	if err != nil {
-		return NewExitError(ExitGeneric, "%v", err)
-	}
-	var response cloudSubmissionResponse
-	if err := decodeCloudJSON(data, &response); err != nil {
-		return NewExitError(ExitGeneric, "%v", err)
-	}
-
-	out := cmd.OutOrStdout()
-	switch {
-	case response.Run.RunID != "":
-		fmt.Fprintf(out, "Cloud run started: %s\n", response.Run.RunID)
-		if response.Run.State != "" {
-			fmt.Fprintf(out, "  state: %s\n", response.Run.State)
-		}
-		printCloudRunBudget(out, response.Budget)
-		printCloudRunWave(out, wave)
-	case response.Queued.RunID != "":
-		fmt.Fprintf(out, "Cloud run queued: %s\n", response.Queued.RunID)
-		if response.Holder.RunID != "" {
-			fmt.Fprintf(out, "  waiting for: %s\n", response.Holder.RunID)
-		}
-		printCloudRunBudget(out, response.Budget)
-	default:
-		if response.RunID != "" {
-			fmt.Fprintf(out, "Cloud run started: %s\n", response.RunID)
-			printCloudRunBudget(out, response.Budget)
-			printCloudRunWave(out, wave)
-			break
-		}
-		return NewExitError(ExitGeneric, "factory accepted the submission but returned no run id")
-	}
-	return nil
-}
-
-// cloudRunBudgetOverride is what --max-cost and --max-wall-clock ask of one
-// submission. Zero means "not asked for", which leaves the deployment's own
-// ceiling standing — the flags bound a run downward and can never widen it,
-// so an omitted flag is not the same as a flag set to the deployment value.
-type cloudRunBudgetOverride struct {
-	maxCostUSD     float64
-	maxWallClockMS int64
-}
-
-func cloudRunBudget(cmd *cobra.Command) (cloudRunBudgetOverride, error) {
-	var budget cloudRunBudgetOverride
-	if cmd.Flags().Changed("max-cost") {
-		if cloudRunMaxCost <= 0 {
-			return budget, fmt.Errorf("--max-cost must be a positive amount in USD, got %v", cloudRunMaxCost)
-		}
-		budget.maxCostUSD = cloudRunMaxCost
-	}
-	if cmd.Flags().Changed("max-wall-clock") {
-		if cloudRunMaxWallClock <= 0 {
-			return budget, fmt.Errorf("--max-wall-clock must be a positive duration, got %s", cloudRunMaxWallClock)
-		}
-		budget.maxWallClockMS = cloudRunMaxWallClock.Milliseconds()
-		if budget.maxWallClockMS == 0 {
-			return budget, fmt.Errorf("--max-wall-clock must be at least 1ms, got %s", cloudRunMaxWallClock)
-		}
-	}
-	return budget, nil
-}
-
-// cloudRunWave reads --tick-ids: the flag that makes this submission take the
-// per-tick-container path (tick pjq) rather than booting one orchestrator
-// sandbox that fans out harness-native subagents inside itself.
-//
-// Nil means no wave, which is the Phase 1 submission and stays the default.
-//
-// The --queue refusal is the point of the flag being read this early. The
-// RunRoom's queued-submission record has no tick_ids column, so a parked
-// cloud-wave submission would ignite later as a plain single-sandbox run with
-// its wave silently dropped; the factory answers the pair with a 400, and
-// meeting that as an HTTP error after a push is a worse way to learn it than
-// being told here, before anything has been pushed or spent.
-func cloudRunWave(cmd *cobra.Command) ([]string, error) {
-	if !cmd.Flags().Changed("tick-ids") {
-		return nil, nil
-	}
-	ids := make([]string, 0, len(cloudRunTickIDs))
-	seen := make(map[string]bool, len(cloudRunTickIDs))
-	for _, entry := range cloudRunTickIDs {
-		id := strings.TrimSpace(entry)
-		if id == "" {
-			continue
-		}
-		if seen[id] {
-			return nil, NewExitError(ExitUsage, "--tick-ids names %s more than once; one container per tick", id)
-		}
-		seen[id] = true
-		ids = append(ids, id)
-	}
-	if len(ids) == 0 {
-		return nil, NewExitError(ExitUsage, "--tick-ids was given no tick ids; omit it to run the epic in a single orchestrator sandbox")
-	}
-	if cloudRunQueue {
-		return nil, NewExitError(ExitUsage,
-			"--tick-ids cannot be combined with --queue: a parked submission is stored without its wave, "+
-				"so it would ignite later as a single-sandbox run having dropped the fan-out; "+
-				"submit the wave now, or queue the epic without --tick-ids")
-	}
-	return ids, nil
-}
-
-// printCloudRunWave says what a submitted wave asked for. A run that fanned
-// out into containers and one that booted a single orchestrator sandbox report
-// the same run id and the same state, so without this line the two are
-// indistinguishable from the command that started them.
-func printCloudRunWave(out io.Writer, wave []string) {
-	if len(wave) == 0 {
-		return
-	}
-	fmt.Fprintf(out, "  wave: %d tick(s), one worker container each: %s\n", len(wave), strings.Join(wave, ", "))
-}
-
-// printCloudRunBudget says what this run will ACTUALLY be bounded by, and says
-// so when that is not what was asked for (tick 7zk).
-//
-// The clamp itself is right — a submission may lower a budget and never raise
-// one — but it was silent, and silence is what let an operator run an epic
-// believing it had $40 when it had $8. A ceiling that lowers a flag has to
-// announce itself at the moment the flag is typed, not in the cancellation
-// forty minutes later.
-func printCloudRunBudget(out io.Writer, budget *cloudEffectiveBudget) {
-	if budget == nil {
-		return
-	}
-	if budget.MaxCostUSD > 0 {
-		fmt.Fprintf(out, "  cost budget: $%.2f\n", budget.MaxCostUSD)
-	}
-	if budget.MaxWallClockMS > 0 {
-		fmt.Fprintf(out, "  wall-clock budget: %s\n", time.Duration(budget.MaxWallClockMS)*time.Millisecond)
-	}
-	if budget.CostClamped && budget.RequestedCost != nil {
-		fmt.Fprintf(out, "  note: --max-cost $%.2f was lowered to the deployment ceiling $%.2f (a submission may lower a budget, never raise it)\n",
-			*budget.RequestedCost, budget.MaxCostUSD)
-	}
-	if budget.WallClamped && budget.RequestedWall != nil {
-		fmt.Fprintf(out, "  note: --max-wall-clock %s was lowered to the deployment ceiling %s (a submission may lower a budget, never raise it)\n",
-			time.Duration(*budget.RequestedWall)*time.Millisecond, time.Duration(budget.MaxWallClockMS)*time.Millisecond)
-	}
-}
-
-func runCloudStop(cmd *cobra.Command, args []string) error {
-	client, err := newCloudClient()
-	if err != nil {
-		return NewExitError(ExitGeneric, "%v", err)
-	}
-	requestedBy := cloudRequestedBy()
-	mode := "clean"
-	if cloudStopNow {
-		mode = "hard"
-	}
-	path := "/api/runs/" + url.PathEscape(args[0]) + "/stop"
-	data, err := client.request(cmd.Context(), http.MethodPost, path, map[string]string{
-		"requested_by": requestedBy,
-		"mode":         mode,
-	})
-	if err != nil {
-		return NewExitError(ExitGeneric, "%v", err)
-	}
-	var response struct {
-		Run           cloudRunRecord `json:"run"`
-		Mode          string         `json:"mode"`
-		TokensRevoked int            `json:"tokens_revoked"`
-	}
-	if err := decodeCloudJSON(data, &response); err != nil {
-		return NewExitError(ExitGeneric, "%v", err)
-	}
-
-	state := response.Run.State
-	if state == "" {
-		state = "stopping"
-	}
-	// Which stop the factory performed, not which one was asked for: an
-	// operator reaching for the kill switch must be able to read back that it
-	// fired, and how many live credentials it killed.
-	performed := response.Mode
-	if performed == "" {
-		performed = mode
-	}
-	out := cmd.OutOrStdout()
-	if performed == "hard" {
-		fmt.Fprintf(out, "Cloud hard stop performed: %s (%s)\n", args[0], state)
-		fmt.Fprintf(out, "  gateway credentials revoked: %d\n", response.TokensRevoked)
-		fmt.Fprintln(out, "  model traffic is refused from the next request; review and closeout will not run")
-		return nil
-	}
-	fmt.Fprintf(out, "Cloud clean stop requested: %s (%s)\n", args[0], state)
-	fmt.Fprintln(out, "  in-flight work finishes, then review and closeout run; use --now to revoke the credential immediately")
-	return nil
-}
-
-func runCloudStatus(cmd *cobra.Command, args []string) error {
-	client, err := newCloudClient()
-	if err != nil {
-		return NewExitError(ExitGeneric, "%v", err)
-	}
-	path := "/api/runs"
-	if len(args) == 1 {
-		// Resolved rather than looked up literally: the factory answers a
-		// prefix with "no run <prefix>", which is true of the prefix and reads
-		// as a verdict on the run (tick c5i).
-		runID, err := cloudRunIDArg(cmd, args[0])
-		if err != nil {
-			return err
-		}
-		path += "/" + url.PathEscape(runID)
-	}
-	data, err := client.request(cmd.Context(), http.MethodGet, path, nil)
-	if err != nil {
-		return NewExitError(ExitGeneric, "%v", err)
-	}
-	var response cloudStatusResponse
-	if err := decodeCloudJSON(data, &response); err != nil {
-		return NewExitError(ExitGeneric, "%v", err)
-	}
-
-	if len(args) == 1 {
-		printCloudRunStatus(cmd.OutOrStdout(), response)
-		return nil
-	}
-	printCloudRunList(cmd.OutOrStdout(), response)
-	return nil
-}
-
-func printCloudRunStatus(out io.Writer, response cloudStatusResponse) {
-	run := response.Run
-	fmt.Fprintf(out, "Cloud run %s\n", run.RunID)
-	if run.Project != "" {
-		fmt.Fprintf(out, "  project: %s\n", run.Project)
-	}
-	if run.Epic != "" {
-		fmt.Fprintf(out, "  epic: %s\n", run.Epic)
-	}
-	if run.State != "" {
-		fmt.Fprintf(out, "  state: %s\n", run.State)
-	}
-	if response.Phase.Workflow.Status != "" {
-		fmt.Fprintf(out, "  workflow: %s\n", response.Phase.Workflow.Status)
-	}
-	printCloudRunProgress(out, run, response.Progress)
-	switch {
-	case response.Image != nil && response.Image.Digest != "":
-		fmt.Fprintf(out, "  image: %s\n", response.Image.Digest)
-	default:
-		// Said rather than omitted: "unrecorded" is what a run that started
-		// before a deploy confirmed a rollout looks like, and silence there
-		// reads as "same image as everything else".
-		fmt.Fprintf(out, "  image: unrecorded (no deploy has confirmed a container rollout for this factory)\n")
-	}
-	if response.Lease != nil && response.Lease.RunID != "" {
-		fmt.Fprintf(out, "  lease: %s\n", response.Lease.RunID)
-	}
-	for _, queued := range response.Queued {
-		fmt.Fprintf(out, "  queued: %s", queued.RunID)
-		if queued.BlockedBy != "" {
-			fmt.Fprintf(out, " (blocked by %s)", queued.BlockedBy)
-		}
-		fmt.Fprintln(out)
-	}
-}
-
-// printCloudRunProgress states what a finished run actually achieved.
-//
-// The distinction it carries is the one an operator needs before resubmitting
-// an epic: `completed` means the epic moved, `stopped` with `progress: none`
-// means the run ended having changed nothing at all, and `unknown` means the
-// evidence itself could not be read — which is a third fact, not a quiet
-// version of either of the other two.
-func printCloudRunProgress(out io.Writer, run cloudRunRecord, progress *cloudRunProgress) {
-	if progress == nil || strings.TrimSpace(progress.Progress) == "" {
-		// Only a finished run has a verdict to report; silence on a live one is
-		// accurate rather than missing.
-		if isFinishedCloudRun(run.State) {
-			fmt.Fprintln(out, "  progress: unrecorded (this run predates durable-evidence finalization)")
-		}
-		return
-	}
-	fmt.Fprintf(out, "  progress: %s\n", progress.Progress)
-	if detail := strings.TrimSpace(progress.Detail); detail != "" {
-		fmt.Fprintf(out, "    %s\n", detail)
-	}
-}
-
-func isFinishedCloudRun(state string) bool {
-	switch strings.TrimSpace(state) {
-	case "completed", "stopped", "failed":
-		return true
-	default:
-		return false
-	}
-}
-
-func printCloudRunList(out io.Writer, response cloudStatusResponse) {
-	if len(response.Runs) == 0 && len(response.Projects) == 0 {
-		fmt.Fprintln(out, "No cloud runs.")
-		return
-	}
-	for _, run := range response.Runs {
-		fmt.Fprintf(out, "%s  %s  %s", run.RunID, run.State, run.Epic)
-		if run.Project != "" {
-			fmt.Fprintf(out, "  %s", run.Project)
-		}
-		fmt.Fprintln(out)
-	}
-	for _, project := range response.Projects {
-		if project.Lease != nil && project.Lease.RunID != "" {
-			fmt.Fprintf(out, "lease  %s  %s\n", project.Project, project.Lease.RunID)
-		}
-		for _, queued := range project.Queued {
-			fmt.Fprintf(out, "queue  %s  %s", project.Project, queued.RunID)
-			if queued.BlockedBy != "" {
-				fmt.Fprintf(out, "  blocked by %s", queued.BlockedBy)
-			}
-			fmt.Fprintln(out)
-		}
-	}
 }
 
 func cloudRequestedBy() string {
