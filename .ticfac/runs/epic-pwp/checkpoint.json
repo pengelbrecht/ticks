@@ -2,10 +2,10 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 45,
-  "state": "integrating",
-  "reason": "integrating 3r2 attempt 6 into epic/pwp",
-  "updated_at": "2026-09-14T20:36:49Z",
+  "sequence": 46,
+  "state": "gating",
+  "reason": "running the integrated gate for 3r2 on c9383a5394b7",
+  "updated_at": "2026-09-14T20:37:14Z",
   "ticks": [
     {
       "tick_id": "azq",
@@ -19,7 +19,7 @@
     },
     {
       "tick_id": "3r2",
-      "state": "reported",
+      "state": "integrated",
       "attempt": 6
     },
     {
