@@ -1,0 +1,17 @@
+{
+  "id": "3r2",
+  "title": "Delete the factory and its embedded payload",
+  "description": "Delete the factory. ticfac's Phase 2 moved it in three parts (ticks ek7, b3a,\n0e1) and it works there: `ticfac factory deploy|setup|status|dashboard` and\n`ticfac cloud run|stop|status|logs|trace|supervisor`.\n\nGOES:\n  - `internal/factory/**` — the root package, dashboard, credentials, and the\n    jobprotocol/lifecycle/runstate contract-parity homes.\n  - `internal/gatewaytrace` — production code in the factory dashboard imports\n    it, and it depends only on factory/credentials. It moves out with them.\n  - `cloud/factory` and `cloud/sandbox` — the embedded payload. //go:embed\n    cannot reach across modules, which is why it had to travel with the code;\n    cloud/sandbox alone is 236K of build context.\n  - `cmd/tk/cmd/factory.go`, `factory_dashboard.go`, and the\n    run|stop|status|logs|trace|supervisor subcommands from `cloud.go`,\n    `cloud_logs.go`, `cloud_trace.go`, `cloud_supervisor.go`.\n  - The module-root embeds those leave unused (`embedded.go`: FactoryFS,\n    SandboxFS).\n\nDO NOT TOUCH: `internal/tkcontract`. The factory's contract tests imported it,\nwhich is why ticfac reimplemented those tests against its own `internal/schema`\nrather than copying it — cmd/tk's version and root contract gate still need it\nhere.\n\nCheck before deleting: `internal/sandbox` and `internal/gatewaytrace` were both\nfound reaching into factory. azq should have settled sandbox; confirm rather\nthan assume.\n\nIndependent of nkf — different trees — so it can run in the same wave, but only\nif nothing in it touches a file nkf touches. Check that at dispatch (the wave\ncomposition rule), not after.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "azq"
+  ],
+  "parent": "pwp",
+  "acceptance_criteria": "internal/factory, internal/gatewaytrace, cloud/factory and cloud/sandbox are gone, along with the factory and cloud commands and the module-root embeds they leave unused; internal/tkcontract is untouched and cmd/tk's version and contract gate still work; the same commands work from the ticfac CLI; go build ./... passes after every commit; go test -short -count=1 ./... green.",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-14T16:41:58.675032Z",
+  "updated_at": "2026-09-14T16:41:58.675032Z"
+}
