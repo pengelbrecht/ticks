@@ -2,10 +2,10 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 58,
-  "state": "gating",
-  "reason": "running the integrated gate for gms on 4f5b37d2dcd8",
-  "updated_at": "2026-09-14T21:06:57Z",
+  "sequence": 59,
+  "state": "publishing",
+  "reason": "closing gms behind the integrated gate on 4f5b37d2dcd8",
+  "updated_at": "2026-09-14T21:12:33Z",
   "ticks": [
     {
       "tick_id": "azq",
