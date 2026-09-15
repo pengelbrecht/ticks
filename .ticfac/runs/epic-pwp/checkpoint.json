@@ -2,10 +2,10 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 85,
-  "state": "publishing",
-  "reason": "closing 8vl behind its validated closeout-epic answer",
-  "updated_at": "2026-09-15T03:01:20Z",
+  "sequence": 86,
+  "state": "failed",
+  "reason": "8vl reported 1 finding(s) nobody has triaged — \"ticfac enforces the repo's PR+CI close-out rule nowhere: each closeout attempt re-derives the missing PR by hand\" (upstream-tick, for pengelbrecht/ticfac) — and the tick is NOT closed: a finding that falls on the floor is the failure this gate exists to stop. Triage each with `ticfac finding pwp ef98b40d2f57904436061311ed29f0e6b8a0ba970c37a93951cd68b41512cb0a --promote-as <tick> --by \"<who>\"` (promote into the repository it targets) or `ticfac finding pwp ef98b40d2f57904436061311ed29f0e6b8a0ba970c37a93951cd68b41512cb0a --discard --by \"<who>\"`, then run the epic again under this run id: the gate has already passed, so the close is the only step left. The drafts are key ef98b40d2f57904436061311ed29f0e6b8a0ba970c37a93951cd68b41512cb0a under .ticfac/runs/epic-pwp/findings/ on origin",
+  "updated_at": "2026-09-15T03:01:25Z",
   "ticks": [
     {
       "tick_id": "azq",
@@ -29,7 +29,7 @@
     },
     {
       "tick_id": "8vl",
-      "state": "reported",
+      "state": "rejected",
       "attempt": 12
     },
     {
