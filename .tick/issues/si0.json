@@ -1,0 +1,13 @@
+{
+  "id": "si0",
+  "title": "Ship-or-remove plugins/herdr-ticks: every hook calls a deleted tk herd command",
+  "description": "Found by the pwp final review (tick sx5, attempt 9). The epic deleted tk herd paint/notify/guard/collect/reconcile but left plugins/herdr-ticks/ unchanged, and every event hook it registers invokes one of them:\n\n  guard-hook.sh:75          tk herd guard\n  paint-hook.sh ~101        tk herd paint\n  notify-hook.sh ~91        tk herd notify\n  action-collect-tick.sh    tk herd collect\n  action-retry-tick.sh      tk herd reconcile\n\nREADME.md:21-27 still marks them 'Working' and herdr-plugin.toml registers the hooks. The hooks exit 0 by design, so every firing now fails SILENTLY, visible only in the plugin log. action-open-worktree.sh reads .tick/logs/herd manifests that no writer remains for. scripts/verify-herd-helper.sh and scripts/verify-herd-plugin.sh are orphaned end-to-end smokes of the deleted CLI.\n\nEither remove the plugin and its smokes, or re-point them once ticfac equivalents exist. Do not leave hooks that fail silently.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "No shipped hook or script in plugins/herdr-ticks invokes a tk herd subcommand that no longer exists; either the plugin is removed or every hook resolves against a live command, and README no longer advertises removed behaviour as Working",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-15T00:32:10.979754Z",
+  "updated_at": "2026-09-15T00:32:10.979754Z"
+}

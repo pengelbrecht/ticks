@@ -1,0 +1,13 @@
+{
+  "id": "tyj",
+  "title": "tk herd --help still advertises the deleted spawn/wait/collect family",
+  "description": "Found by the pwp final review (tick sx5, attempt 9). cmd/tk/cmd/herd.go's Short ('Drive a herdr session: spawn, wait for and collect a wave of agent workers') and its Long text describe the orchestration contract of commands nkf deleted. Only dashboard and relay remain as subcommands.\n\nNo test pins the herd command surface, so the gate stays green while the help lies. Fix the text and add a subcommand-enumeration test asserting herdCmd contains exactly dashboard and relay. One-file fix; can ride along with the client-consolidation tick.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "tk herd --help describes only the subcommands that exist, and a test fails if the set of herd subcommands changes without the help text changing",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-15T00:32:11.078365Z",
+  "updated_at": "2026-09-15T00:32:11.078365Z"
+}
