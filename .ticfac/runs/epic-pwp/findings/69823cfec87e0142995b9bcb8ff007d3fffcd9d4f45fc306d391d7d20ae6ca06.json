@@ -10,8 +10,10 @@
   "target": "",
   "tick_id": "8vl",
   "attempt": 13,
-  "status": "proposed",
+  "status": "discarded",
   "proposed_at": "2026-09-15T06:26:25Z",
+  "triaged_at": "2026-09-15T06:29:43Z",
+  "triaged_by": "claude:orchestrator",
   "provenance": {
     "run_id": "epic-pwp",
     "tick_id": "8vl",
