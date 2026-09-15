@@ -1,0 +1,84 @@
+{
+  "schema_version": 3,
+  "decision": 3,
+  "role": "closeout-epic",
+  "request": {
+    "epic_id": "pwp",
+    "job_id": "run-epic-pwp/tick-8vl/attempt-11",
+    "output_schema": "ticfac.job-result.closeout-epic.v1",
+    "profile": "closeout-epic@1.0.0 (herdr/pi, cloudflare-workers-ai/@cf/zai-org/glm-5.3)",
+    "profile_digest": "sha256:45f65c87efda2309abf539867544793a1ebdb9aaff0896c1c4aa9f0481a0617e",
+    "role": "closeout-epic",
+    "source_grade": "write",
+    "source_sha": "a8c66ca53233863693045b34b23fe433beb3e6f8",
+    "tick_id": "8vl"
+  },
+  "response": {
+    "findings": [
+      {
+        "body": "Tick 3r2's GOES list and the epic's acceptance criteria both say cloud/sandbox is deleted; the integrated branch still carries it (Dockerfile, entrypoint.sh, worker.sh, common.sh, preflight.sh — the 236K build context). The worker kept it for a real reason (internal/sandbox still shells into its scripts to warm local worktrees, and internal/sandbox itself was never in delete scope), but the deviation is recorded only in a comment in embedded.go — no tick note, no finding — and the review's survival checklist never re-checked the acceptance criteria, so the epic record claims a deletion that did not happen. Decide on the record: finish the deletion (move the scripts where internal/sandbox can reach them, or into ticfac) or amend the epic record to state why it stays.",
+        "kind": "proposed-tick",
+        "severity": "medium",
+        "target": "",
+        "title": "cloud/sandbox survived 3r2's GOES list and the epic's acceptance criteria; the deviation lives only in a code comment"
+      },
+      {
+        "body": "cmd/tk/main.go's hardcoded printUsage — the answer to `tk --help` and to every unknown command — still lists `factory` in its Commands line and carries full sections for `tk factory deploy|setup|status|dashboard`, `tk cloud run|stop|status|logs|trace` and `tk herd wait|reconcile|collect|cleanup/paint/notify`, every one of which now errors as an unknown command. The tyj finding covered cmd/tk/cmd/herd.go's Short/Long text only; this is the same defect one file over and can ride along with tyj's fix.",
+        "kind": "proposed-tick",
+        "severity": "low",
+        "target": "",
+        "title": "tk --help (cmd/tk/main.go printUsage) still advertises the deleted factory, cloud-run and herd command families"
+      },
+      {
+        "body": "Five integrated gates stayed green while .github/workflows/ci.yml named the deleted ./internal/herd/collect package, because the gate runs `go test -short ./...`, which only compiles what exists — a gap sx5's own note says outlives this epic. A small Go test that parses the workflow's `go test` steps and asserts every ./pkg/... they name still exists would have failed the FIRST gate after tick nkf's merge, and costs one file.",
+        "kind": "proposed-tick",
+        "severity": "medium",
+        "target": "",
+        "title": "Pin ci.yml's named packages: fail the local gate when a workflow step names a package that does not exist"
+      },
+      {
+        "body": "The pwp run merged five ticks whose integrated gates were green while the repo's own ci.yml named a package tick nkf had deleted; the review phase caught it, no gate did. The gate's command set and the workflow's step set are different authorities that drift independently. ticfac's gate should either run the workflow's named-package steps verbatim on the integrated SHA, or validate that every package a repo's CI names exists before declaring a merge green.",
+        "kind": "upstream-tick",
+        "severity": "medium",
+        "target": "pengelbrecht/ticfac",
+        "title": "ticfac's integrated gate never re-runs the repo's CI workflow steps, so a workflow naming a deleted package is invisible to every green gate"
+      }
+    ],
+    "result": {
+      "boundary_violations": [],
+      "branch": "ticfac/run-epic-pwp/tick-8vl/attempt-11",
+      "commits": 0,
+      "findings_problem": "",
+      "needs_human": false,
+      "report_path": "runs/epic-pwp/8vl/RESULT-8vl.md",
+      "verdict": "no-commits"
+    },
+    "role": "closeout-epic",
+    "schema_id": "ticfac.job-result.closeout-epic.v1",
+    "schema_version": 2,
+    "status": "DONE_WITH_CONCERNS",
+    "summary": "the retro is complete and every claim above was re-verified on the integrated branch (build, short tests, and the CI parity step all green locally; tkcontract byte-identical; run-by-ticfac evidenced in committed run state). Double-check two things before closing 8vl: (1) the PR + CI gate — no PR for epic/pwp exists yet, and this repo's rule is that the epic close-out may not complete until ci.yml is green on that PR, so the orchestrator must open the epic/pwp PR and let CI run; (2) the two high follow-ups (tlq two-herdr-clients, si0 broken plugins/herdr-ticks) — they are the gap between \"extracted\" and \"extracted means extracted\"."
+  },
+  "validated": true,
+  "requested_at": "2026-09-15T02:48:58Z",
+  "answered_at": "2026-09-15T02:48:58Z",
+  "provenance": {
+    "run_id": "epic-pwp",
+    "tick_id": "8vl",
+    "attempt": 11,
+    "source_ref": "refs/heads/epic/pwp",
+    "source_sha": "a8c66ca53233863693045b34b23fe433beb3e6f8",
+    "integration_ref": "refs/heads/epic/pwp",
+    "phase": "closeout",
+    "executor": "herdr",
+    "workspace_id": null,
+    "backend": null,
+    "role": "closeout-epic",
+    "tier": null,
+    "profile_digest": "sha256:45f65c87efda2309abf539867544793a1ebdb9aaff0896c1c4aa9f0481a0617e",
+    "model": "cloudflare-workers-ai/@cf/zai-org/glm-5.3",
+    "context_manifest_digest": "sha256:0cf644d69158e095c78727ed089548d1",
+    "substrate_protocol": 22,
+    "substrate_server_version": "0.9.0"
+  }
+}
