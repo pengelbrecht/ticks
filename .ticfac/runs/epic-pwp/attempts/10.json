@@ -1,0 +1,41 @@
+{
+  "schema_version": 3,
+  "attempt": 10,
+  "tick_id": "sx5",
+  "dispatched_at": "2026-09-15T00:34:09Z",
+  "job_handle": {
+    "attempt": 10,
+    "base_sha": "f5e7cb3586ead0d141531c5333d95e919d5f14a9",
+    "executor": "herdr",
+    "job_id": "run-epic-pwp/tick-sx5/attempt-10",
+    "model": "cloudflare-workers-ai/@cf/zai-org/glm-5.3",
+    "prompt_digest": "sha256:8a15cbc5f186ab37b120d225ff85ac16",
+    "remote": "origin",
+    "role": "review-epic",
+    "substrate_protocol": 22,
+    "substrate_server_version": "0.9.0",
+    "tick_id": "sx5",
+    "tier": "",
+    "touch": null,
+    "write_ref": "refs/heads/ticfac/run-epic-pwp/tick-sx5/attempt-10"
+  },
+  "provenance": {
+    "run_id": "epic-pwp",
+    "tick_id": "sx5",
+    "attempt": 10,
+    "source_ref": "refs/heads/epic/pwp",
+    "source_sha": "f5e7cb3586ead0d141531c5333d95e919d5f14a9",
+    "integration_ref": "refs/heads/epic/pwp",
+    "phase": "review",
+    "executor": "herdr",
+    "workspace_id": null,
+    "backend": null,
+    "role": "review-epic",
+    "tier": null,
+    "profile_digest": "sha256:af92bf105c806954e97d77cbeb8ef8a68d8ad6533cf3890ab6ae0f8537e56081",
+    "model": "cloudflare-workers-ai/@cf/zai-org/glm-5.3",
+    "context_manifest_digest": "sha256:0cf644d69158e095c78727ed089548d1",
+    "substrate_protocol": 22,
+    "substrate_server_version": "0.9.0"
+  }
+}

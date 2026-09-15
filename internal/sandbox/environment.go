@@ -9,7 +9,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/pengelbrecht/ticks/internal/herd/config"
+	"github.com/pengelbrecht/ticks/internal/runnersconfig"
 )
 
 // EnvironmentOptions describes one run-start pre-flight of one checkout.

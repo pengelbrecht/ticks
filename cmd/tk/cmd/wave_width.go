@@ -5,7 +5,7 @@ import (
 	"io"
 	"path/filepath"
 
-	herdconfig "github.com/pengelbrecht/ticks/internal/herd/config"
+	herdconfig "github.com/pengelbrecht/ticks/internal/runnersconfig"
 	"github.com/pengelbrecht/ticks/internal/tick"
 	"github.com/pengelbrecht/ticks/internal/wave"
 )

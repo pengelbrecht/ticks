@@ -182,8 +182,8 @@ func TestTrackWithAnUnchangedSetDoesNotResubscribe(t *testing.T) {
 }
 
 // Stream death: report it, ask for a reload (closing the gap in which nothing
-// was subscribed), then resubscribe. Unlike internal/herd/wait, a second break
-// is not fatal — a dashboard reconnects for as long as it is open.
+// was subscribed), then resubscribe. Unlike the old internal/herd/wait package,
+// a second break is not fatal — a dashboard reconnects for as long as it is open.
 func TestWatcherRecoversFromStreamDeath(t *testing.T) {
 	srv := newFakeHerd(t, herdtest.Agent{Name: "tick-a", PaneID: "w1:p1", Status: "working"})
 	w := NewWatcher(dial(t, srv))

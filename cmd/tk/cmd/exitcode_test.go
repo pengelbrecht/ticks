@@ -67,9 +67,9 @@ func TestUnreachableHerdrSocketExitsGeneric(t *testing.T) {
 	captureCmdOutput(t)
 	socket := filepath.Join(t.TempDir(), strings.Repeat("d", 200)+".sock")
 
-	err := ExecuteArgs([]string{"herd", "wait", "--agents", "tick-a", "--socket", socket, "--timeout", "500"})
+	err := ExecuteArgs([]string{"herd", "dashboard", "--socket", socket})
 	if err == nil {
-		t.Fatal("herd wait against an unusable socket returned nil error")
+		t.Fatal("herd dashboard against an unusable socket returned nil error")
 	}
 	if code := GetExitCode(err); code != ExitGeneric {
 		t.Errorf("exit code = %d, want %d: %v", code, ExitGeneric, err)

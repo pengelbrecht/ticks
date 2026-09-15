@@ -12,17 +12,17 @@ import (
 // A deliberately narrow, DUPLICATED reader of ONE field of
 // `.tick/runners.toml` — [orchestration].substrate — plus the
 // $TICKS_SUBSTRATE override that names it. It exists so cloudSubstrateGate
-// (cloud_wave.go) does not import internal/herd/config.
+// (cloud_wave.go) does not import internal/runnersconfig.
 //
 // This file leaves ticks with the factory command files
-// (cmd/tk/cmd/{cloud,factory}*.go). internal/herd/config stays: `tk herd
+// (cmd/tk/cmd/{cloud,factory}*.go). internal/runnersconfig stays: `tk herd
 // spawn` and `tk herd reconcile` need its full validating parser for every
 // table in the file, and Go forbids an external module from importing
 // another module's internal/ package — so once the factory is its own
 // module, cloud_wave.go could not reach that package even by name.
 //
 // `tk cloud spawn`'s gate never needed more than this one field (checked
-// against internal/herd/config's actual call sites — tick vr4). The
+// against internal/runnersconfig's actual call sites — tick vr4). The
 // alternative to duplicating it was shelling out to `tk` (Finding 3's
 // general answer for factory/ticks edges), but no existing `tk` subcommand
 // answers this specific, probe-free question: `tk sandbox substrate` runs
@@ -35,7 +35,7 @@ import (
 // reads: a missing file, a missing [orchestration] table, or a key this
 // reader does not recognise all resolve to "auto", exactly like
 // config.Config.Substrate's nil-safe default. It does NOT replicate
-// internal/herd/config's full validation (unknown-key rejection, version
+// internal/runnersconfig's full validation (unknown-key rejection, version
 // gating, the other tables) — an otherwise-malformed runners.toml is still
 // caught, just not here: by `tk herd spawn`/`reconcile` (which load the same
 // file through the real parser) and, downstream, by the container's own `tk

@@ -14,7 +14,7 @@ import (
 // The seam between this package's client types and internal/herd/herdtest, the
 // repo's one canonical fake herdr server. herdtest cannot import herd/client
 // (that package's own tests would become an import cycle), so every conversion
-// happens here — the same arrangement internal/herd/wait uses.
+// happens here — the same arrangement the old internal/herd/wait package used.
 
 // newFakeHerd starts a fake herdr server seeded with agent-bearing panes.
 func newFakeHerd(t *testing.T, agents ...herdtest.Agent) *herdtest.Server {

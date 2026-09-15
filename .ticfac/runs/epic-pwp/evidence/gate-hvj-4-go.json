@@ -1,0 +1,47 @@
+{
+  "schema_version": 3,
+  "key": "gate-hvj-4-go",
+  "provenance": {
+    "run_id": "epic-pwp",
+    "tick_id": "hvj",
+    "attempt": 4,
+    "source_ref": "refs/heads/epic/pwp",
+    "source_sha": "83b792e459db4dfb63b64d3a0fad6e4de61ec973",
+    "integration_ref": "refs/heads/epic/pwp",
+    "phase": "integrated",
+    "executor": "herdr",
+    "workspace_id": null,
+    "backend": null,
+    "role": "implement-tick",
+    "tier": null,
+    "profile_digest": "sha256:d03e0127c114fdb1ad5ea3cff0f0ce45cf005a897543bd8d4afb5f157d6ee420",
+    "model": "sonnet",
+    "context_manifest_digest": "sha256:0cf644d69158e095c78727ed089548d1",
+    "substrate_protocol": 22,
+    "substrate_server_version": "0.9.0"
+  },
+  "check": {
+    "id": "go",
+    "kind": "command",
+    "command": [
+      "sh",
+      "-c",
+      "go test -short -count=1 ./..."
+    ]
+  },
+  "started_at": "2026-09-14T19:50:03Z",
+  "finished_at": "2026-09-14T19:52:50Z",
+  "exit_code": 0,
+  "output": {
+    "mode": "inline",
+    "stdout": "?   \tgithub.com/pengelbrecht/ticks\t[no test files]\n?   \tgithub.com/pengelbrecht/ticks/cmd/testrig\t[no test files]\nok  \tgithub.com/pengelbrecht/ticks/cmd/tk\t4.097s\nok  \tgithub.com/pengelbrecht/ticks/cmd/tk/cmd\t59.007s\nok  \tgithub.com/pengelbrecht/ticks/internal/beads\t0.262s\nok  \tgithub.com/pengelbrecht/ticks/internal/cloud/collect\t3.809s\nok  \tgithub.com/pengelbrecht/ticks/internal/cloud/lease\t2.038s\nok  \tgithub.com/pengelbrecht/ticks/internal/cloud/state\t2.408s\nok  \tgithub.com/pengelbrecht/ticks/internal/config\t1.822s\nok  \tgithub.com/pengelbrecht/ticks/internal/contracts\t0.509s\nok  \tgithub.com/pengelbrecht/ticks/internal/devbuild\t3.065s\nok  \tgithub.com/pengelbrecht/ticks/internal/factory\t18.546s\nok  \tgithub.com/pengelbrecht/ticks/internal/factory/credentials\t2.338s\nok  \tgithub.com/pengelbrecht/ticks/internal/factory/dashboard\t2.392s\nok  \tgithub.com/pengelbrecht/ticks/internal/factory/jobprotocol\t1.477s\nok  \tgithub.com/pengelbrecht/ticks/internal/factory/lifecycle\t1.487s\nok  \tgithub.com/pengelbrecht/ticks/internal/factory/runstate\t1.389s\nok  \tgithub.com/pengelbrecht/ticks/internal/gatewaytrace\t1.533s\nok  \tgithub.com/pengelbrecht/ticks/internal/gc\t1.409s\nok  \tgithub.com/pengelbrecht/ticks/internal/github\t1.983s\nok  \tgithub.com/pengelbrecht/ticks/internal/herd/client\t2.025s\nok  \tgithub.com/pengelbrecht/ticks/internal/herd/dashboard\t6.293s\n?   \tgithub.com/pengelbrecht/ticks/internal/herd/herdtest\t[no test files]\nok  \tgithub.com/pengelbrecht/ticks/internal/herd/relay\t2.083s\nok  \tgithub.com/pengelbrecht/ticks/internal/herd/state\t1.910s\nok  \tgithub.com/pengelbrecht/ticks/internal/herdclient\t2.084s\nok  \tgithub.com/pengelbrecht/ticks/internal/merge\t2.009s\nok  \tgithub.com/pengelbrecht/ticks/internal/operator\t3.229s\nok  \tgithub.com/pengelbrecht/ticks/internal/query\t1.741s\nok  \tgithub.com/pengelbrecht/ticks/internal/runnersconfig\t1.917s\nok  \tgithub.com/pengelbrecht/ticks/internal/sandbox\t158.124s\nok  \tgithub.com/pengelbrecht/ticks/internal/skills\t1.945s\n?   \tgithub.com/pengelbrecht/ticks/internal/styles\t[no test files]\nok  \tgithub.com/pengelbrecht/ticks/internal/tick\t1.935s\nok  \tgithub.com/pengelbrecht/ticks/internal/tickboard/cloud\t2.065s\nok  \tgithub.com/pengelbrecht/ticks/internal/tickboard/server\t5.773s\nok  \tgithub.com/pengelbrecht/ticks/internal/tickenv\t1.495s\nok  \tgithub.com/pengelbrecht/ticks/internal/ticks\t1.531s\nok  \tgithub.com/pengelbrecht/ticks/internal/tkcontract\t1.629s\nok  \tgithub.com/pengelbrecht/ticks/internal/trace\t1.677s\nok  \tgithub.com/pengelbrecht/ticks/internal/tui\t1.962s\nok  \tgithub.com/pengelbrecht/ticks/internal/types/generated\t1.420s\n?   \tgithub.com/pengelbrecht/ticks/internal/update\t[no test files]\nok  \tgithub.com/pengelbrecht/ticks/internal/wave\t1.473s\nok  \tgithub.com/pengelbrecht/ticks/internal/workerprompt\t1.582s\nok  \tgithub.com/pengelbrecht/ticks/internal/worktree\t12.187s\n?   \tgithub.com/pengelbrecht/ticks/scripts/experiments\t[no test files]\n",
+    "stderr": "",
+    "truncated": false,
+    "redacted": false,
+    "max_bytes": 16384
+  },
+  "result": "pass",
+  "acceptance": "required",
+  "content_digest": "sha256:12fcc8de2945f453b39cefedc209a3e34d234db18f947e1a2b25eba6a799147d",
+  "persistence_uri": "git:refs/heads/epic/pwp:.ticfac/runs/epic-pwp/evidence/gate-hvj-4-go.json"
+}

@@ -185,7 +185,7 @@ fixture is a maintenance cost plus a false sense of coverage.
 ## Gotchas
 
 - **Eight CORE Go tests read fixtures out of `cloud/factory/test/fixtures/`** —
-  `internal/herd/config` (×4), `internal/sandbox` (×2), `internal/operator`,
+  `internal/runnersconfig` (×4), `internal/sandbox` (×2), `internal/operator`,
   `internal/tick`. The dependency runs *backwards*. They are deliberate Go/TS
   drift detectors for the `.tick/runners.toml` dual parser, sandbox worker boot,
   and message context. **A naive extraction relocates them and silently disables

@@ -7,8 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	herdconfig "github.com/pengelbrecht/ticks/internal/herd/config"
-	"github.com/pengelbrecht/ticks/internal/herd/herdtest"
+	herdconfig "github.com/pengelbrecht/ticks/internal/runnersconfig"
 )
 
 // `tk sandbox` is how the cloud entrypoint reaches the repository's own
@@ -291,42 +290,6 @@ func TestSandboxSetupRefusesAnInvalidConfig(t *testing.T) {
 // The local half of "the same section warms a local herdr worker": the spawner
 // applies the worktree's own declaration between `worktree.create` and
 // `agent.start`, so the worker starts in a warm tree.
-func TestHerdSpawnWarmsTheWorktreeFromTheSandboxTable(t *testing.T) {
-	setupSpawnRepo(t, sandboxRunners)
-
-	// The worker's worktree is a real directory carrying the same tracked
-	// declaration — which is what herdr hands back from worktree.create.
-	worktree := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(worktree, ".tick"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(worktree, ".tick", "runners.toml"), []byte(sandboxRunners), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
-	srv := herdtest.New(t, herdtest.Config{
-		Worktree: herdtest.Worktree{
-			Path:   worktree,
-			Label:  "tick-a1w",
-			Branch: "tick/a1w",
-		},
-		AgentSession: "sess-abc",
-		PaneTexts:    []string{"> Reply with the single word OK\n\n⏺ OK\n"},
-	})
-
-	captureCmdOutput(t)
-	if err := ExecuteArgs([]string{"herd", "spawn", "a1w", "--socket", srv.Path()}); err != nil {
-		t.Fatalf("herd spawn: %v", err)
-	}
-	log, err := os.ReadFile(filepath.Join(worktree, "warm.log"))
-	if err != nil {
-		t.Fatalf("the worker's worktree was never warmed: %v", err)
-	}
-	if !strings.Contains(string(log), "warmed") {
-		t.Errorf("warm log = %q", log)
-	}
-}
-
 // ---------------------------------------------------------------------------
 // `tk sandbox substrate`
 //

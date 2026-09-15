@@ -7,7 +7,6 @@ import (
 	"os"
 	"strconv"
 	"sync"
-	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
@@ -582,25 +581,6 @@ func ResetFlags() {
 	mergeDryRun = false
 	mergeYes = false
 
-	// Reset herd wait flags
-	herdWaitAgents = nil
-	herdWaitTimeout = defaultHerdWaitTimeoutMs
-	herdWaitSocket = ""
-	herdWaitJSON = false
-	herdWaitRelayAfter = 0
-
-	// Reset herd spawn flags
-	herdSpawnRole = "implement"
-	herdSpawnTier = ""
-	herdSpawnConfig = ""
-	herdSpawnSocket = ""
-	herdSpawnBase = ""
-	herdSpawnJSON = false
-	herdSpawnWait = false
-	herdSpawnStartupTimeout = defaultHerdSpawnStartupTimeoutMs
-	herdSpawnGateTimeout = defaultHerdSpawnGateTimeoutMs
-	herdSpawnPromptTimeout = defaultHerdSpawnPromptTimeoutMs
-
 	// Reset sandbox flags
 	sandboxRoot = ""
 	sandboxForce = false
@@ -613,45 +593,18 @@ func ResetFlags() {
 	sandboxPromptBranch = ""
 	sandboxPromptBase = ""
 
-	// Reset herd reconcile flags
-	herdReconcileEpic, herdReconcileConfig, herdReconcileSocket, herdReconcileJSON, herdReconcileAdopt = "", "", "", false, false
-
-	// Reset herd watch flags
-	watchClear = false
-	watchScope = ""
-	watchStatus = false
-	watchNudgeMax = 3
-	watchNudgeInterval = 2 * time.Minute
-
-	// Reset herd guard flags
-	guardSocket = ""
-	guardDryRun = false
-	guardJSON = false
-	// Reset herd collect flags
-	herdCollectEpic, herdCollectJSON = "", false
-
 	// Reset herd dashboard flags
 	herdDashboardEpic, herdDashboardSocket, herdDashboardInterval = "", "", defaultHerdDashboardIntervalMs
 
-	// Reset herd cleanup flags
-	herdCleanupEpic, herdCleanupSocket, herdCleanupJSON = "", "", false
-	herdCleanupPreview, herdCleanupApply = false, false
-
-	// Reset herd paint flags
-	herdPaintEpic, herdPaintTick, herdPaintSocket, herdPaintTTLMs, herdPaintSeq, herdPaintDryRun, herdPaintJSON = "", "", "", defaultHerdPaintTTLMs, 0, false, false
-
-	// Reset herd notify flags
-	herdNotifyEpic, herdNotifySocket, herdNotifyDryRun, herdNotifyJSON = "", "", false, false
+	// Reset herd relay flags
+	herdRelayAgent, herdRelayPane, herdRelaySocket = "", "", ""
+	herdRelayGrace, herdRelayTimeout = 0, defaultHerdRelayTimeout
 
 	// Reset board flags
 	boardPort = 3000
 	boardCloud = false
 	boardDev = false
 	boardHost = "127.0.0.1"
-
-	// Reset factory webhook flags
-	factoryWebhookDelete = false
-	factoryWebhookStatus = false
 
 	// Reset ask flags
 	askQuestion = ""
@@ -674,45 +627,7 @@ func ResetFlags() {
 	skillsInstallForce = false
 	skillsDiffDir = ""
 
-	// Reset factory flags
-	factoryDeployRotateToken = false
-	factoryDeployURL = ""
-	factoryDeployBundleDir = ""
-	factorySetupRepo = ""
-	factorySetupGitHubToken = ""
-	factorySetupGitHubAPI = ""
-	factorySetupGatewayURL = ""
-	factorySetupProvider = ""
-	factorySetupProviderKey = ""
-	factorySetupCFAPIToken = ""
-	factorySetupCFAPIBase = ""
-	factorySetupBundleDir = ""
-	factoryStatusOffline = false
-	factoryStatusCheck = false
-	factoryStatusGitHubAPI = ""
-	factoryStatusCFAPIBase = ""
-	factoryDashboardProject = ""
-	factoryDashboardInterval = defaultFactoryDashboardIntervalMs
-	factoryDashboardCost = defaultFactoryDashboardCostMs
-	factoryDashboardTailBytes = defaultFactoryDashboardTailBytes
-	factoryDashboardNoCost = false
-
 	// Reset cloud flags
-	cloudRunNotify = ""
-	cloudRunQueue = false
-	cloudRunTickIDs = nil
-	cloudRunMaxCost = 0
-	cloudRunMaxWallClock = 0
-	cloudStopNow = false
-	cloudTraceJSON = false
-	cloudTraceCall = 0
-	cloudTraceTools = false
-	cloudTraceCache = false
-	cloudLogsTail = 0
-	cloudLogsTick = ""
-	cloudLogsFollow = false
-	cloudLogsInterval = defaultCloudLogsInterval
-	cloudSupervisorSteps = 0
 	cloudPRBodyHead = ""
 	cloudPRBodyBase = ""
 	cloudPRBodyRunBase = ""

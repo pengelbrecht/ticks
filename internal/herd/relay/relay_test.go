@@ -8,22 +8,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pengelbrecht/ticks/internal/herd/client"
 	herdstate "github.com/pengelbrecht/ticks/internal/herd/state"
-	"github.com/pengelbrecht/ticks/internal/herd/wait"
+	"github.com/pengelbrecht/ticks/internal/herdclient"
 	"github.com/pengelbrecht/ticks/internal/operator"
 	"github.com/pengelbrecht/ticks/internal/tick"
 )
 
 type fakeController struct {
 	mu          sync.Mutex
-	prompts     []client.AgentPromptParams
-	state       client.AgentStatus
-	promptState client.AgentStatus
+	prompts     []herdclient.AgentPromptParams
+	state       herdclient.AgentStatus
+	promptState herdclient.AgentStatus
 	promptErr   error
 }
 
-func (f *fakeController) AgentPrompt(_ context.Context, p client.AgentPromptParams) (*client.AgentInfo, error) {
+func (f *fakeController) AgentPrompt(_ context.Context, p herdclient.AgentPromptParams) (*herdclient.AgentInfo, error) {
 	f.mu.Lock()
 	f.prompts = append(f.prompts, p)
 	state, err := f.promptState, f.promptErr
@@ -34,25 +33,25 @@ func (f *fakeController) AgentPrompt(_ context.Context, p client.AgentPromptPara
 	if err != nil {
 		return nil, err
 	}
-	return &client.AgentInfo{AgentStatus: state}, nil
+	return &herdclient.AgentInfo{AgentStatus: state}, nil
 }
 
-func (f *fakeController) setState(state client.AgentStatus) {
+func (f *fakeController) setState(state herdclient.AgentStatus) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.state = state
 }
 
-func (f *fakeController) AgentGet(context.Context, string) (*client.AgentInfo, error) {
+func (f *fakeController) AgentGet(context.Context, string) (*herdclient.AgentInfo, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return &client.AgentInfo{AgentStatus: f.state}, nil
+	return &herdclient.AgentInfo{AgentStatus: f.state}, nil
 }
 
-func (f *fakeController) promptSnapshot() []client.AgentPromptParams {
+func (f *fakeController) promptSnapshot() []herdclient.AgentPromptParams {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return append([]client.AgentPromptParams(nil), f.prompts...)
+	return append([]herdclient.AgentPromptParams(nil), f.prompts...)
 }
 
 func relayTickRepo(t *testing.T, id string) string {
@@ -85,21 +84,20 @@ func relayTickRepo(t *testing.T, id string) string {
 func TestHandleTerminalFirstKeepsQuestionParked(t *testing.T) {
 	root := relayTickRepo(t, "abc")
 	engine := operator.NewEngine(root)
-	controller := &fakeController{state: client.StatusWorking}
+	controller := &fakeController{state: herdclient.StatusWorking}
 	parked := make(chan operator.Pending, 1)
 
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	result := make(chan struct {
-		state client.AgentStatus
+		state herdclient.AgentStatus
 		err   error
 	}, 1)
 	go func() {
-		state, err := Handle(ctx, controller, wait.Result{
+		state, err := Handle(ctx, controller, Blocked{
 			Name:      "tick-abc",
 			AgentName: "tick-abc",
 			PaneID:    "w1:p1",
-			State:     string(client.StatusBlocked),
 		}, Options{
 			RepoRoot: root,
 			Engine:   engine,
@@ -107,7 +105,7 @@ func TestHandleTerminalFirstKeepsQuestionParked(t *testing.T) {
 			OnPark:   func(p operator.Pending) { parked <- p },
 		})
 		result <- struct {
-			state client.AgentStatus
+			state herdclient.AgentStatus
 			err   error
 		}{state, err}
 	}()
@@ -134,7 +132,7 @@ func TestHandleTerminalFirstKeepsQuestionParked(t *testing.T) {
 	if got.err != nil {
 		t.Fatalf("Handle: %v", got.err)
 	}
-	if got.state != client.StatusWorking {
+	if got.state != herdclient.StatusWorking {
 		t.Fatalf("state = %s, want working", got.state)
 	}
 	prompts := controller.promptSnapshot()
@@ -149,20 +147,19 @@ func TestHandleTerminalFirstKeepsQuestionParked(t *testing.T) {
 func TestHandleUnscopedTerminalFirstCancelsBeforeDelivery(t *testing.T) {
 	root := t.TempDir()
 	engine := operator.NewEngine(root)
-	controller := &fakeController{state: client.StatusBlocked}
+	controller := &fakeController{state: herdclient.StatusBlocked}
 	parked := make(chan operator.Pending, 1)
 
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 	result := make(chan struct {
-		state client.AgentStatus
+		state herdclient.AgentStatus
 		err   error
 	}, 1)
 	go func() {
-		state, err := Handle(ctx, controller, wait.Result{
+		state, err := Handle(ctx, controller, Blocked{
 			Name:   "w9T:p1",
 			PaneID: "w9T:p1",
-			State:  string(client.StatusBlocked),
 		}, Options{
 			RepoRoot:      root,
 			Engine:        engine,
@@ -171,18 +168,18 @@ func TestHandleUnscopedTerminalFirstCancelsBeforeDelivery(t *testing.T) {
 			OnPark:        func(p operator.Pending) { parked <- p },
 		})
 		result <- struct {
-			state client.AgentStatus
+			state herdclient.AgentStatus
 			err   error
 		}{state, err}
 	}()
 
 	p := <-parked
-	controller.setState(client.StatusWorking)
+	controller.setState(herdclient.StatusWorking)
 	got := <-result
 	if got.err != nil {
 		t.Fatalf("Handle: %v", got.err)
 	}
-	if got.state != client.StatusWorking {
+	if got.state != herdclient.StatusWorking {
 		t.Fatalf("state = %s, want working", got.state)
 	}
 	resolved, err := engine.Pending().Load(p.ID)
@@ -243,24 +240,24 @@ func TestResolveRecordedTargetExcludesUnmanagedOrchestrator(t *testing.T) {
 	}
 
 	for name, tc := range map[string]struct {
-		result wait.Result
+		result Blocked
 		want   string
 		ok     bool
 	}{
 		"worker": {
-			result: wait.Result{Name: "tick-abc", AgentName: "tick-abc", PaneID: "w1:p1"},
+			result: Blocked{Name: "tick-abc", AgentName: "tick-abc", PaneID: "w1:p1"},
 			want:   "tick-abc", ok: true,
 		},
 		"respawn": {
-			result: wait.Result{Name: "tick-abc-r2", AgentName: "tick-abc-r2", PaneID: "w1:p1"},
+			result: Blocked{Name: "tick-abc-r2", AgentName: "tick-abc-r2", PaneID: "w1:p1"},
 			want:   "tick-abc-r2", ok: true,
 		},
 		"pane": {
-			result: wait.Result{Name: "w1:p1", PaneID: "w1:p1"},
+			result: Blocked{Name: "w1:p1", PaneID: "w1:p1"},
 			want:   "tick-abc", ok: true,
 		},
 		"orchestrator": {
-			result: wait.Result{Name: "codex", AgentName: "codex", PaneID: "w0:p1"},
+			result: Blocked{Name: "codex", AgentName: "codex", PaneID: "w0:p1"},
 			ok:     false,
 		},
 	} {

@@ -16,8 +16,9 @@ import (
 // SubscribedStatuses are the agent statuses the board subscribes to, per known
 // worker pane.
 //
-// It is every status herdr reports, not the terminal subset internal/herd/wait
-// watches: a dashboard wants the working→idle transition as much as the
+// It is every status herdr reports, not the terminal subset the old
+// internal/herd/wait package watched (deleted by tick nkf; ticfac owns wave
+// waiting now): a dashboard wants the working→idle transition as much as the
 // settle. [client.StatusUnknown] is deliberately absent — it is the client's
 // zero value for "nothing reported", not a state herdr transitions a pane into.
 var SubscribedStatuses = []client.AgentStatus{
@@ -29,8 +30,8 @@ var SubscribedStatuses = []client.AgentStatus{
 
 // DefaultResubscribeBackoff is the pause before a resubscribe after the event
 // stream dies. A dashboard is long-lived, so it retries forever rather than
-// failing like internal/herd/wait does; the backoff keeps a herdr that is down
-// from becoming a reconnect loop.
+// failing like the old internal/herd/wait package did; the backoff keeps a
+// herdr that is down from becoming a reconnect loop.
 const DefaultResubscribeBackoff = 2 * time.Second
 
 // StatusMsg is one pushed pane.agent_status_changed, delivered to the model.

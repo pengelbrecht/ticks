@@ -2,10 +2,12 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"io"
 
 	"github.com/pengelbrecht/ticks/internal/herd/client"
-	herdconfig "github.com/pengelbrecht/ticks/internal/herd/config"
+	herdconfig "github.com/pengelbrecht/ticks/internal/runnersconfig"
 )
 
 // Helpers every `tk herd` subcommand needs, defined once.
@@ -38,4 +40,33 @@ func herdLoadConfig(root, explicitPath string) (*herdconfig.Config, error) {
 		return herdconfig.Load(explicitPath)
 	}
 	return herdconfig.LoadRepo(root)
+}
+
+// knownTier reports whether name is one of the routing config's tiers.
+func knownTier(name string) bool {
+	for _, t := range herdconfig.TierNames {
+		if string(t) == name {
+			return true
+		}
+	}
+	return false
+}
+
+// tierNames is the tier vocabulary, for a usage message.
+func tierNames() []string {
+	names := make([]string, 0, len(herdconfig.TierNames))
+	for _, t := range herdconfig.TierNames {
+		names = append(names, string(t))
+	}
+	return names
+}
+
+// writeJSONLine prints one compact JSON document followed by a newline.
+func writeJSONLine(w io.Writer, v any) {
+	body, err := json.Marshal(v)
+	if err != nil {
+		fmt.Fprintf(w, "{\"error\":%q}\n", err.Error())
+		return
+	}
+	fmt.Fprintln(w, string(body))
 }

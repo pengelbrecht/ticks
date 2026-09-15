@@ -11,7 +11,7 @@ A worker is specified along **two explicit dimensions**, never as raw argv:
 
 The spawner compiles `model`/`effort` into that kind's native argv (`claude --model … --effort …`, `codex -m … -c model_reasoning_effort="…"`, `pi --model <provider>/<model>:<effort>`, `opencode --model <provider>/<model>` with no effort form at all). The translation table, the model families each kind accepts, and the fail-closed rule for impossible combinations live in [`herdr-kinds.md`](herdr-kinds.md) → *[Model and effort translation](herdr-kinds.md#model-and-effort-translation)*; this document never restates them, nor the per-kind spawn and full-auto templates.
 
-**Under the herdr substrate, "the spawner" is `tk herd spawn`.** It loads this file, resolves the role/tier cell, compiles the argv, refuses an impossible cell *before dialling herdr*, and passes the result through verbatim — so everything this document specifies about resolution order, argv order and fail-closed behaviour is enforced code, not a convention an orchestrator has to remember. `tk herd spawn --role <role> --tier <tier>` is where a config choice actually takes effect; see [`herdr-runner.md`](herdr-runner.md#the-helper-tk-herd). Under harness orchestration the same structure is read by the active adapter, which cannot enforce it the same way.
+**Under the herdr substrate, "the spawner" is `ticfac run-epic`'s.** (The old `tk herd spawn` did this in-repo; that command and the rest of the wave-execution loop were deleted and moved to ticfac — see [`herdr-runner.md`](herdr-runner.md#the-wave-execution-loop-moved-to-ticfac).) It loads this file, resolves the role/tier cell, compiles the argv, refuses an impossible cell *before dialling herdr*, and passes the result through verbatim — so everything this document specifies about resolution order, argv order and fail-closed behaviour is enforced code, not a convention an orchestrator has to remember. Under harness orchestration the same structure is read by the active adapter, which cannot enforce it the same way.
 
 The file is optional. Without it, the active runner adapter behaves exactly as it does today: harness-native subagents, adapter-default tier mapping. `runners.toml` only ever *adds* routing choices.
 
@@ -100,8 +100,8 @@ Advisory. Whichever agent is executing the run *is* the orchestrator; this secti
 | `substrate` | `"herdr"` \| `"harness"` \| `"auto"` \| `"cloud"` | `"auto"` | Dispatch substrate. See [Substrate semantics](#substrate-semantics). |
 | `detect` | `"env-or-socket"` \| `"env"` \| `"socket"` | `"env-or-socket"` | Which probes count as "herdr is available". |
 | `socket` | string | `$HERDR_SOCKET_PATH`, else `~/.config/herdr/herdr.sock` | Socket path used by the `socket` probe. |
-| `max_parallel` | integer ≥ 1 | adapter default | Concurrent workers per wave. **Enforced, not advisory**: `tk` refuses a claim (`tk update --status in_progress`) or a `tk herd spawn` that would exceed it with exit 8, naming the ticks holding the slots. A slot is held by every in_progress non-epic child of the epic and freed by closing or releasing one. `tk graph --json` reports the width, the free slots and `dispatch.now` under `dispatch`. Unset means no cap. |
-| `worktree_branch_prefix` | string | `"tick/"` | Branch prefix for the worker branch (branch = `<prefix><tick-id>`). Read by `tk herd spawn` (to name the branch) and `tk herd reconcile` (to match branches to ticks), so neither hardcodes `tick/`. `cleanup` does **not** read it — it deletes the branch the manifest recorded at spawn, which is why changing the prefix mid-run still cleans up correctly. Ignored under harness orchestration — there the harness names branches. |
+| `max_parallel` | integer ≥ 1 | adapter default | Concurrent workers per wave. **Enforced, not advisory**: `tk` refuses a claim (`tk update --status in_progress`) or a spawn from the herdr-substrate spawner (`ticfac run-epic`) that would exceed it with exit 8, naming the ticks holding the slots. A slot is held by every in_progress non-epic child of the epic and freed by closing or releasing one. `tk graph --json` reports the width, the free slots and `dispatch.now` under `dispatch`. Unset means no cap. |
+| `worktree_branch_prefix` | string | `"tick/"` | Branch prefix for the worker branch (branch = `<prefix><tick-id>`). Read by the herdr-substrate spawner (to name the branch) and its recovery/reconcile logic (to match branches to ticks), so neither hardcodes `tick/`. Cleanup does **not** read it — it deletes the branch recorded run state named at spawn, which is why changing the prefix mid-run still cleans up correctly. Ignored under harness orchestration — there the harness names branches. |
 | `full_auto` | boolean | `true` | Start workers with their kind's full-auto arg template. When `false`, every approval prompt becomes a human escalation. |
 
 ### `[roles.<name>]`
@@ -133,7 +133,7 @@ For a tick with role R and chosen tier T:
 2. Otherwise `roles.R.kind` + `roles.R.model` + `roles.R.effort` + `roles.R.args`.
 3. If role R has no entry, resolve against `implement` by the same two steps.
 
-**Step 3 is a spawner rule, and a consumer whose role fails closed must not apply it.** `tk herd spawn` has to produce a worker, so an unlisted role resolving to `implement` is the right answer there. A *gate* that refuses to run on a defaulted model needs the opposite answer: the pi extension reads `plan`, `scout`, `review` and `closeout` only from their own explicit tables, leaves the key unset when the table is absent, and blocks — so a repo that migrates without writing `[roles.review]` gets the same stop its `## Pi Orchestrator` block gave when it had no `review_model` line, rather than a final review quietly running on the economy implement model. Its one fallback is closeout to the planner model. Anything that spawns from this file should say explicitly which of the two rules it applies.
+**Step 3 is a spawner rule, and a consumer whose role fails closed must not apply it.** The herdr-substrate spawner (`ticfac run-epic`) has to produce a worker, so an unlisted role resolving to `implement` is the right answer there. A *gate* that refuses to run on a defaulted model needs the opposite answer: the pi extension reads `plan`, `scout`, `review` and `closeout` only from their own explicit tables, leaves the key unset when the table is absent, and blocks — so a repo that migrates without writing `[roles.review]` gets the same stop its `## Pi Orchestrator` block gave when it had no `review_model` line, rather than a final review quietly running on the economy implement model. Its one fallback is closeout to the planner model. Anything that spawns from this file should say explicitly which of the two rules it applies.
 
 `kind`, `model` and `effort` are scalars, so field-wise override is well-defined: a tier that sets only `effort = "high"` keeps the role's kind and model. That is the point of splitting the dimensions out of `args` — the common case (same vendor, same model, different effort) stops requiring a restated argv list.
 
@@ -159,7 +159,7 @@ Keep the tier's real meaning intact when you do this — the tier is chosen from
 
 ### One table, one kind per reader
 
-`[roles]` is one table and more than one program reads it. `tk herd spawn` compiles a cell into a herdr spawn of that `kind`. The **pi extension** (`extensions/ticks-runner`, the runner adapter behind `/ticks-plan` and `/ticks-run`) compiles the same cell into `pi --provider/--model/--thinking` and spawns that subprocess itself. Because `model` lives **in the kind's own namespace**, a cell only means anything to the reader that dispatches that kind: `sonnet` is a `claude` id, `gpt-5.6-luna` is a `codex` id, and neither is a name `pi --model` takes.
+`[roles]` is one table and more than one program reads it. The herdr-substrate spawner (`ticfac run-epic`) compiles a cell into a herdr spawn of that `kind`. The **pi extension** (`extensions/ticks-runner`, the runner adapter behind `/ticks-plan` and `/ticks-run`) compiles the same cell into `pi --provider/--model/--thinking` and spawns that subprocess itself. Because `model` lives **in the kind's own namespace**, a cell only means anything to the reader that dispatches that kind: `sonnet` is a `claude` id, `gpt-5.6-luna` is a `codex` id, and neither is a name `pi --model` takes.
 
 So **one `[roles]` table cannot carry a herdr routing and a pi routing at the same time.** It carries the kind's, and a second reader may not help itself to the model string with the kind dropped.
 
@@ -170,7 +170,7 @@ roles.implement.tiers.balanced: kind = "codex", but this runner spawns `pi` and 
 id is in its own kind's namespace — refusing to derive implement_balanced_model =
 "gpt-5.6-luna:max" from a codex role rather than hand a codex id to `pi
 --provider/--model`. Give the role `kind = "pi"` and a pi model id, or run this epic
-through `tk herd spawn`, the reader a codex role is written for.
+under the herdr substrate (`ticfac run-epic`), the reader a codex role is written for.
 ```
 
 Four things follow, and each has bitten:
@@ -197,7 +197,7 @@ as the `Model` pattern `^@?[A-Za-z0-9][A-Za-z0-9_.+-]*(/@?[A-Za-z0-9][A-Za-z0-9_
 
 **A `:` is still rejected.** Effort is its own key; pi's `model:thinking` shorthand is what the spawner *emits*, never what the config carries.
 
-The pattern is enforced in four places that must agree — `runners-config.schema.json`, the Go loader (`internal/herd/config`), the Python reference validator (`scripts/verify-runners-config.py`, which reads the schema) and the pi extension (`extensions/ticks-runner/config.ts`) — because a file that one reader accepts and another rejects is worse than a file both refuse.
+The pattern is enforced in four places that must agree — `runners-config.schema.json`, the Go loader (`internal/runnersconfig`), the Python reference validator (`scripts/verify-runners-config.py`, which reads the schema) and the pi extension (`extensions/ticks-runner/config.ts`) — because a file that one reader accepts and another rejects is worse than a file both refuse.
 
 ### Shape versus compatibility
 
@@ -205,7 +205,7 @@ The pattern is enforced in four places that must agree — `runners-config.schem
 
 Compatibility is therefore enforced by the **spawner, at spawn time**, and it fails closed: an impossible cell (`kind = "claude"` with `model = "gpt-5.6-luna"`) is a config error the orchestrator must refuse with a message naming the role/tier, kind and model. It must **never** silently reroute to a kind that would accept the model, and never drop the model to fall back on the CLI's default. `herdr-kinds.md` → *[Fail closed on an impossible cell](herdr-kinds.md#fail-closed-on-an-impossible-cell)* carries the rule, the per-kind accepted families, and the message form. A config that passes the schema is not thereby routable.
 
-Under herdr, `tk herd spawn` performs that check, verified live against herdr 0.8.0, 2026-08: a `[roles.review]` of `kind = "claude"` with `model = "gpt-x"` exits 1 with the documented message, writes no plan to stdout, creates no branch and no manifest, and makes **zero herdr calls** — the routing is compiled before the socket is dialled, so a refusal cannot leave a half-made workspace behind. That is a dated observation of one build, not a protocol guarantee.
+Under herdr, the substrate's spawner performs that check — the old `tk herd spawn`, verified live against herdr 0.8.0, 2026-08: a `[roles.review]` of `kind = "claude"` with `model = "gpt-x"` exited 1 with the documented message, wrote no plan to stdout, created no branch and no manifest, and made **zero herdr calls** — the routing is compiled before the socket is dialled, so a refusal cannot leave a half-made workspace behind. That command is gone; `ticfac run-epic`'s spawner owes the same property now, but re-verify against its own build rather than assuming this dated observation still holds.
 
 Under harness orchestration the `kind` values are inert (the harness spawns its own subagents), but the role/tier structure still applies: the adapter maps tier names to its own model classes or reasoning-effort settings, per `agent-runner.md`. `model`/`effort` are hints there, not commands — a harness cannot spawn another vendor's model.
 
@@ -276,7 +276,7 @@ Three rules span tables, and JSON Schema has no referential integrity, so the sc
 | A command **string** appears in at most one of those three tables. | This is what the markdown format's "must exist verbatim and *uniquely*" was protecting: a command reachable from two phases lets an implementer run a close-out-only command. | `evidence.commands.<id>: command is already authorised as testing.commands.<other>` |
 | Every `[evidence.acceptance]` value names an id defined in `testing.commands` or `evidence.commands`. | Nothing outside this file authorises shell; an unresolvable reference has no command to run. | `evidence.acceptance.A1: "package-rcp" is not a command defined in testing.commands or evidence.commands` |
 
-This is the same division of labour the file already draws for routing — the schema knows the format, the spawner knows the vendor, and the loader knows the file as a whole. In this repo the loader is the one behind `tk herd spawn`, and `scripts/verify-runners-config.py` is a standalone reference implementation of both layers (`uv run --with jsonschema python scripts/verify-runners-config.py .tick/runners.toml`).
+This is the same division of labour the file already draws for routing — the schema knows the format, the spawner knows the vendor, and the loader knows the file as a whole. The loader behind the herdr-substrate spawner now lives in ticfac, not `tk`; `scripts/verify-runners-config.py` is a standalone reference implementation of both layers (`uv run --with jsonschema python scripts/verify-runners-config.py .tick/runners.toml`).
 
 ## The sandbox a run gets
 
@@ -310,7 +310,7 @@ This is also the gap `[environment]` deliberately cannot close. An Environment c
 One implementation serves both substrates, so a local worker warms identically to a cloud one:
 
 - **Cloud.** The sandbox entrypoint runs `tk sandbox setup` after cloning the submitted SHA and before starting the harness. A failing setup command stops the boot with exit 6 — deliberately not best effort, because a wave started on a half-provisioned sandbox fails in every worker, at model prices.
-- **Local.** `tk herd spawn` runs the same code on the freshly created worktree, between `worktree.create` and `agent.start`. `setup` only: `image` and `toolchain` describe a container, and a local worker runs on the developer's own machine, whose toolchain is not this file's to install. `[environment.commands]` is what tells a developer their machine is missing something.
+- **Local.** The herdr-substrate spawner (`ticfac run-epic`) runs the same setup on the freshly created worktree, between `worktree.create` and `agent.start`. `setup` only: `image` and `toolchain` describe a container, and a local worker runs on the developer's own machine, whose toolchain is not this file's to install. `[environment.commands]` is what tells a developer their machine is missing something.
 
 *Once* is **once per checkout**: the record of what ran lives in the checkout's git directory — never in the worktree, where it would land in a worker's `git add -A` — so a fresh clone or a new worker worktree warms again (its working tree is as cold as its caches are warm), and a repeat call in the same checkout does nothing. The record is a fingerprint of the declared commands, so editing them re-warms. Commands must be idempotent regardless: the record buys time, never correctness, and a failed setup leaves none.
 
@@ -570,11 +570,11 @@ What changes for a run under it:
 - **No worktree, pane or local branch appears for a tick** until its container pushes one. A run that looks idle on the laptop is normal; the durable evidence is pushed branches and `RESULT-<tick-id>.md`, as it always was.
 - **`[roles]` routes the harness each container runs**, not a local CLI. The table's `kind` values are read by the worker boot inside the container.
 - **`max_parallel` is concurrent worker containers**, and a deployment's own instance ceiling can lower it further. The two ceilings resolve to one number, which the dispatch log records.
-- **`tk herd spawn` refuses**, with exit 9. It is the herdr substrate's dispatch verb; running it here would put a local pane on the branch a container is already pushing to — the declared substrate and the actual substrate disagreeing with nothing to reconcile them. The refusal names the two ways out: dispatch through the cloud substrate, or set `TICKS_SUBSTRATE=herdr` (or `auto`) to state that herdr is what is effective *here* for this one run.
+- **The herdr substrate's dispatch path refuses**, with exit 9. Running `ticfac run-epic` under `TICKS_SUBSTRATE=herdr` here would put a local pane on the branch a container is already pushing to — the declared substrate and the actual substrate disagreeing with nothing to reconcile them. The refusal names the two ways out: dispatch through the cloud substrate, or set `TICKS_SUBSTRATE=herdr` (or `auto`) to state that herdr is what is effective *here* for this one run. (This was `tk herd spawn`'s refusal before that command and the rest of the wave-execution loop moved to ticfac; the same fail-closed rule now binds ticfac's own spawner.)
 
-`harness` and `auto` are **not** refused by `tk herd spawn`, and the asymmetry is deliberate: neither is dispatched by a `tk` verb — harness workers are subagents of the orchestrating harness — so `tk herd spawn` on such a repository is an operator choosing herdr for one worker, not two substrates racing for one branch.
+`harness` and `auto` are **not** refused the same way, and the asymmetry is deliberate: neither is dispatched by a `tk` verb — harness workers are subagents of the orchestrating harness — so choosing the herdr substrate on such a repository is an operator choosing herdr for one worker, not two substrates racing for one branch.
 
-**How a local orchestrator dispatches it.** The `tk cloud` verb family mirrors `tk herd`'s, one verb for one verb, so an orchestrator swapping substrates keeps its loop:
+**How a local orchestrator dispatches it.** The `tk cloud` verb family — `spawn`, `wait`, `collect`, `reconcile` — is unaffected by the herdr-loop deletion; it mirrors what the herdr substrate's own dispatch/wait/collect/recovery loop does, one verb for one verb, so an orchestrator swapping substrates keeps its loop:
 
 ```
 tk cloud spawn <epic> --ticks a,b,c   # one container per tick
@@ -997,7 +997,7 @@ These configs are valid, and valid for the reader they were written for. They ar
 
 | Config | Read by | Why it fails |
 |---|---|---|
-| `[roles.implement] kind = "claude", model = "sonnet"` | the pi extension | `sonnet` is a claude id; deriving `implement_*_model` from it would put it behind `pi --model` with no provider. Refused naming the cell, the kind and the model. Fine for `tk herd spawn`. |
+| `[roles.implement] kind = "claude", model = "sonnet"` | the pi extension | `sonnet` is a claude id; deriving `implement_*_model` from it would put it behind `pi --model` with no provider. Refused naming the cell, the kind and the model. Fine for the herdr-substrate spawner (`ticfac run-epic`). |
 | `[roles.implement.tiers.balanced] kind = "codex"` under a `kind = "pi"` role | the pi extension | The tier crosses to a kind this reader does not spawn. Only that tier's key is refused; the role's other tiers still resolve. |
 | `[roles.review] kind = "claude", harness = "pi"` | the pi extension | `harness` is documentary. Routing is `kind`, and the kind is claude. |
 

@@ -1,0 +1,70 @@
+{
+  "schema_version": 3,
+  "run_id": "epic-pwp",
+  "epic_id": "pwp",
+  "sequence": 108,
+  "state": "failed",
+  "reason": "8vl did not pass: the run stopped rather than integrating over an unproven change. Running the epic again under this run id resumes it — a rejected attempt that left nothing is redispatched, a gate that FAILED runs again once the check or the tree is fixed (its evidence is keyed by the commit it ran on, so a fixed tree is a different commit and a new record), an attempt that was rejected holding commits nothing merged is reported rather than dispatched over, and nothing that already passed is redone",
+  "updated_at": "2026-09-15T07:04:42Z",
+  "ticks": [
+    {
+      "tick_id": "azq",
+      "state": "closed",
+      "attempt": 1
+    },
+    {
+      "tick_id": "nkf",
+      "state": "closed",
+      "attempt": 3
+    },
+    {
+      "tick_id": "3r2",
+      "state": "closed",
+      "attempt": 6
+    },
+    {
+      "tick_id": "sx5",
+      "state": "closed",
+      "attempt": 9
+    },
+    {
+      "tick_id": "8vl",
+      "state": "rejected",
+      "attempt": 15
+    },
+    {
+      "tick_id": "hvj",
+      "state": "closed",
+      "attempt": 4
+    },
+    {
+      "tick_id": "os6",
+      "state": "closed",
+      "attempt": 5
+    },
+    {
+      "tick_id": "gms",
+      "state": "integrated",
+      "attempt": 8
+    }
+  ],
+  "provenance": {
+    "run_id": "epic-pwp",
+    "tick_id": null,
+    "attempt": null,
+    "source_ref": "refs/heads/epic/pwp",
+    "source_sha": "fc60b3b50cbcf635133dff7872bef66dd4971975",
+    "integration_ref": "refs/heads/epic/pwp",
+    "phase": "worker",
+    "executor": null,
+    "workspace_id": null,
+    "backend": null,
+    "role": null,
+    "tier": null,
+    "profile_digest": "sha256:3f08ea2d59363b50c74c380ec8b45428",
+    "model": null,
+    "context_manifest_digest": "sha256:0cf644d69158e095c78727ed089548d1",
+    "substrate_protocol": null,
+    "substrate_server_version": null
+  }
+}

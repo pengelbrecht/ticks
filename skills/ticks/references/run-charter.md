@@ -12,4 +12,4 @@ Re-read this file at every post-wave gate and at every epic boundary — fresh f
 - Out of ticks is not out of work: `tk next` decides — implement, plan, review, closeout, await, or done.
 - Before ending a turn you believe is a stopping point: `tk frontier --check`. Exit 0 means it is not one.
 - Every `tk close` prints that verdict unasked. On an epic or closeout tick it says `THIS IS NOT A STOPPING POINT` and names the work. It is addressed to you.
-- Under herdr, you are watched too: `tk herd spawn` arms the guard on your own pane, and `tk herd plugin --install` (once, at run start) provisions what fires it. An install that merely exists can be too old to carry the hook.
+- Under the herdr substrate, `ticfac run-epic` is the orchestrator, not this session — the old orchestrator watchdog (`tk herd spawn` arming a guard on your own pane, `tk herd plugin --install` provisioning the hook that fired it) was part of the wave-execution loop deleted from `tk` and moved to ticfac; it does not apply to a session running under this substrate. This charter's stall-avoidance rules above still bind whichever session is doing the orchestrating.

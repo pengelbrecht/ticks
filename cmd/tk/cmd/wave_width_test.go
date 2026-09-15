@@ -257,39 +257,6 @@ func TestGraphWithoutConfiguredWidthOffersTheWholeWave(t *testing.T) {
 	}
 }
 
-// TestHerdSpawnRefusesBeyondTheWaveWidth pins the herdr substrate's dispatch
-// primitive against the same width, and pins that the refusal costs zero herdr
-// dials — a refused spawn must leave no half-made workspace behind.
-func TestHerdSpawnRefusesBeyondTheWaveWidth(t *testing.T) {
-	dir, store, ids := setupWaveRepo(t, 7, 3)
-	if err := os.WriteFile(filepath.Join(dir, ".tick", "runners.toml"),
-		[]byte(waveWidthRunners(2)), 0o644); err != nil {
-		t.Fatalf("rewrite runners.toml: %v", err)
-	}
-	for _, id := range ids[:2] {
-		tk, err := store.Read(id)
-		if err != nil {
-			t.Fatalf("read %s: %v", id, err)
-		}
-		tk.Status = tick.StatusInProgress
-		if err := store.Write(tk); err != nil {
-			t.Fatalf("write %s: %v", id, err)
-		}
-	}
-
-	srv := newSpawnFakeHerd(t)
-	err := ExecuteArgs([]string{"herd", "spawn", ids[2], "--socket", srv.Path()})
-	if err == nil {
-		t.Fatal("herd spawn beyond the wave width returned nil error")
-	}
-	if code := GetExitCode(err); code != ExitWaveFull {
-		t.Errorf("exit code = %d, want %d (wave full): %v", code, ExitWaveFull, err)
-	}
-	if srv.Dials() != 0 {
-		t.Errorf("dials = %d, want 0 — a refused dispatch must cost zero herdr calls", srv.Dials())
-	}
-}
-
 // helper: keep the JSON decoder honest about the new block.
 var _ = json.Unmarshal
 

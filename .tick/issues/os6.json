@@ -2,13 +2,15 @@
   "id": "os6",
   "title": "Redesign internal/herd/dashboard to stop depending on deleted execution state, or move it to ticfac",
   "description": "Filed from a worker finding on tick nkf attempt 3. The dashboard exists to JOIN tracker state with run state, and the execution packages it read run state from are now deleted. Either it reads run state through a supported interface (ticfac's .ticfac/ records, or its run feed), or it moves to ticfac. Decide which, and say why, before rewriting.",
-  "status": "open",
+  "notes": "2026-09-14 22:13 - ticfac run epic-pwp: attempt 5 merged into epic/pwp as 7a9cfe1689dd; the integrated gate (go, pi-runner) passed.",
+  "status": "closed",
   "priority": 1,
   "type": "task",
-  "owner": "noreply@anthropic.com",
+  "owner": "ticfac",
   "parent": "pwp",
   "acceptance_criteria": "The dashboard works without importing any deleted execution package, and how it obtains run state is a logged decision; go build ./... and go test -short -count=1 ./... green.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-14T19:39:40.337785Z",
-  "updated_at": "2026-09-14T19:39:40.337785Z"
+  "updated_at": "2026-09-14T20:14:02.988742Z",
+  "closed_at": "2026-09-14T20:14:02.988742Z"
 }

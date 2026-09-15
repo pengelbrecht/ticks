@@ -509,7 +509,7 @@ The graph shows:
 - **Critical path**: minimum number of sequential waves to finish the epic
 - **Dependencies**: what each tick is blocked by
 
-Launch `dispatch.now`, not the whole wave: the width is enforced on the dispatch path, so claiming a tick beyond it (`tk update <id> --status in_progress`, `tk herd spawn`) is refused with exit 8 until a slot frees. Merge each wave before starting the next so dependent ticks build on completed work.
+Launch `dispatch.now`, not the whole wave: the width is enforced on the dispatch path, so claiming a tick beyond it (`tk update <id> --status in_progress`, or a spawn issued by `ticfac run-epic` under the herdr substrate) is refused with exit 8 until a slot frees. Merge each wave before starting the next so dependent ticks build on completed work.
 
 See `references/tk-commands.md` for full reference.
 

@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/pengelbrecht/ticks/internal/herd/config"
+	"github.com/pengelbrecht/ticks/internal/runnersconfig"
 )
 
 // This file answers the second question a boot has to settle before it starts
