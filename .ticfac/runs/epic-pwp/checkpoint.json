@@ -2,10 +2,10 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 82,
-  "state": "dispatching",
-  "reason": "dispatching 8vl as attempt 12",
-  "updated_at": "2026-09-15T02:50:53Z",
+  "sequence": 83,
+  "state": "running",
+  "reason": "8vl is running as attempt 12",
+  "updated_at": "2026-09-15T02:51:09Z",
   "ticks": [
     {
       "tick_id": "azq",
@@ -29,8 +29,8 @@
     },
     {
       "tick_id": "8vl",
-      "state": "ready",
-      "attempt": 11
+      "state": "dispatched",
+      "attempt": 12
     },
     {
       "tick_id": "hvj",
