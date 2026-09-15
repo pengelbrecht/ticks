@@ -13,7 +13,7 @@
   },
   "response": {
     "disposition": "unaddressable",
-    "released_by": "peter@engelbrecht.dk (via claude:orchestrator)",
+    "released_by": "<operator> (via claude:orchestrator)",
     "settled": true,
     "state": "lost"
   },
