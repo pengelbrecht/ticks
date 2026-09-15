@@ -2451,3 +2451,5 @@
 {"ts":"2026-09-15T02:49:42.947988Z","tick":"g69","action":"create","actor":"claude:orchestrator","data":{"priority":2,"title":"Decide the record for cloud/sandbox: finish the deletion or amend the epic's claim","type":"task"}}
 {"ts":"2026-09-15T02:49:42.991999Z","tick":"l8l","action":"create","actor":"claude:orchestrator","data":{"priority":2,"title":"Pin ci.yml's named packages so a deleted path fails the local gate","type":"task"}}
 {"ts":"2026-09-15T06:17:18.346493Z","tick":"71y","action":"create","actor":"claude:orchestrator","data":{"priority":2,"title":"Reference ticfac from the ticks skill, including how to install it","type":"task"}}
+{"ts":"2026-09-15T06:52:36.820755Z","tick":"bll","action":"create","actor":"claude:orchestrator","data":{"priority":2,"title":"Compact .tick/learnings.md back under the 150-line cap","type":"task"}}
+{"ts":"2026-09-15T06:52:36.870812Z","tick":"l49","action":"create","actor":"claude:orchestrator","data":{"priority":2,"title":"Record cloud/sandbox and the six tk cloud verbs as deliberate keeps, wherever else the record claims otherwise","type":"task"}}
