@@ -2480,3 +2480,4 @@
 {"ts":"2026-09-15T07:13:27.300372Z","tick":"pwp","action":"close","actor":"claude:orchestrator","data":{"title":"Retire the execution machinery: delete what ticfac now owns"}}
 {"ts":"2026-09-15T11:04:10.094164Z","tick":"wal","action":"create","actor":"claude:orchestrator","data":{"priority":3,"title":"run_event schema: a versioned run-incarnation field, if ticfac decides it needs one","type":"task"}}
 {"ts":"2026-09-15T12:07:30.039865Z","tick":"1yg","action":"create","actor":"claude:orchestrator","data":{"priority":2,"title":"Checkpoint schema: structured close-out PR and CI fields (bundle schema_version 3 to 4)","type":"task"}}
+{"ts":"2026-09-15T12:51:18.575163Z","tick":"wi2","action":"create","actor":"claude:orchestrator","data":{"priority":3,"title":"Retire the public-repo guard's digest exemption, once no truncated digest remains","type":"task"}}

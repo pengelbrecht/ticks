@@ -1,0 +1,13 @@
+{
+  "id": "wi2",
+  "title": "Retire the public-repo guard's digest exemption, once no truncated digest remains",
+  "description": "Routed from ticfac (run epic-9pd, tick 4ys, attempt 5).\n\nFor the pwp run this repository added a narrow public-repo guard exemption: a 32-hex value prefixed sha256: in a JSON field ending 'digest' is not an account id. It existed because ticfac's digestOf emitted sha256 truncated to 128 bits. ticfac tick 4ys fixed that at the source (full 64-hex digests) and also stopped settle recording the operator's --release string verbatim (a stable person-\u003chash\u003e handle).\n\nCATCH the finding did not mention: the pwp run's own records are already merged on this repository's main under .ticfac/runs/epic-pwp/, with the old 32-hex digests. Removing the exemption now fails the guard on this repository's own tree. So retiring it needs one of: keep it permanently for historical records (and say so in the exemption's comment); or rewrite/remove the pwp run records from the tracked tree first.\n\nNot a workaround to retire: the \u003coperator\u003e placeholder in .ticfac/runs/epic-pwp/decisions/1.json. It is data, and the policy it satisfies is permanent.\n\nWait for the ticfac change to merge and for a ticfac-driven run in this repository to show the new digest and handle shapes pass the guard unmodified.",
+  "status": "open",
+  "priority": 3,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "Either the exemption is removed and the guard passes on this repository's tree with no truncated digest left, or the exemption's comment records that it is kept for historical run records and why",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-15T12:51:18.574563Z",
+  "updated_at": "2026-09-15T12:51:18.574563Z"
+}
