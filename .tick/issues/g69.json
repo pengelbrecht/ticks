@@ -1,0 +1,13 @@
+{
+  "id": "g69",
+  "title": "Decide the record for cloud/sandbox: finish the deletion or amend the epic's claim",
+  "description": "Found by the pwp close-out (tick 8vl, attempt 11).\n\nTick 3r2's GOES list AND the pwp epic's acceptance criteria both state that cloud/sandbox is deleted. The integrated branch still carries it: Dockerfile, entrypoint.sh, worker.sh, common.sh, preflight.sh — a 236K build context.\n\nThe worker had a real reason to keep it: internal/sandbox shells into those scripts to warm local worktrees, and internal/sandbox was never in delete scope. But that deviation is recorded ONLY in a comment in embedded.go. No tick note, no finding, nothing in the tracker. The final review's survival checklist never re-checked the epic's acceptance criteria, so the drift went unnoticed and the epic record now asserts a deletion that did not happen.\n\nThis is a record-integrity problem first and a cleanup second. Pick one and write it down:\n(a) Finish the deletion — move the scripts somewhere internal/sandbox can reach, or into ticfac.\n(b) Amend the epic record to state that cloud/sandbox stays and why, so the acceptance criteria stop claiming otherwise.\n\nSeparately worth noting for future epics: an acceptance criterion that names a deletion should be re-checked mechanically at close-out, not trusted from the plan.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "Either cloud/sandbox is gone from this repository and internal/sandbox still warms worktrees, or the pwp epic record explicitly states that cloud/sandbox remains and why; in both cases no acceptance criterion claims a deletion that did not happen",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-15T02:49:42.947725Z",
+  "updated_at": "2026-09-15T02:49:42.947725Z"
+}
