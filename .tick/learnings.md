@@ -71,9 +71,18 @@ exit, so a hanging test reached final review. **Cause:** pipelines report the LA
 are invisible to it, and owner is required so it cannot be cleared. **Rule:** Create agent-run
 ticks with the default owner. **Also:** `tk delete` prompts on a TTY — run tk with `</dev/null`.
 
-**Problem:** The herd guard nudged a healthy run four times about ticks in OTHER epics and
-re-armed itself on every `tk herd spawn` after a `--clear`. **Rule:** Until t62 lands, expect
-repo-wide frontier nudges on a scoped run; clear the watch after the last spawn of a wave.
+**Problem:** Five integrated gates stayed green while `.github/workflows/ci.yml` named a package the
+epic had deleted, and the break surfaced only when the epic's PR could not go green. **Cause:** the
+gate runs `go test -short ./...`, which compiles only what EXISTS, so a stale path in a workflow file
+cannot fail it — gate and CI drift independently. **Rule:** On any epic that deletes or renames a
+package, run the CI workflow's named-package steps verbatim against the integrated SHA. (Until l8l
+and ticfac:cwa automate it.)
+
+**Problem:** `cloud/sandbox` survived tick 3r2's GOES list AND the epic's acceptance criteria, and the
+deviation was invisible to every review surface until close-out. **Cause:** the worker kept it for a
+real reason and recorded that reason only in a code comment. **Rule:** A worker that keeps something
+its tick's GOES list names for deletion must record the deviation as a tick note or a finding at merge
+time. A code comment is not a record — nothing reviews it.
 
 ## Naming and tracker hygiene
 
@@ -143,6 +152,6 @@ must parse with the READER's grammar and report every line it would newly AUTHOR
 ## Verification ticks
 
 **Problem:** Workers finishing a verification tick left a clean tree and did NOT commit
-`RESULT-<id>.md`; `tk herd collect` reads the branch, so it reported `no-commits` — the same as
-a worker that did nothing. **Rule:** A tick whose output is evidence must say "commit
+`RESULT-<id>.md`; the executor's collect reads the branch, so it reported `no-commits` — the same
+as a worker that did nothing. **Rule:** A tick whose output is evidence must say "commit
 `RESULT-<id>.md` even when no source changed". A pane saying `done` means idle at a prompt.
