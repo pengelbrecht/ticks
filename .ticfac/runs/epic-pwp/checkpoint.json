@@ -2,10 +2,10 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 72,
-  "state": "collecting",
-  "reason": "collecting the review-epic job for sx5",
-  "updated_at": "2026-09-15T02:32:31Z",
+  "sequence": 73,
+  "state": "publishing",
+  "reason": "closing sx5 behind its validated review-epic answer",
+  "updated_at": "2026-09-15T02:32:36Z",
   "ticks": [
     {
       "tick_id": "azq",
@@ -24,7 +24,7 @@
     },
     {
       "tick_id": "sx5",
-      "state": "dispatched",
+      "state": "reported",
       "attempt": 9
     },
     {
