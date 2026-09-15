@@ -2,10 +2,10 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 99,
-  "state": "publishing",
-  "reason": "closing 8vl behind its validated closeout-epic answer",
-  "updated_at": "2026-09-15T06:50:55Z",
+  "sequence": 100,
+  "state": "failed",
+  "reason": "8vl reported 2 finding(s) nobody has triaged — \"Compact .tick/learnings.md back under its 150-line hard cap\" (proposed-tick, for this repository); \"Amend epic pwp's acceptance criteria to match the reviewed keeps before closing the epic\" (proposed-tick, for this repository) — and the tick is NOT closed: a finding that falls on the floor is the failure this gate exists to stop. Triage each with `ticfac finding pwp 2fe890aa124e8b01bc7e093735c53d0c6b83efc48d5ea08d2c14c788743546d9|7a3d0a5ac0798c241108266e75e1793ccc1e66edaaf205fd4a854b5ea09a2346 --promote-as <tick> --by \"<who>\"` (promote into the repository it targets) or `ticfac finding pwp 2fe890aa124e8b01bc7e093735c53d0c6b83efc48d5ea08d2c14c788743546d9|7a3d0a5ac0798c241108266e75e1793ccc1e66edaaf205fd4a854b5ea09a2346 --discard --by \"<who>\"`, then run the epic again under this run id: the gate has already passed, so the close is the only step left. The drafts are key 2fe890aa124e8b01bc7e093735c53d0c6b83efc48d5ea08d2c14c788743546d9, 7a3d0a5ac0798c241108266e75e1793ccc1e66edaaf205fd4a854b5ea09a2346 under .ticfac/runs/epic-pwp/findings/ on origin",
+  "updated_at": "2026-09-15T06:51:02Z",
   "ticks": [
     {
       "tick_id": "azq",
@@ -29,7 +29,7 @@
     },
     {
       "tick_id": "8vl",
-      "state": "reported",
+      "state": "rejected",
       "attempt": 14
     },
     {
