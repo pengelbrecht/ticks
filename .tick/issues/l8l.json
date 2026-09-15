@@ -1,0 +1,13 @@
+{
+  "id": "l8l",
+  "title": "Pin ci.yml's named packages so a deleted path fails the local gate",
+  "description": "Found by the pwp close-out (tick 8vl, attempt 11), and independently by the final review (sx5, attempt 10) from the other direction.\n\nFive integrated gates stayed green while .github/workflows/ci.yml named ./internal/herd/collect, a package tick nkf had deleted. The gate runs 'go test -short ./...', which compiles only what exists, so a stale path in a workflow file cannot fail it. The break only surfaced when the epic's PR could not go green.\n\nAdd a small Go test that parses the 'go test' steps in .github/workflows/*.yml and asserts every ./pkg/... pattern they name resolves to a directory that exists. It would have failed the FIRST gate after nkf merged, and it costs one file.\n\nScope it to package patterns in go test invocations; do not attempt to validate the whole workflow schema.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "A test fails when a .github/workflows go test step names a package path that does not exist in the tree, proven by adding such a path in the test's own fixture; the test passes against the current workflows",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-15T02:49:42.991737Z",
+  "updated_at": "2026-09-15T02:49:42.991737Z"
+}
