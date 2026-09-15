@@ -1,0 +1,13 @@
+{
+  "id": "l49",
+  "title": "Record cloud/sandbox and the six tk cloud verbs as deliberate keeps, wherever else the record claims otherwise",
+  "description": "Found by the pwp close-out (tick 8vl, attempt 14), the analogous gap to g69.\n\nEpic pwp's description listed 'cloud/sandbox' and 'the factory and cloud commands in cmd/tk' as in scope for deletion. The integrated branch deliberately keeps cloud/sandbox (internal/sandbox shells into its scripts) and six tk cloud D19 operator verbs — branch, spawn, wait, collect, prbody, reconcile — documented in cloud.go's help text and accepted by the sx5 review.\n\nThe epic's own description was amended at close-out to record both. This tick is for the rest: check whether any other record — SPEC, README, the ticfac side's retro, tick 3r2's GOES list — still asserts those deletions, and correct or annotate each. A record that claims a deletion which did not happen is worse than no record.\n\nGeneral rule now in .tick/learnings.md: a worker that keeps something its GOES list names for deletion must record the deviation as a tick note or finding at merge time; a code comment is not a record.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "No tracked record asserts that cloud/sandbox or the six retained tk cloud verbs were deleted; each place that listed them for deletion either records the keep and its reason or is corrected",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-15T06:52:36.870499Z",
+  "updated_at": "2026-09-15T06:52:36.870499Z"
+}

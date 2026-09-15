@@ -1,0 +1,13 @@
+{
+  "id": "bll",
+  "title": "Compact .tick/learnings.md back under the 150-line cap",
+  "description": "Found by the pwp close-out (tick 8vl, attempt 14). The file is 157 lines against a stated hard cap of 150, after the pwp retro added two entries and retired one.\n\nThe natural compaction is the 'Cloudflare (cloud/factory)' section — four entries, 18 lines — which describes cloud/factory, a subsystem tick 3r2 moved to ticfac. The lessons are still live and must not be dropped; they belong in ticfac's learnings file, which is itself at 159 lines and needs its own pass in the same change. Moving them brings this file to about 139.\n\nThis is retro editorial work: deciding what knowledge is still load-bearing, not a mechanical trim. ticfac carries the other half as tick 1y7.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "This repository's .tick/learnings.md is at or under 150 lines; the cloud/factory lessons are in ticfac's learnings and not here; no lesson is dropped without a recorded reason",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-15T06:52:36.820482Z",
+  "updated_at": "2026-09-15T06:52:36.820482Z"
+}
