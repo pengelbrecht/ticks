@@ -2,10 +2,10 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 81,
-  "state": "admitted",
-  "reason": "the epic graph is read and the run is admitted",
-  "updated_at": "2026-09-15T02:50:42Z",
+  "sequence": 82,
+  "state": "dispatching",
+  "reason": "dispatching 8vl as attempt 12",
+  "updated_at": "2026-09-15T02:50:53Z",
   "ticks": [
     {
       "tick_id": "azq",
@@ -29,7 +29,7 @@
     },
     {
       "tick_id": "8vl",
-      "state": "rejected",
+      "state": "ready",
       "attempt": 11
     },
     {
