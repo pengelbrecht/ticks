@@ -144,6 +144,22 @@ function isLegacyTrackerIdentity(path, line, literal, column) {
   return false;
 }
 
+function isContentDigest(line, column) {
+  // A 32-hex run is the shape of a Cloudflare account id, and also the shape of
+  // a truncated content digest. ticfac writes run records into .ticfac/ whose
+  // digest fields are sha256 values truncated to 128 bits, so every epic run in
+  // this repository produced dozens of false account findings.
+  //
+  // Exempt ONLY a value that is both prefixed `sha256:` and the value of a JSON
+  // field whose name ends in `digest`. An operator identifier does not arrive
+  // wearing a hash prefix inside a field called a digest, and a bare 32-hex run
+  // anywhere else — prose, a note, a URL, any other field — still fails.
+  const before = line.slice(0, column);
+  if (!before.endsWith("sha256:")) return false;
+  const field = /"([A-Za-z0-9_]*digest)"\s*:\s*"sha256:$/;
+  return field.test(before);
+}
+
 function isAllowed(path, kind, literal, line) {
   return PUBLIC_REPO_ALLOWLIST.some(
     (entry) =>
@@ -200,6 +216,9 @@ export function scanTrackedFiles(root) {
             rule.kind === "email" &&
             isLegacyTrackerIdentity(path, line, literal, match.index ?? 0)
           ) {
+            continue;
+          }
+          if (rule.kind === "account" && isContentDigest(line, match.index ?? 0)) {
             continue;
           }
           if (isAllowed(path, rule.kind, literal, lineIndex + 1)) continue;
