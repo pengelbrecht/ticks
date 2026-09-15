@@ -2,10 +2,10 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 77,
-  "state": "collecting",
-  "reason": "collecting the closeout-epic job for 8vl",
-  "updated_at": "2026-09-15T02:48:14Z",
+  "sequence": 78,
+  "state": "publishing",
+  "reason": "closing 8vl behind its validated closeout-epic answer",
+  "updated_at": "2026-09-15T02:49:00Z",
   "ticks": [
     {
       "tick_id": "azq",
@@ -29,7 +29,7 @@
     },
     {
       "tick_id": "8vl",
-      "state": "dispatched",
+      "state": "reported",
       "attempt": 11
     },
     {
