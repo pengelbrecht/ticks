@@ -2,10 +2,10 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 71,
-  "state": "admitted",
-  "reason": "the epic graph is read and the run is admitted",
-  "updated_at": "2026-09-15T02:32:22Z",
+  "sequence": 72,
+  "state": "collecting",
+  "reason": "collecting the review-epic job for sx5",
+  "updated_at": "2026-09-15T02:32:31Z",
   "ticks": [
     {
       "tick_id": "azq",
@@ -25,7 +25,7 @@
     {
       "tick_id": "sx5",
       "state": "dispatched",
-      "attempt": 10
+      "attempt": 9
     },
     {
       "tick_id": "8vl",
