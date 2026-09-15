@@ -1,0 +1,13 @@
+{
+  "id": "1yg",
+  "title": "Checkpoint schema: structured close-out PR and CI fields (bundle schema_version 3 to 4)",
+  "description": "Routed from ticfac (run epic-9pd, tick 0iz, attempt 3).\n\nTick 0iz makes 'a PR exists for the epic branch and CI is green on it' a precondition of close-out. It works, but schemas.checkpoint in the contract bundle is additionalProperties: false, so the PR and CI facts can only ride in the checkpoint's free-text reason and the typed refusal's message. A resumed run, or any reader, can get them back only by matching prose, which is exactly the failure this project rejects.\n\nWanted, in the next bundle version: a closeout object on schemas.checkpoint carrying the PR (number, url, head sha) and CI (state, failing jobs). A closed object changing shape is a schema_version bump, 3 to 4, under the bundle's own rule.\n\nDownstream once this lands: ticfac mirrors it in runstate.Checkpoint and writes the fields, the cloud factory's checkpoint reader follows, and golden and invalid fixtures cover both. The bundle is digest-pinned in ticfac and verify-upstream byte-verifies against ticks shas, so this merges here first, as a merge commit.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "schemas.checkpoint at schema_version 4 carries a closeout object with PR number, url and head sha and CI state and failing jobs, with a golden and an invalid fixture; the bundle version and digest are bumped",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-15T12:07:30.037747Z",
+  "updated_at": "2026-09-15T12:07:30.037747Z"
+}
