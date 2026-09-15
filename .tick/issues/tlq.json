@@ -1,0 +1,13 @@
+{
+  "id": "tlq",
+  "title": "Consolidate the two herdr clients the deletion epic left behind",
+  "description": "Found by the pwp final review (tick sx5, attempt 9). The deletion epic exists to end 'extracted means copied', yet its integrated diff ADDS a second herdr wire client.\n\ninternal/herdclient (from tick nkf, commit ed92010e) coexists with the untouched internal/herd/client. transport.go (141 lines), protocol.go (242), socketpath.go (43) and client.go (285) are byte-identical in both, differing only in package clause and error prefix. ticfac holds a third copy.\n\nImporters of the OLD client: internal/herd/dashboard, herdtest, cmd/tk/cmd/herd_shared.go.\nImporters of the NEW client: internal/herd/relay, internal/runnersconfig, herd_relay.go.\n\nDecide one of two, do not leave both:\n(a) Point dashboard and herd_shared at internal/herdclient, growing its 99-line methods.go to cover AgentList, SubscribeAgentStatus/EventStream and TerminalStatuses, then delete internal/herd/client and herdclient/doc.go's false claim that the old package 'moved to ticfac'.\n(b) Delete internal/herdclient, which keeps the full ~4.4K-line execution surface in-repo and contradicts the epic's premise.\n\nnkf's GOES list also named herd_shared.go, herdtest and internal/herd/state for deletion; all three survive. A gate cannot catch a duplicate that compiles, so add a test that fails if two herdr client packages exist.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "Exactly one herdr wire client package remains in this repository, every importer builds against it, and a test fails if a second client package is reintroduced",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-15T00:32:10.92808Z",
+  "updated_at": "2026-09-15T00:32:10.92808Z"
+}

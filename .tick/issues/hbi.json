@@ -1,0 +1,13 @@
+{
+  "id": "hbi",
+  "title": "Decide who writes .tick/logs/herd manifests, or re-point the three readers",
+  "description": "Found by the pwp final review (tick sx5, attempt 9). tk herd spawn was the only writer of the .tick/logs/herd manifests and nkf deleted it. internal/herd/state.Write now has no production caller (tests only). Three survivors still read the dead contract:\n\n  internal/herd/dashboard/snapshot.go   — os6 documented and ACCEPTED the 'zero workers' consequence\n  internal/herd/relay/identity.go       — recordedManifests, blocked-agent-to-tick identity resolution, UNDOCUMENTED\n  cmd/tk/cmd/frontier.go ~245-251       — the live-worker overlay behind tk ready, which ticfac itself calls, UNDOCUMENTED\n\nPick one: give ticfac a manifest writer for herdr-driven runs, re-point the readers at ticfac's run records, or record the relay and frontier degradation as deliberately as os6 did for the dashboard. Silent degradation of tk ready is the worst outcome because ticfac depends on it.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "Each of the three readers either resolves against a live writer or carries a recorded, deliberate statement of its degraded behaviour; internal/herd/state has no dead production surface left",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-15T00:32:11.032564Z",
+  "updated_at": "2026-09-15T00:32:11.032564Z"
+}
