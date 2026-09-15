@@ -1,0 +1,13 @@
+{
+  "id": "71y",
+  "title": "Reference ticfac from the ticks skill, including how to install it",
+  "description": "Operator request, 2026-09-15: 'it's worth referencing ticfac in the tk skill system, including how to install'.\n\nAfter the pwp deletion, tk no longer carries the orchestration commands the skill has always described. The skill must say where execution went and how to get it, or a reader is left with a tracker and no way to run an epic.\n\nWhat to change in skills/ticks:\n- State the split plainly: ticks is the tracker, ticfac is the executor. The skill already tells an agent to plan epics and create the EPIC-SKELETON; it must now hand off to ticfac for running them rather than to tk herd.\n- Replace every surviving instruction that reaches for a deleted tk herd command with its ticfac equivalent — run-epic, settle, findings/finding, events — checked against the ticfac CLI rather than guessed. Tick tyj covers the same rot in tk's own help text; this is the skill-facing half.\n- Add the install path for ticfac, the way the skill already gives the tk install line. Note that the skill cannot hardcode an install command ticfac does not yet ship: ticfac has no install.sh and no release pipeline today (ticfac epic 2jn). Either land 2jn first, or write this section against what 2jn will provide and gate the tick on it.\n- Keep the boundary explicit so the two skills do not contradict each other when both are loaded: the ticks skill owns planning, tick shape and the Definition of Ready; ticfac's skill owns the run loop.\n\nDepends on: ticfac epic 2jn for the install command to exist and be stable.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "The ticks skill names ticfac as the executor, gives a working install path for it, and contains no instruction to run a tk herd command that no longer exists; a reader following the skill alone can go from a planned epic to a running one",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-15T06:17:18.346156Z",
+  "updated_at": "2026-09-15T06:17:18.346156Z"
+}
