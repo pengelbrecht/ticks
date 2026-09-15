@@ -10,8 +10,11 @@
   "target": "pengelbrecht/ticfac",
   "tick_id": "8vl",
   "attempt": 13,
-  "status": "proposed",
+  "status": "promoted",
   "proposed_at": "2026-09-15T06:26:35Z",
+  "triaged_at": "2026-09-15T06:29:50Z",
+  "triaged_by": "claude:orchestrator",
+  "promoted_as": "pengelbrecht/ticfac:54n",
   "provenance": {
     "run_id": "epic-pwp",
     "tick_id": "8vl",
