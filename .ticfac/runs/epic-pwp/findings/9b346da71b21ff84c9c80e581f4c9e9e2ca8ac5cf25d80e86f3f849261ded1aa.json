@@ -10,8 +10,10 @@
   "target": "",
   "tick_id": "sx5",
   "attempt": 10,
-  "status": "proposed",
+  "status": "discarded",
   "proposed_at": "2026-09-15T00:54:31Z",
+  "triaged_at": "2026-09-15T02:31:28Z",
+  "triaged_by": "claude:orchestrator",
   "provenance": {
     "run_id": "epic-pwp",
     "tick_id": "sx5",
