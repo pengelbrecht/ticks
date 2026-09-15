@@ -2,10 +2,10 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 97,
-  "state": "running",
-  "reason": "8vl is running as attempt 14",
-  "updated_at": "2026-09-15T06:31:18Z",
+  "sequence": 98,
+  "state": "collecting",
+  "reason": "collecting the closeout-epic job for 8vl",
+  "updated_at": "2026-09-15T06:50:22Z",
   "ticks": [
     {
       "tick_id": "azq",
