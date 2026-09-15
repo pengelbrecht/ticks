@@ -2,10 +2,10 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 93,
+  "sequence": 94,
   "state": "failed",
-  "reason": "8vl reported 2 finding(s) nobody has triaged — \"Promote the pwp retro learnings into .tick/learnings.md (two entries)\" (proposed-tick, for this repository); \"ticfac checkpoint never settles gms: state says 'integrated' while the tracker closed it and every sibling row says 'closed'\" (upstream-tick, for pengelbrecht/ticfac) — and the tick is NOT closed: a finding that falls on the floor is the failure this gate exists to stop. Triage each with `ticfac finding pwp 69823cfec87e0142995b9bcb8ff007d3fffcd9d4f45fc306d391d7d20ae6ca06|6a3af0d816f25a3c9f4b5258d0c1f4a3abb5020f44b07fbcc0d29835e5de0bc4 --promote-as <tick> --by \"<who>\"` (promote into the repository it targets) or `ticfac finding pwp 69823cfec87e0142995b9bcb8ff007d3fffcd9d4f45fc306d391d7d20ae6ca06|6a3af0d816f25a3c9f4b5258d0c1f4a3abb5020f44b07fbcc0d29835e5de0bc4 --discard --by \"<who>\"`, then run the epic again under this run id: the gate has already passed, so the close is the only step left. The drafts are key 69823cfec87e0142995b9bcb8ff007d3fffcd9d4f45fc306d391d7d20ae6ca06, 6a3af0d816f25a3c9f4b5258d0c1f4a3abb5020f44b07fbcc0d29835e5de0bc4 under .ticfac/runs/epic-pwp/findings/ on origin",
-  "updated_at": "2026-09-15T06:26:55Z",
+  "reason": "8vl did not pass: the run stopped rather than integrating over an unproven change. Running the epic again under this run id resumes it — a rejected attempt that left nothing is redispatched, a gate that FAILED runs again once the check or the tree is fixed (its evidence is keyed by the commit it ran on, so a fixed tree is a different commit and a new record), an attempt that was rejected holding commits nothing merged is reported rather than dispatched over, and nothing that already passed is redone",
+  "updated_at": "2026-09-15T06:27:00Z",
   "ticks": [
     {
       "tick_id": "azq",
