@@ -2,10 +2,10 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 74,
-  "state": "running",
-  "reason": "sx5 is closed",
-  "updated_at": "2026-09-15T02:32:52Z",
+  "sequence": 75,
+  "state": "dispatching",
+  "reason": "dispatching 8vl as attempt 11",
+  "updated_at": "2026-09-15T02:33:04Z",
   "ticks": [
     {
       "tick_id": "azq",
