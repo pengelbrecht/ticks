@@ -2,6 +2,7 @@
   "id": "8vl",
   "title": "Close out the deletion: retro, and confirm ticfac ran it",
   "description": "Run the epic-close retro. Record what this run proved about ticfac driving a real epic on herdr — it is the production run ticfac Phase 3 asks for, and the first orchestration ticks did not perform itself. Then close ticfac's Phase 3 residual for it, and say plainly whether 'extracted' now means extracted.",
+  "notes": "2026-09-15 04:48 - ticfac run epic-pwp: attempt 11 reported a finding drafted for triage — proposed-tick \"cloud/sandbox survived 3r2's GOES list and the epic's acceptance criteria; the deviation lives only in a code comment\" (key 17ae07536c6a9c66bd33298c8bc7c7ec3644db31627979bddd7656eea0c83624, severity medium, for this repository). Triage with `ticfac finding pwp 17ae07536c6a9c66bd33298c8bc7c7ec3644db31627979bddd7656eea0c83624 --promote-as \u003ctick\u003e --by \"\u003cwho\u003e\"` or `--discard --by \"\u003cwho\u003e\"`; the tick cannot close while it is untriaged.",
   "status": "in_progress",
   "priority": 2,
   "type": "task",
@@ -13,6 +14,6 @@
   "role": "closeout",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-14T16:41:58.769935Z",
-  "updated_at": "2026-09-15T02:33:12.107368Z",
+  "updated_at": "2026-09-15T02:48:21.930352Z",
   "started_at": "2026-09-15T02:33:12.107368Z"
 }
