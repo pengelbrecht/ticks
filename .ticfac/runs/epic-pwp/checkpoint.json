@@ -2,10 +2,10 @@
   "schema_version": 3,
   "run_id": "epic-pwp",
   "epic_id": "pwp",
-  "sequence": 70,
-  "state": "collecting",
-  "reason": "collecting the review-epic job for sx5",
-  "updated_at": "2026-09-15T00:54:27Z",
+  "sequence": 71,
+  "state": "admitted",
+  "reason": "the epic graph is read and the run is admitted",
+  "updated_at": "2026-09-15T02:32:22Z",
   "ticks": [
     {
       "tick_id": "azq",
@@ -52,7 +52,7 @@
     "tick_id": null,
     "attempt": null,
     "source_ref": "refs/heads/epic/pwp",
-    "source_sha": "b477d89ddfb5ec6ab0bd25bfe5b1ff77b2c86f31",
+    "source_sha": "e1a441bef53c23e95c9bb8354156d748a8af4370",
     "integration_ref": "refs/heads/epic/pwp",
     "phase": "worker",
     "executor": null,
