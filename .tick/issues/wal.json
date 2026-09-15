@@ -1,0 +1,13 @@
+{
+  "id": "wal",
+  "title": "run_event schema: a versioned run-incarnation field, if ticfac decides it needs one",
+  "description": "Routed from ticfac (run epic-9pd, tick 55i, attempt 2): ticfac.run_event.v1 in the contract bundle (contracts/run-event-feed.json) is closed with additionalProperties: false, so a subscriber following one run's feed from offset zero across a resume cannot tell one incarnation's terminal line from another's.\n\nNot to be started on its own. The need is decided on the ticfac side as tick pengelbrecht/ticfac:fxd, tied to the dashboard feed design. If ticfac decides it needs the field, this is the versioned schema change here; if not, close this with that decision.\n\nReminder for whoever does it: the bundle is digest-pinned in ticfac and verify-upstream byte-verifies against ticks shas, so the change lands here first and merges as a merge commit.",
+  "status": "open",
+  "priority": 3,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "Either run_event gains a versioned incarnation field in the bundle with a golden and an invalid fixture, or this tick is closed citing the ticfac decision not to",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-15T11:04:10.091987Z",
+  "updated_at": "2026-09-15T11:04:10.091987Z"
+}
