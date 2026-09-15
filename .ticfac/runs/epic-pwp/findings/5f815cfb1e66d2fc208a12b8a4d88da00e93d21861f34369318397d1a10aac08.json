@@ -10,8 +10,11 @@
   "target": "pengelbrecht/ticfac",
   "tick_id": "sx5",
   "attempt": 9,
-  "status": "proposed",
+  "status": "promoted",
   "proposed_at": "2026-09-14T21:29:31Z",
+  "triaged_at": "2026-09-15T00:32:58Z",
+  "triaged_by": "claude:orchestrator",
+  "promoted_as": "pengelbrecht/ticfac:glb",
   "provenance": {
     "run_id": "epic-pwp",
     "tick_id": "sx5",
