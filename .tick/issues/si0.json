@@ -2,6 +2,7 @@
   "id": "si0",
   "title": "Ship-or-remove plugins/herdr-ticks: every hook calls a deleted tk herd command",
   "description": "Found by the pwp final review (tick sx5, attempt 9). The epic deleted tk herd paint/notify/guard/collect/reconcile but left plugins/herdr-ticks/ unchanged, and every event hook it registers invokes one of them:\n\n  guard-hook.sh:75          tk herd guard\n  paint-hook.sh ~101        tk herd paint\n  notify-hook.sh ~91        tk herd notify\n  action-collect-tick.sh    tk herd collect\n  action-retry-tick.sh      tk herd reconcile\n\nREADME.md:21-27 still marks them 'Working' and herdr-plugin.toml registers the hooks. The hooks exit 0 by design, so every firing now fails SILENTLY, visible only in the plugin log. action-open-worktree.sh reads .tick/logs/herd manifests that no writer remains for. scripts/verify-herd-helper.sh and scripts/verify-herd-plugin.sh are orphaned end-to-end smokes of the deleted CLI.\n\nEither remove the plugin and its smokes, or re-point them once ticfac equivalents exist. Do not leave hooks that fail silently.",
+  "notes": "2026-09-16 11:53 - DECISION FROM TICFAC (tick glb, run epic-9pd, 2026-09-16) — this is the answer si0 was waiting on.\n\nticfac now owns three of the five surfaces tk dropped:\n- ticfac factory webhook (register / --status / --delete)\n- ticfac herd paint\n- ticfac herd notify\npaint and notify read ticfac's exec-state attempt records and the run checkpoint — NOT tk spawn manifests, which no longer exist. So those hooks can be repointed.\n\nTwo are deliberately dropped, not moved:\n- the orchestrator guard: its nudge semantics have no meaning for a program orchestrator. Liveness is 'ticfac status', attention is 'ticfac watch'.\n- plugin install/check: the plugin is this repository's artifact, not ticfac's.\n\nConsequence for this tick: the plugin's paint and notify hooks may be REPOINTED at the ticfac commands; its dashboard, collect and reconcile hooks call commands that no longer exist anywhere and must be RETIRED. Ship-or-remove is therefore 'ship, partly repointed, partly retired'.\n\nThe decision record on the ticfac side is 'ticfac herd --help' and the operator-surfaces table in its README.",
   "status": "open",
   "priority": 2,
   "type": "task",
@@ -9,5 +10,5 @@
   "acceptance_criteria": "No shipped hook or script in plugins/herdr-ticks invokes a tk herd subcommand that no longer exists; either the plugin is removed or every hook resolves against a live command, and README no longer advertises removed behaviour as Working",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-15T00:32:10.979754Z",
-  "updated_at": "2026-09-15T00:32:10.979754Z"
+  "updated_at": "2026-09-16T09:53:17.56799Z"
 }
