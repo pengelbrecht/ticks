@@ -1456,8 +1456,18 @@ lifecycle.
    or remove it.
 7. Move Factory credentials, embedding, deployment bundles, and CI.
 
-**Gate:** project w1z A1 again — an epic completes unattended and merges its
-own PR — through the new reconciler, with a restart of the Workflow mid-run.
+**Gate:** project w1z A1 again, as amended — an epic runs to completion
+unattended and stops at a PR that is REVIEWED and CI-VERIFIED, for a person to
+merge — through the new reconciler, with a restart of the Workflow mid-run.
+
+A1 originally read "waves, gates, merged PR", and the merge fell out of "with
+the operator's laptop offline from submission onward" rather than from anyone
+deciding a run should merge. The operator amended it (2026-09-18): the merge is
+the one step worth keeping a person in, because everything before it is work a
+run can PROVE it did, while the merge is a judgement about whether to accept
+that work. The hand-over is gated, not announced — a close-out does not complete
+until it has watched CI go green on the head that would be merged, so "ready to
+merge" is earned rather than claimed.
 
 ### Phase 5: introduce Cloudflare Computer
 

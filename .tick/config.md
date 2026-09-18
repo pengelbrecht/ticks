@@ -9,7 +9,7 @@
 
 ## Rules
 
-- Epic integration goes through a PR + CI gate: the orchestrator pushes the epic branch and opens a PR; the epic close-out may not complete until the CI workflow (`.github/workflows/ci.yml`) is green on that PR. No direct merges of epic branches to the default branch.
+- Epic integration goes through a PR + CI gate: the orchestrator pushes the epic branch and opens a PR; the epic close-out may not complete until the CI workflow (`.github/workflows/ci.yml`) is green on that PR. No direct merges of epic branches to the default branch. **A run never merges its own PR** — not the local orchestrator, not a cloud run, not an agent that believes the work is finished. A run's job is to hand a person a PR that is REVIEWED and CI-VERIFIED: the review ran as a job and its verdict and findings are on the PR, and CI is green on the head that would be merged, watched until it passed rather than announced and hoped for. Everything up to the merge is work a run can prove it did; the merge is a judgement about whether to accept that work, and that stays with a person.
 - Package management is pnpm only — never npm or yarn.
 - After UI source changes, run `scripts/build-ui.sh` and commit regenerated `internal/tickboard/server/static/`.
 - Any edit under `schemas/` must run both `make codegen-go` and `make codegen-ts` and commit all regenerated output together.
