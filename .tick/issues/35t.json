@@ -1,0 +1,13 @@
+{
+  "id": "35t",
+  "title": "SPEC 12 Phase 4 and w1z A1 still say 'merged PR'; the gate stops at a reviewed, CI-verified PR",
+  "description": "ticfac's hand-over rule changed on 2026-09-18: the factory creates PRs and a person merges. SPEC 12's Phase 4 wording and w1z's acceptance item A1 still describe the gate as a MERGED PR.\n\nLeft as-is, the two repositories disagree about what 'done' means for an epic, and the ticfac side is the one that changed deliberately.\n\nReported by ticfac run epic-ncv, tick pxc, finding fe42c57a.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "SPEC 12 Phase 4 and w1z A1 describe the gate as a reviewed, CI-verified PR that a person merges",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-19T13:51:07.725475Z",
+  "updated_at": "2026-09-19T13:51:07.725475Z"
+}

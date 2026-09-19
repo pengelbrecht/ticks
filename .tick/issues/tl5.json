@@ -1,0 +1,13 @@
+{
+  "id": "tl5",
+  "title": "cloud/sandbox docs reference cloud/factory paths that moved in ticfac",
+  "description": "ticfac vendors cloud/sandbox from this repository at a pinned ref, verified byte-for-byte in CI. Its README.md, common.sh and worker.sh reference cloud/factory/src/... for the control-plane files they describe.\n\nThose files moved twice on the ticfac side: l9n moved cloud/factory to cloudflare/, then k4s moved the sandbox tree itself to image/. Neither move could fix these references, and that is correct behaviour rather than an oversight — editing a vendored, digest-pinned tree in place is how a pin stops meaning anything.\n\nSo the fix has to be authored HERE. Afterwards ticfac moves sandbox.pin.json's ref and runs `go run ./cmd/sandbox sync`.\n\nWork: update the three files to name the control-plane files at their current ticfac paths. Check for any other cloud/factory reference in cloud/sandbox while you are in there — grep rather than fixing the three named.\n\nReported by ticfac run epic-ncv, tick k4s, finding e4b05859. Originally raised by l9n as finding 4c8a55f8.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "No file under cloud/sandbox references cloud/factory; ticfac can re-pin and sync without its byte-for-byte check failing",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-19T12:41:20.84406Z",
+  "updated_at": "2026-09-19T12:41:20.84406Z"
+}

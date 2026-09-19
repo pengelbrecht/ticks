@@ -1,0 +1,13 @@
+{
+  "id": "7kl",
+  "title": "ticfac-run-state.json: say that attempt numbers are run-wide identity, not a per-tick count",
+  "description": "The contract's prose around attempt numbering reads as though each tick counts its own attempts from 1. The code treats the number as RUN-WIDE identity — attempt 27 is the 27th attempt of the run, whichever tick it belongs to — and the per-tick count is a separate notion (the 'try').\n\nTwo readers have now had to derive this from the code rather than the contract. It has already produced a real bug: a ticfac test hardcoded run-wide numbers as if they were per-tick and broke when the dispatch window let two ticks interleave (fixed with markerTierOfTry).\n\nWork: state the distinction in the contract, name both quantities, and make the golden cases carry an example where they differ — a golden where attempt and try coincide documents nothing.\n\nReported by ticfac run epic-ncv, tick z23, finding 829f846d.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "The contract names attempt (run-wide) and try (per-tick) distinctly, and at least one golden case has attempt != try",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-18T16:31:15.177108Z",
+  "updated_at": "2026-09-18T16:31:15.177108Z"
+}

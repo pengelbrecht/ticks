@@ -1,0 +1,13 @@
+{
+  "id": "yyi",
+  "title": "SPEC 12 phase ladder: insert 'drive a run from the Cloudflare host' before the Computer executor",
+  "description": "ticfac's Phase 4 delivered the Cloudflare host's components but no run driven by them. The operator split that out as its own epic, now ticfac Phase 5, ahead of the Computer executor (renumbered Phase 6) and subscription seats (Phase 5b).\n\nSPEC 12 still goes from Phase 4 straight to the Computer executor as Phase 5, and it is the ladder ticfac's trackers cite. Amend it, or record the divergence alongside 35t (the 'merged PR' wording fix), which is the same kind of drift.\n\nReported by ticfac run epic-ncv, close-out 3q0, finding 02282431.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "SPEC 12's phase ladder matches ticfac's epic order, or the divergence is recorded where a reader of SPEC 12 would see it",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-19T17:38:00.6433Z",
+  "updated_at": "2026-09-19T17:38:00.6433Z"
+}

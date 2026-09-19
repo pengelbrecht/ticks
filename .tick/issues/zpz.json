@@ -1,0 +1,13 @@
+{
+  "id": "zpz",
+  "title": "tk-json-manifest: state which commands a cannot_run_tk host may omit",
+  "description": "The manifest's `hosts` section says a host may declare `cannot_run_tk`, but not which commands such a host is then excused from. A consumer implementing the manifest has to guess whether every command is optional, or only the mutating ones, or some named subset.\n\nticfac's TypeScript tracker client (tick z23) hit this while implementing tracker access in the Workflow host — the one place where a host genuinely cannot shell out to tk — and had to pick an interpretation.\n\nWork: name the excused set explicitly in the contract, and add a golden for a cannot_run_tk host so the answer is testable rather than inferred.\n\nReported by ticfac run epic-ncv, tick z23, finding 5fac6faa.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "The manifest names which commands a cannot_run_tk host may omit, with a golden case for such a host",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-18T16:31:22.53013Z",
+  "updated_at": "2026-09-18T16:31:22.53013Z"
+}
