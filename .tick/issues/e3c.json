@@ -1,0 +1,13 @@
+{
+  "id": "e3c",
+  "title": "A claim should say whether it is being implemented or merely integrated",
+  "description": "tk's dispatch-width guard counts every open claim as an implementer in flight. ticfac's reconciler now counts only attempts with a LIVE WORKER, because that is what the width is a bound on: a model, a pane, CPU. A tick that has settled and is being collected, merged and gated costs none of those.\n\nThe two numbers diverged for the first time on 2026-09-20 and killed a run:\n\n    claim e9n: tk command \"claim\" refused: dispatch width exceeded: wave width 4\n    is full: 4 implementer(s) already in flight under dha (80x, aqm, b50, cxk).\n\nThree of those four had settled and were waiting to be finished. tk was right to refuse — it cannot tell 'being implemented' from 'being integrated', and guessing would be worse.\n\nWork: give a claim a state so the guard can tell them apart, and count only the implementing ones against the width. The orchestrator already knows the moment an attempt settles (it collects its evidence then), so it can say so.\n\nWhatever shape this takes, keep the property the guard exists for: two parties must never implement one tick. A settled-but-integrating claim is still HELD — nobody else may take that tick — it simply is not an implementer any more.\n\nUntil this lands, ticfac counts claims for admission (its tick 3mp), which is correct against this guard and costs it most of the throughput 9pz bought: finishes are serialised, so a queue of settled ticks starves admission.\n\nReported by ticfac, tick 3mp.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "A settled-but-integrating claim does not count against the dispatch width, still prevents any other party claiming that tick, and a test covers a width full of integrating claims admitting a new implementer",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-20T08:31:24.722103Z",
+  "updated_at": "2026-09-20T08:31:24.722103Z"
+}

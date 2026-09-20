@@ -2495,3 +2495,4 @@
 {"ts":"2026-09-19T12:41:20.844583Z","tick":"tl5","action":"create","actor":"noreply@anthropic.com","data":{"priority":2,"title":"cloud/sandbox docs reference cloud/factory paths that moved in ticfac","type":"task"}}
 {"ts":"2026-09-19T13:51:07.726052Z","tick":"35t","action":"create","actor":"noreply@anthropic.com","data":{"priority":2,"title":"SPEC 12 Phase 4 and w1z A1 still say 'merged PR'; the gate stops at a reviewed, CI-verified PR","type":"task"}}
 {"ts":"2026-09-19T17:38:00.643586Z","tick":"yyi","action":"create","actor":"noreply@anthropic.com","data":{"priority":2,"title":"SPEC 12 phase ladder: insert 'drive a run from the Cloudflare host' before the Computer executor","type":"task"}}
+{"ts":"2026-09-20T08:31:24.722499Z","tick":"e3c","action":"create","actor":"noreply@anthropic.com","data":{"priority":2,"title":"A claim should say whether it is being implemented or merely integrated","type":"task"}}
