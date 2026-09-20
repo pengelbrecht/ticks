@@ -1,0 +1,46 @@
+{
+  "schema_version": 3,
+  "run_id": "run_ba1cc951cd184126b7c9e3c54fecc5c2",
+  "epic_id": "uzc",
+  "updated_at": "2026-09-20T20:33:25.795Z",
+  "provenance": {
+    "run_id": "run_ba1cc951cd184126b7c9e3c54fecc5c2",
+    "tick_id": null,
+    "attempt": null,
+    "source_ref": "refs/heads/epic/uzc",
+    "source_sha": "43490a23b78ce561c315562f2f91de4f55ac458a",
+    "integration_ref": null,
+    "phase": "worker",
+    "executor": null,
+    "workspace_id": null,
+    "backend": null,
+    "substrate_protocol": null,
+    "substrate_server_version": null,
+    "role": null,
+    "tier": null,
+    "profile_digest": null,
+    "model": null,
+    "context_manifest_digest": null
+  },
+  "state": "failed",
+  "reason": "claiming f8l was refused: 6 attempts to write tick f8l all hit a moving epic/uzc; last: GitHub answered 409 writing .tick/issues/f8l.json to pengelbrecht/ticks at epic/uzc: the ref or the guarded blob moved, nothing was committed",
+  "sequence": 1,
+  "ticks": [
+    {
+      "tick_id": "22s",
+      "state": "ready"
+    },
+    {
+      "tick_id": "92i",
+      "state": "ready"
+    },
+    {
+      "tick_id": "f8l",
+      "state": "ready"
+    },
+    {
+      "tick_id": "lk9",
+      "state": "ready"
+    }
+  ]
+}
