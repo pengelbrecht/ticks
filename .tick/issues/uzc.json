@@ -1,0 +1,13 @@
+{
+  "id": "uzc",
+  "title": "Cloud gate run: prove the epic reconciler on a deployed factory",
+  "description": "A deliberately small epic whose purpose is to be RUN, not to be valuable: it exercises EpicReconcilerWorkflow on the deployed factory with max_parallel \u003e 1 and survives a Workflow restart with an attempt in flight.\n\nIts two implementation ticks are real but tiny, touch different files, and remove litter rather than adding any.",
+  "status": "open",
+  "priority": 2,
+  "type": "epic",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "Both implementation ticks close behind their gates, the run survives a Workflow restart mid-attempt with the attempt adopted by identity rather than redispatched, and the intervention count comes from recorded data",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-20T18:53:32.039195Z",
+  "updated_at": "2026-09-20T18:53:32.039195Z"
+}

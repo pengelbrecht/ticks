@@ -1,0 +1,16 @@
+{
+  "id": "22s",
+  "title": "Close out the cloud gate run",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "92i"
+  ],
+  "parent": "uzc",
+  "role": "closeout",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-20T18:53:43.910791Z",
+  "updated_at": "2026-09-20T18:53:43.910791Z"
+}

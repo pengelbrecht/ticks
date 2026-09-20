@@ -1,0 +1,17 @@
+{
+  "id": "92i",
+  "title": "Final review of the cloud gate run diff",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "blocked_by": [
+    "f8l",
+    "lk9"
+  ],
+  "parent": "uzc",
+  "role": "review",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-20T18:53:43.862017Z",
+  "updated_at": "2026-09-20T18:53:43.862017Z"
+}

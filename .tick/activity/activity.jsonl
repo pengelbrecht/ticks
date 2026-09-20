@@ -2496,3 +2496,8 @@
 {"ts":"2026-09-19T13:51:07.726052Z","tick":"35t","action":"create","actor":"noreply@anthropic.com","data":{"priority":2,"title":"SPEC 12 Phase 4 and w1z A1 still say 'merged PR'; the gate stops at a reviewed, CI-verified PR","type":"task"}}
 {"ts":"2026-09-19T17:38:00.643586Z","tick":"yyi","action":"create","actor":"noreply@anthropic.com","data":{"priority":2,"title":"SPEC 12 phase ladder: insert 'drive a run from the Cloudflare host' before the Computer executor","type":"task"}}
 {"ts":"2026-09-20T08:31:24.722499Z","tick":"e3c","action":"create","actor":"noreply@anthropic.com","data":{"priority":2,"title":"A claim should say whether it is being implemented or merely integrated","type":"task"}}
+{"ts":"2026-09-20T18:53:32.039469Z","tick":"uzc","action":"create","actor":"noreply@anthropic.com","data":{"priority":2,"title":"Cloud gate run: prove the epic reconciler on a deployed factory","type":"epic"}}
+{"ts":"2026-09-20T18:53:43.750575Z","tick":"f8l","action":"create","actor":"noreply@anthropic.com","epic":"uzc","data":{"priority":2,"title":"Remove hello.txt and goodbye.txt from the repository root","type":"task"}}
+{"ts":"2026-09-20T18:53:43.811278Z","tick":"lk9","action":"create","actor":"noreply@anthropic.com","epic":"uzc","data":{"priority":2,"title":"Guard the repository root against stray binaries and scratch files","type":"task"}}
+{"ts":"2026-09-20T18:53:43.862278Z","tick":"92i","action":"create","actor":"noreply@anthropic.com","epic":"uzc","data":{"priority":2,"title":"Final review of the cloud gate run diff","type":"task"}}
+{"ts":"2026-09-20T18:53:43.911075Z","tick":"22s","action":"create","actor":"noreply@anthropic.com","epic":"uzc","data":{"priority":2,"title":"Close out the cloud gate run","type":"task"}}

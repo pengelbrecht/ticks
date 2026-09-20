@@ -1,0 +1,14 @@
+{
+  "id": "lk9",
+  "title": "Guard the repository root against stray binaries and scratch files",
+  "description": "Nothing stops the next live test from committing another hello.txt, and tk.exe has been sitting untracked in the working tree.\n\nAdd a Go test that reads the repository root and fails on any tracked file matching a stray-artifact shape: *.exe, *.dll, *.so, *.dylib, and scratch names (hello.txt, goodbye.txt, test.txt, tmp.*). Keep the list short and explicit rather than clever - a guard nobody can read is a guard nobody keeps.\n\nThe test must name the offending file and say why it is refused. Do NOT delete hello.txt or goodbye.txt here; a sibling tick does that. Write the test so it passes once they are gone.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "parent": "uzc",
+  "acceptance_criteria": "The new test fails on a planted root-level stray.exe and passes on a clean root, and go test -short -count=1 ./... passes",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-20T18:53:43.810985Z",
+  "updated_at": "2026-09-20T18:53:43.810985Z"
+}
