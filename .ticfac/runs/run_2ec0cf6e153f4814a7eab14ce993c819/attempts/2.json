@@ -1,0 +1,37 @@
+{
+  "schema_version": 3,
+  "provenance": {
+    "run_id": "run_2ec0cf6e153f4814a7eab14ce993c819",
+    "tick_id": "lk9",
+    "attempt": 2,
+    "source_ref": "refs/heads/epic/uzc",
+    "source_sha": "a58105db94db28f5c32e268a71a1c1b34027e4a5",
+    "integration_ref": "refs/heads/epic/uzc",
+    "phase": "worker",
+    "executor": "cloudflare-sandbox",
+    "workspace_id": null,
+    "backend": null,
+    "substrate_protocol": null,
+    "substrate_server_version": null,
+    "role": "implement-tick",
+    "tier": null,
+    "profile_digest": null,
+    "model": null,
+    "context_manifest_digest": null
+  },
+  "attempt": 2,
+  "tick_id": "lk9",
+  "dispatched_at": "2026-09-21T05:26:35.100Z",
+  "job_handle": {
+    "executor": "cloudflare-sandbox",
+    "job_id": "run-run_2ec0cf6e153f4814a7eab14ce993c819/tick-lk9/attempt-2",
+    "attempt": 2,
+    "try": 1,
+    "tick_id": "lk9",
+    "role": "implement-tick",
+    "remote": "origin",
+    "resumed_from": null,
+    "write_ref": "refs/heads/ticfac/run-run_2ec0cf6e153f4814a7eab14ce993c819/tick-lk9/attempt-2",
+    "base_sha": "a58105db94db28f5c32e268a71a1c1b34027e4a5"
+  }
+}
