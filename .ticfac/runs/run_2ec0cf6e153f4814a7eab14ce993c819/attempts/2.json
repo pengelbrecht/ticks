@@ -32,6 +32,29 @@
     "remote": "origin",
     "resumed_from": null,
     "write_ref": "refs/heads/ticfac/run-run_2ec0cf6e153f4814a7eab14ce993c819/tick-lk9/attempt-2",
-    "base_sha": "a58105db94db28f5c32e268a71a1c1b34027e4a5"
+    "base_sha": "a58105db94db28f5c32e268a71a1c1b34027e4a5",
+    "handle": {
+      "schema_version": 1,
+      "job_id": "run-run_2ec0cf6e153f4814a7eab14ce993c819/tick-lk9/attempt-2",
+      "attempt": 2,
+      "executor": "cloudflare-sandbox",
+      "issued_at": "2026-09-21T05:26:50.417Z",
+      "handle": {
+        "sandbox": "run_2ec0cf6e153f4814a7eab14ce993c819-lk9-2",
+        "base_sha": "a58105db94db28f5c32e268a71a1c1b34027e4a5",
+        "branch": "tick/uzc/attempt-2/lk9",
+        "write_ref": "refs/heads/ticfac/run-run_2ec0cf6e153f4814a7eab14ce993c819/tick-lk9/attempt-2",
+        "run_id": "run_2ec0cf6e153f4814a7eab14ce993c819",
+        "epic_id": "uzc",
+        "tick_id": "lk9",
+        "role": "implement-tick",
+        "project": "pengelbrecht/ticks",
+        "base_ref": "refs/heads/epic/uzc",
+        "title": "Guard the repository root against stray binaries and scratch files",
+        "process_id": "proc_1789968407728_qv6rzi",
+        "launched": true,
+        "detail": "the worker is running and has produced output"
+      }
+    }
   }
 }
