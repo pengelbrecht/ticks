@@ -32,6 +32,29 @@
     "remote": "origin",
     "resumed_from": null,
     "write_ref": "refs/heads/ticfac/run-run_2ec0cf6e153f4814a7eab14ce993c819/tick-f8l/attempt-1",
-    "base_sha": "a58105db94db28f5c32e268a71a1c1b34027e4a5"
+    "base_sha": "a58105db94db28f5c32e268a71a1c1b34027e4a5",
+    "handle": {
+      "schema_version": 1,
+      "job_id": "run-run_2ec0cf6e153f4814a7eab14ce993c819/tick-f8l/attempt-1",
+      "attempt": 1,
+      "executor": "cloudflare-sandbox",
+      "issued_at": "2026-09-21T05:22:54.829Z",
+      "handle": {
+        "sandbox": "run_2ec0cf6e153f4814a7eab14ce993c819-f8l-1",
+        "base_sha": "a58105db94db28f5c32e268a71a1c1b34027e4a5",
+        "branch": "tick/uzc/attempt-1/f8l",
+        "write_ref": "refs/heads/ticfac/run-run_2ec0cf6e153f4814a7eab14ce993c819/tick-f8l/attempt-1",
+        "run_id": "run_2ec0cf6e153f4814a7eab14ce993c819",
+        "epic_id": "uzc",
+        "tick_id": "f8l",
+        "role": "implement-tick",
+        "project": "pengelbrecht/ticks",
+        "base_ref": "refs/heads/epic/uzc",
+        "title": "Remove hello.txt and goodbye.txt from the repository root",
+        "process_id": "proc_1789968172174_4v4frx",
+        "launched": true,
+        "detail": "the worker is running and has produced output"
+      }
+    }
   }
 }
