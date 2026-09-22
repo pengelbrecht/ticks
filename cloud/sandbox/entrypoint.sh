@@ -621,6 +621,13 @@ start_harness() {
 		cmd=(omp -p "$prompt" --auto-approve --mode text --model "$harness_model_selector")
 		[[ -z $max_time ]] || cmd+=(--max-time "$max_time")
 		;;
+	pi)
+		# --approve is pi's whole full-auto story: it has no permission gate,
+		# only a trust prompt for project-local files, and this checkout is a
+		# path pi has never seen. pi has no --max-time; the container's own
+		# harness bound is what stops it.
+		cmd=(pi -p "$prompt" --approve --mode text --model "$harness_model_selector")
+		;;
 	# claude speaks one vendor's API, so its model flag carries the vendor's
 	# own id and the base URL variable selects the route.
 	claude)
