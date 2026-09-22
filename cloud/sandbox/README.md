@@ -337,7 +337,7 @@ the toolchain set below changes.
 |---|---|
 | Runtimes | Go, Node (+ pnpm via corepack), Bun, Python (+ uv) |
 | Tools | git, ripgrep, jq, curl, unzip, a C toolchain (`build-essential`) |
-| Harnesses | `omp` (default kind), `claude` |
+| Harnesses | `omp` (default kind), `pi`, `claude` |
 | Tracker | `tk`, with the ticks skill installed into `/root/.claude/skills/ticks` |
 | Escape hatch | `mise`, for a repository whose toolchain is outside the set |
 
@@ -443,7 +443,7 @@ starts a command in a sandbox.
 | `TICKS_EPIC` | yes | Epic the skill loop runs. |
 | `AI_GATEWAY_BASE_URL` | yes | The gateway every model call goes through — the factory's own `/api/gateway` prefix in a cloud run, or an AI Gateway base URL directly when you are driving the image by hand. Never a vendor host. |
 | `AI_GATEWAY_TOKEN` | yes | The run's gateway credential (D17). It is the ONLY model credential in the container, and it is what every vendor key variable is set to. |
-| `TICKS_HARNESS` | no | `omp` (default) or `claude`. |
+| `TICKS_HARNESS` | no | `omp` (default), `pi` or `claude`. |
 | `TICKS_MODEL` | no | The model the harness runs on. When unset, the entrypoint asks the checkout (`tk sandbox model`); when nothing routes one, the boot is refused with exit 7 rather than started. |
 | `TICKS_MODEL_PROBE_TIMEOUT` | no | Seconds the one-token gateway probe may take (default 30). |
 | `TICKS_HARNESS_PROBE_TIMEOUT` | no | Seconds the harness's own pre-flight round-trip may take (default 120). Larger than the gateway probe's because it starts a whole agent CLI. |
@@ -612,6 +612,10 @@ to `select_harness_route` in `entrypoint.sh`, not a rediscovery:
 | `omp` | `openai` | `openai` | `OPENAI_API_KEY` | `openai-completions` |
 | `omp` | `openrouter` | `openrouter` | `OPENROUTER_API_KEY` | `openai-completions` |
 | `omp` | `workers-ai` | `cloudflare-ai-gateway` | `CLOUDFLARE_AI_GATEWAY_API_KEY` | `openai-completions` |
+| `pi` | `anthropic` | `anthropic` | `ANTHROPIC_API_KEY` | `anthropic-messages` |
+| `pi` | `openai` | `openai` | `OPENAI_API_KEY` | `openai-completions` |
+| `pi` | `openrouter` | `openrouter` | `OPENROUTER_API_KEY` | `openai-completions` |
+| `pi` | `workers-ai` | `cloudflare-workers-ai` | `CLOUDFLARE_API_KEY` | `openai-completions` |
 
 The credential is only half of it. omp's built-in `cloudflare-ai-gateway`
 provider carries a **placeholder** base URL
@@ -642,6 +646,47 @@ The model flag is provider-qualified for the same reason
 (`cloudflare-ai-gateway/@cf/meta/…`). Handed a bare id, omp fuzzy-matches its
 own catalog and may land on a provider nothing here authorised — which is the
 other half of the failure above.
+
+### pi
+
+pi resolves providers by name the same way, but calls Workers AI by its own
+built-in provider, `cloudflare-workers-ai`, whose URL points straight at
+`api.cloudflare.com` with a `{CLOUDFLARE_ACCOUNT_ID}` slot in the path. The
+entrypoint OVERRIDES that built-in in pi's `models.json` (in
+`$PI_CODING_AGENT_DIR`, default `~/.pi/agent`) rather than defining a new
+provider:
+
+```json
+{
+  "providers": {
+    "cloudflare-workers-ai": {
+      "baseUrl": "<gateway>/workers-ai/v1",
+      "api": "openai-completions",
+      "apiKey": "$CLOUDFLARE_API_KEY"
+    }
+  }
+}
+```
+
+There is deliberately no `models` array: pi's merge keeps every built-in model
+of an overridden provider, so the model keeps its catalog entry (context
+window, reasoning) and only the address and credential become the run's.
+`"$CLOUDFLARE_API_KEY"` is pi's environment interpolation, so the token stays
+out of the filesystem, as with omp.
+
+Two things pi needs that are not obvious. Its Workers AI auth counts the
+provider as configured only when `CLOUDFLARE_ACCOUNT_ID` is set as well as the
+key, and refuses with `Provider is not configured: cloudflare-workers-ai`
+otherwise, even with the URL overridden; the entrypoint exports a placeholder,
+which is never sent because the gateway URL has no account slot. And the
+model's pi spelling, `cloudflare-workers-ai/@cf/…`, is accepted by the model
+router as an alias of `workers-ai/…`, so a repository whose `[roles.*]` are
+written for pi runs unchanged in a container.
+
+Verified against a recording stand-in for the gateway: pi 0.85.1 with this
+file sent `POST <gateway>/workers-ai/v1/chat/completions`, `Authorization:
+Bearer <run token>`, `model: @cf/zai-org/glm-5.3`, streaming, and parsed the
+answer.
 
 ### Does the harness execute tools, or narrate them?
 

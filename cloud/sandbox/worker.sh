@@ -225,7 +225,7 @@ run_probe() {
 		failed=1
 	fi
 	if ! command -v "$harness" >/dev/null 2>&1; then
-		warn "the harness '$harness' is not on PATH — this image carries omp and claude"
+		warn "the harness '$harness' is not on PATH — this image carries omp, pi and claude"
 		failed=1
 	fi
 	if ((failed != 0)); then
@@ -645,6 +645,13 @@ run_harness() {
 	omp)
 		cmd=(omp -p "$prompt" --auto-approve --mode text --model "$harness_model_selector")
 		[[ -z $max_time ]] || cmd+=(--max-time "$max_time")
+		;;
+	pi)
+		# --approve is pi's whole full-auto story: it has no permission gate,
+		# only a trust prompt for project-local files, and this checkout is a
+		# path pi has never seen. pi has no --max-time; the container's own
+		# harness bound is what stops it.
+		cmd=(pi -p "$prompt" --approve --mode text --model "$harness_model_selector")
 		;;
 	claude)
 		cmd=(claude -p "$prompt" --dangerously-skip-permissions --model "$model_id")

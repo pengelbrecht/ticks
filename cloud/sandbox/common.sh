@@ -141,8 +141,8 @@ require_common_inputs() {
 		die $EXIT_CONFIG "TICKS_BASE_SHA is not a commit SHA: $base_sha"
 	fi
 	case "$harness" in
-	omp | claude) ;;
-	*) die $EXIT_CONFIG "unknown harness kind '$harness' (TICKS_HARNESS) — this image carries omp and claude" ;;
+	omp | pi | claude) ;;
+	*) die $EXIT_CONFIG "unknown harness kind '$harness' (TICKS_HARNESS) — this image carries omp, pi and claude" ;;
 	esac
 	if [[ -z $workdir || $workdir == "/" || $workdir == "$HOME" ]]; then
 		die $EXIT_CONFIG "TICKS_WORKDIR must be a dedicated directory, not '$workdir'"
@@ -257,6 +257,15 @@ select_model_route() {
 		model_provider="workers-ai"
 		rest="${model#*/}"
 		;;
+	# pi's own name for the same route. A repository whose [roles.*] are written
+	# for pi spells its models cloudflare-workers-ai/@cf/…, and refusing that
+	# spelling here made the same model legal on a laptop and fatal in a
+	# container, with a message about providers rather than about the tick.
+	# It is an alias for the gateway's workers-ai route, not a second route.
+	cloudflare-workers-ai/*)
+		model_provider="workers-ai"
+		rest="${model#*/}"
+		;;
 	claude-* | opus | sonnet | haiku | fable)
 		model_provider="anthropic"
 		rest="$model"
@@ -266,7 +275,7 @@ select_model_route() {
 		rest="$model"
 		;;
 	*)
-		die $EXIT_MODEL "cannot tell which provider serves the model '$model', so there is no gateway route to send it to — qualify it with one of workers-ai/…, anthropic/…, openai/… or openrouter/… in [orchestrator].model"
+		die $EXIT_MODEL "cannot tell which provider serves the model '$model', so there is no gateway route to send it to — qualify it with one of workers-ai/… (or pi's spelling, cloudflare-workers-ai/…), anthropic/…, openai/… or openrouter/… in [orchestrator].model"
 		;;
 	esac
 
@@ -452,6 +461,18 @@ This is a stop, not a warning: the harness would have started, reached the skill
 #   omp     | openai        | openai                   | OPENAI_API_KEY
 #   omp     | openrouter    | openrouter               | OPENROUTER_API_KEY
 #   omp     | workers-ai    | cloudflare-ai-gateway    | CLOUDFLARE_AI_GATEWAY_API_KEY
+#   pi      | anthropic     | anthropic                | ANTHROPIC_API_KEY
+#   pi      | openai        | openai                   | OPENAI_API_KEY
+#   pi      | openrouter    | openrouter               | OPENROUTER_API_KEY
+#   pi      | workers-ai    | cloudflare-workers-ai    | CLOUDFLARE_API_KEY
+#
+# pi is cross-provider the same way omp is, and resolves providers BY NAME the
+# same way. The difference is which name: pi's catalog carries Workers AI as
+# the built-in provider `cloudflare-workers-ai`, reading CLOUDFLARE_API_KEY and
+# pointing at api.cloudflare.com with the account id in the path. That provider
+# is OVERRIDDEN here to the gateway's workers-ai route (see
+# configure_pi_provider), so pi keeps its own catalog entry for the model —
+# context window, reasoning flag — and only its address and credential change.
 # ---------------------------------------------------------------------------
 select_harness_route() {
 	case "$harness" in
@@ -500,6 +521,46 @@ select_harness_route() {
 		# which is the other half of the failure above: the id `@cf/…` resolved
 		# to `cloudflare-ai-gateway` because omp's catalog says so, not because
 		# anything here asked for it.
+		harness_model_selector="$harness_provider/$model_id"
+		;;
+	pi)
+		case "$model_provider" in
+		anthropic)
+			harness_provider="anthropic"
+			harness_credential_env="ANTHROPIC_API_KEY"
+			harness_model_api="anthropic-messages"
+			;;
+		openai)
+			harness_provider="openai"
+			harness_credential_env="OPENAI_API_KEY"
+			harness_model_api="openai-completions"
+			;;
+		openrouter)
+			harness_provider="openrouter"
+			harness_credential_env="OPENROUTER_API_KEY"
+			harness_model_api="openai-completions"
+			;;
+		workers-ai)
+			harness_provider="cloudflare-workers-ai"
+			harness_credential_env="CLOUDFLARE_API_KEY"
+			harness_model_api="openai-completions"
+			# pi's Workers AI auth counts the provider as configured only when
+			# it holds an account id beside the key, and answers "Provider is
+			# not configured: cloudflare-workers-ai" otherwise — even with the
+			# base URL overridden. The id is only ever substituted into a
+			# {CLOUDFLARE_ACCOUNT_ID} slot in the built-in URL, which the
+			# gateway URL configure_pi_provider writes does not have, so a
+			# placeholder satisfies the check without being sent anywhere. The
+			# container holds no Cloudflare credentials of its own (D17); this
+			# is not one.
+			export CLOUDFLARE_ACCOUNT_ID="${CLOUDFLARE_ACCOUNT_ID:-routed-through-the-run-gateway}"
+			;;
+		*)
+			die $EXIT_HARNESS "no pi provider is wired for the gateway route '$model_provider' — add it to the kind table in this script and to cloud/sandbox/README.md rather than letting pi pick a provider nothing authorised"
+			;;
+		esac
+		# Provider-qualified for the same reason as omp's: pi resolves the
+		# provider by name, and a bare id would let its catalog choose one.
 		harness_model_selector="$harness_provider/$model_id"
 		;;
 	esac
@@ -558,9 +619,48 @@ configure_omp_provider() {
 	say "omp provider '$harness_provider' pinned to ${model_base_url#*://} in $file"
 }
 
+# pi's config directory: PI_CODING_AGENT_DIR when set, else ~/.pi/agent (pi's
+# own documented default).
+pi_config_dir() {
+	printf '%s\n' "${PI_CODING_AGENT_DIR:-${HOME:-/root}/.pi/agent}"
+}
+
+# Points pi's provider for this run's route at the gateway, in models.json.
+#
+# This OVERRIDES a provider pi already has built in rather than defining a new
+# one, and it deliberately carries no `models` array: pi's documented merge
+# keeps every built-in model of an overridden provider, so the model keeps its
+# catalog entry (context window, reasoning) and only the address and credential
+# are this run's. A model pi's catalog does not know is not rescued by a bare
+# id here either — pi would run it as a custom id and answer an empty turn — so
+# the harness probe below, which requires the literal answer back, is what
+# catches it.
+#
+# The key is written as "$VAR", pi's own environment interpolation, so the
+# token itself never lands in a file.
+configure_pi_provider() {
+	local dir file
+	dir="$(pi_config_dir)"
+	mkdir -p "$dir" || die $EXIT_HARNESS "cannot create pi's config directory $dir"
+	file="$dir/models.json"
+	cat >"$file" <<-JSON || die $EXIT_HARNESS "cannot write pi's provider config at $file"
+		{
+		  "providers": {
+		    "${harness_provider}": {
+		      "baseUrl": "${model_base_url}",
+		      "api": "${harness_model_api}",
+		      "apiKey": "\$${harness_credential_env}"
+		    }
+		  }
+		}
+	JSON
+	say "pi provider '$harness_provider' pointed at ${model_base_url#*://} in $file"
+}
+
 configure_harness_provider() {
 	case "$harness" in
 	omp) configure_omp_provider ;;
+	pi) configure_pi_provider ;;
 	# claude reads ANTHROPIC_BASE_URL and ANTHROPIC_API_KEY out of the
 	# environment and has no provider file to write.
 	claude) ;;
@@ -617,6 +717,14 @@ probe_harness() {
 		cmd=(omp -p "$prompt" --mode text --no-session --no-tools --no-lsp
 			--no-skills --no-rules --no-extensions
 			--max-time "$harness_probe_timeout" --model "$harness_model_selector")
+		;;
+	pi)
+		# Everything that could make a one-word answer about something other
+		# than the route is switched off: no tools, no session file, no
+		# discovered context, skills, templates or extensions.
+		cmd=(pi -p "$prompt" --mode text --no-session --no-tools --no-extensions
+			--no-skills --no-prompt-templates --no-context-files
+			--model "$harness_model_selector")
 		;;
 	claude)
 		cmd=(claude -p "$prompt" --dangerously-skip-permissions --model "$model_id")

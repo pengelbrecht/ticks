@@ -4,6 +4,7 @@ package sandbox
 
 import (
 	"bufio"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -152,6 +153,7 @@ exit "${TICKS_TEST_HARNESS_EXIT:-0}"
 `
 	writeStub(t, filepath.Join(binDir, "omp"), harness)
 	writeStub(t, filepath.Join(binDir, "claude"), harness)
+	writeStub(t, filepath.Join(binDir, "pi"), harness)
 	// The version manager and the toolchains it decides about are stubbed so
 	// the provisioning decision is deterministic, not a property of the host.
 	mise := filepath.Join(root, "mise-record")
@@ -346,6 +348,17 @@ func (f *fixture) harnessProbeCalls() string {
 
 // ompProviderConfig returns the provider file the entrypoint wrote for omp,
 // empty when it wrote none.
+// piProviderConfig returns the models.json the entrypoint wrote for pi, empty
+// when it wrote none.
+func (f *fixture) piProviderConfig() string {
+	f.t.Helper()
+	b, err := os.ReadFile(filepath.Join(f.home, ".pi", "agent", "models.json"))
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
 func (f *fixture) ompProviderConfig() string {
 	f.t.Helper()
 	b, err := os.ReadFile(filepath.Join(f.home, ".omp", "agent", "models.yml"))
@@ -1733,5 +1746,115 @@ func TestEntrypointStopsOnAnUnresolvableSubstrate(t *testing.T) {
 	mustContain(t, out, "subagents", "the stop quotes tk's own reason")
 	if f.harnessStarted() {
 		t.Error("the harness started on an unresolved substrate")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// The pi kind (ticfac tick ha9). pi is cross-provider like omp, but calls
+// Workers AI by its own built-in provider, `cloudflare-workers-ai`, which the
+// entrypoint overrides to the run's gateway rather than replacing.
+// ---------------------------------------------------------------------------
+
+// A pi run gets pi, provider-qualified with pi's own name for the route, and
+// headless with project-local files trusted.
+func TestEntrypointRunsPiOnTheWorkersAIRoute(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env[EnvHarness] = "pi"
+	f.env[EnvModel] = "workers-ai/@cf/zai-org/glm-5.3"
+	out, code := f.run()
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	rec := f.harnessRecord()
+	mustContain(t, rec, "BIN=pi", "the requested harness runs")
+	mustContain(t, rec, "ARG=-p", "pi runs headless")
+	mustContain(t, rec, "ARG=--approve", "pi trusts the checkout it has never seen")
+	mustContain(t, rec, "ARG=cloudflare-workers-ai/@cf/zai-org/glm-5.3",
+		"the model flag names pi's provider for the route, not a bare id")
+}
+
+// pi reads its Workers AI credential as CLOUDFLARE_API_KEY, and counts the
+// provider as unconfigured without an account id beside it.
+func TestEntrypointGivesPiTheGatewayCredentialAndAnAccountID(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env[EnvHarness] = "pi"
+	f.env[EnvModel] = "workers-ai/@cf/zai-org/glm-5.3"
+	out, code := f.run()
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	rec := f.harnessRecord()
+	mustContain(t, rec, "CLOUDFLARE_API_KEY="+testGatewayToken, "pi reads the run token under its provider's own name")
+	mustContain(t, rec, "CLOUDFLARE_ACCOUNT_ID=", "pi refuses the provider as unconfigured without an account id")
+}
+
+// The override: pi's built-in provider pointed at the route the probe proved,
+// with no models array so the catalog entry for the model survives, and the
+// token as pi's "$VAR" interpolation rather than a literal.
+func TestEntrypointOverridesPisBuiltInWorkersAIProvider(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env[EnvHarness] = "pi"
+	f.env[EnvModel] = "workers-ai/@cf/zai-org/glm-5.3"
+	if out, code := f.run(); code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	raw := f.piProviderConfig()
+	if raw == "" {
+		t.Fatal("the entrypoint wrote pi no models.json, so pi would call api.cloudflare.com directly")
+	}
+	var cfg struct {
+		Providers map[string]map[string]any `json:"providers"`
+	}
+	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+		t.Fatalf("pi's models.json is not JSON: %v\n%s", err, raw)
+	}
+	p, ok := cfg.Providers["cloudflare-workers-ai"]
+	if !ok {
+		t.Fatalf("models.json does not override pi's built-in cloudflare-workers-ai provider:\n%s", raw)
+	}
+	if got, want := p["baseUrl"], testGatewayURL+"/workers-ai/v1"; got != want {
+		t.Errorf("baseUrl = %v, want %s", got, want)
+	}
+	if got := p["api"]; got != "openai-completions" {
+		t.Errorf("api = %v, want openai-completions", got)
+	}
+	if got := p["apiKey"]; got != "$CLOUDFLARE_API_KEY" {
+		t.Errorf("apiKey = %v, want the interpolation $CLOUDFLARE_API_KEY", got)
+	}
+	if _, has := p["models"]; has {
+		t.Errorf("models.json carries a models array, which would replace pi's catalog entry for the model:\n%s", raw)
+	}
+	if strings.Contains(raw, testGatewayToken) {
+		t.Errorf("the run's gateway token was written to pi's config file:\n%s", raw)
+	}
+}
+
+// pi's spelling of the route is the same route, so a repository whose roles
+// are written for pi runs unchanged in a container (ticfac tick qu3).
+func TestEntrypointAcceptsPisSpellingOfTheWorkersAIRoute(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env[EnvHarness] = "pi"
+	f.env[EnvModel] = "cloudflare-workers-ai/@cf/zai-org/glm-5.3"
+	out, code := f.run()
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	rec := f.harnessRecord()
+	mustContain(t, rec, "TICKS_MODEL_PROVIDER=workers-ai", "pi's spelling routes to the gateway's workers-ai route")
+	mustContain(t, rec, "ARG=cloudflare-workers-ai/@cf/zai-org/glm-5.3", "and pi is handed its own spelling back")
+}
+
+// The pre-flight round-trip runs pi with nothing but the route under test.
+func TestEntrypointProbesPiWithEverythingButTheRouteSwitchedOff(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	f.env[EnvHarness] = "pi"
+	f.env[EnvModel] = "workers-ai/@cf/zai-org/glm-5.3"
+	if out, code := f.run(); code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	probe := f.harnessProbeCalls()
+	for _, want := range []string{"BIN=pi", "ARG=--no-session", "ARG=--no-tools", "ARG=--no-context-files",
+		"ARG=cloudflare-workers-ai/@cf/zai-org/glm-5.3"} {
+		mustContain(t, probe, want, "the probe isolates the route")
 	}
 }

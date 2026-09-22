@@ -166,7 +166,7 @@ func (f *workerFixture) writeStubs() {
 	// The stand-in agent. It is handed the prompt like a real harness, and it
 	// does what the case wants an agent to have done: commit work, write a
 	// report, exit.
-	writeStub(t, filepath.Join(f.binDir, "omp"), harnessStubPreamble+`{
+	agent := harnessStubPreamble + `{
   printf 'CWD=%s\n' "$PWD"
   for a in "$@"; do printf 'ARG=%s\n' "$a"; done
 } > "$TICKS_TEST_RECORD"
@@ -190,7 +190,11 @@ if [ -n "${TICKS_TEST_WORKER_RESULT:-}" ]; then
   printf '# %s\n\nI did the thing.\n\n%s\n' "${TICKS_TICK}" "${TICKS_TEST_WORKER_RESULT}" > "RESULT-${TICKS_TICK}.md"
 fi
 exit "${TICKS_TEST_WORKER_EXIT:-0}"
-`)
+`
+	// omp and pi are both cross-provider agents a worker can run; the same
+	// stand-in serves both, so a pi worker is held to exactly omp's contract.
+	writeStub(t, filepath.Join(f.binDir, "omp"), agent)
+	writeStub(t, filepath.Join(f.binDir, "pi"), agent)
 	writeStub(t, filepath.Join(f.binDir, "claude"), harnessStubPreamble+`exit 0
 `)
 	writeStub(t, filepath.Join(f.binDir, "mise"), "exit 0\n")
@@ -426,6 +430,28 @@ func TestWorkerRunsTheHarnessOnTheTicksOwnPrompt(t *testing.T) {
 	mustContain(t, f.tkCalls(), "sandbox worker-prompt", "the prompt delegation")
 	mustContain(t, f.tkCalls(), "--tick "+f.tick, "the tick the prompt is for")
 	mustContain(t, f.harnessRecord(), "IMPLEMENT-TICK-TAP-PLEASE", "the prompt the harness was given")
+}
+
+// A per-tick worker on pi (ticfac tick ha9): the tick's own prompt, headless,
+// trusting the checkout, on pi's provider for the Workers AI route — and the
+// worker's contract (commit, report, push) holds exactly as it does for omp.
+func TestWorkerRunsPiOnTheTicksOwnPrompt(t *testing.T) {
+	f := newWorkerFixture(t)
+	f.env[EnvHarness] = "pi"
+	f.env[EnvModel] = "cloudflare-workers-ai/@cf/zai-org/glm-5.3"
+	f.env["TICKS_TEST_PROMPT"] = "IMPLEMENT-TICK-ON-PI"
+	out, code := f.run()
+	if code != 0 {
+		t.Fatalf("exit %d:\n%s", code, out)
+	}
+	rec := f.harnessRecord()
+	mustContain(t, rec, "IMPLEMENT-TICK-ON-PI", "the prompt pi was given")
+	mustContain(t, rec, "ARG=--approve", "pi trusts a checkout it has never seen")
+	mustContain(t, rec, "ARG=cloudflare-workers-ai/@cf/zai-org/glm-5.3", "pi's provider for the route")
+	branch := WorkerBranch(f.epic, f.tick)
+	if _, ok := f.remoteFile(branch, WorkerResultFile(f.tick)); !ok {
+		t.Error("a pi worker's report did not reach origin")
+	}
 }
 
 func TestWorkerRefusesAPromptItCouldNotBuild(t *testing.T) {
