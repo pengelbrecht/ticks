@@ -5,11 +5,11 @@
   "status": "in_progress",
   "priority": 2,
   "type": "task",
-  "owner": "run-run_2ec0cf6e153f4814a7eab14ce993c819",
+  "owner": "run-run_cd29a8813c05432a97679230e024f7c2",
   "parent": "uzc",
   "acceptance_criteria": "The new test fails on a planted root-level stray.exe and passes on a clean root, and go test -short -count=1 ./... passes",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-20T18:53:43.810985Z",
-  "updated_at": "2026-09-21T05:26:34.344Z",
+  "updated_at": "2026-09-22T11:40:26.654Z",
   "started_at": "2026-09-21T05:26:34.344Z"
 }
