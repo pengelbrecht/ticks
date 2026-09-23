@@ -638,18 +638,45 @@ pi_config_dir() {
 #
 # The key is written as "$VAR", pi's own environment interpolation, so the
 # token itself never lands in a file.
+# Per-model corrections to pi's bundled catalog, for models whose catalog entry
+# the upstream refuses. Emitted as `modelOverrides`, which pi merges onto the
+# built-in entry field by field, so everything else about the model is kept.
+#
+# GLM 5.3 on Workers AI (ticfac tick ha9): pi 0.85.1's catalog gives it
+# maxTokens 1310720, pi asks for nearly all of it as max_completion_tokens, and
+# Workers AI refuses with "max_completion_tokens is too large: 1306202. This
+# model supports at most 1048576 completion tokens" — HTTP 400, on which pi -p
+# prints NOTHING and exits 0. The first pi boot in a real container died on
+# exactly that at the harness probe. 65536 and thinkingFormat "deepseek" are
+# the values the operator's own pi config has run GLM 5.3 with since
+# 2026-09-12; the thinking format is what GLM's reasoning needs on the second
+# turn of a conversation, which a one-word probe never reaches.
+#
+# A table, not a blanket cap: raising maxTokens for a model whose real limit is
+# smaller (Llama 3.3 fp8 fast is 24000) would CREATE this failure for it.
+pi_model_overrides() {
+	case "$harness_provider/$model_id" in
+	cloudflare-workers-ai/@cf/zai-org/glm-5.3 | cloudflare-workers-ai/@cf/zai-org/glm-5.3-flash)
+		printf '"%s": { "maxTokens": 65536, "compat": { "thinkingFormat": "deepseek" } }' "$model_id"
+		;;
+	esac
+}
+
 configure_pi_provider() {
-	local dir file
+	local dir file overrides
 	dir="$(pi_config_dir)"
 	mkdir -p "$dir" || die $EXIT_HARNESS "cannot create pi's config directory $dir"
 	file="$dir/models.json"
+	overrides="$(pi_model_overrides)"
+	[[ -z $overrides ]] || overrides=",
+		      \"modelOverrides\": { ${overrides} }"
 	cat >"$file" <<-JSON || die $EXIT_HARNESS "cannot write pi's provider config at $file"
 		{
 		  "providers": {
 		    "${harness_provider}": {
 		      "baseUrl": "${model_base_url}",
 		      "api": "${harness_model_api}",
-		      "apiKey": "\$${harness_credential_env}"
+		      "apiKey": "\$${harness_credential_env}"${overrides}
 		    }
 		  }
 		}

@@ -683,6 +683,17 @@ model's pi spelling, `cloudflare-workers-ai/@cf/…`, is accepted by the model
 router as an alias of `workers-ai/…`, so a repository whose `[roles.*]` are
 written for pi runs unchanged in a container.
 
+For a model whose catalog entry the upstream refuses, the file also carries a
+`modelOverrides` entry, which pi merges onto the built-in one field by field.
+Today that is GLM 5.3 and GLM 5.3 Flash: pi's catalog gives them `maxTokens`
+1310720, pi asks for nearly all of it, and Workers AI answers HTTP 400
+("supports at most 1048576 completion tokens") — on which `pi -p` prints
+nothing and exits 0. The first pi boot in a real container died on exactly that
+at the harness probe. They get `maxTokens: 65536` and `thinkingFormat:
+"deepseek"`, the values the operator's own pi config runs them with. It is a
+table in `pi_model_overrides`, not a blanket cap, because raising the limit for
+a model whose real one is lower would create the same failure for it.
+
 Verified against a recording stand-in for the gateway: pi 0.85.1 with this
 file sent `POST <gateway>/workers-ai/v1/chat/completions`, `Authorization:
 Bearer <run token>`, `model: @cf/zai-org/glm-5.3`, streaming, and parsed the
