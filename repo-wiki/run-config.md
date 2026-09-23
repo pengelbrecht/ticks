@@ -178,3 +178,23 @@ reconcile` (D19, tick `bmo`) does not exist, so a local orchestrator meeting
 `cloud` has nothing to dispatch through and must stop and say so rather than
 quietly running the wave on another substrate. Declaring `cloud` today is a
 statement of intent that `tk` enforces rather than ignores.
+
+## Per-world override files (ticfac tick `5uo`, ticks `uep`)
+
+ticfac's 84z shipped an inline `[roles.<name>.substrates.cloud]` overlay that tk's
+loader refused as an unknown key, so every tk command in ticfac's repo warned. It
+also had a precedence hole: a tier overlay applied *after* the cloud overlay, so a
+claude `frontier` tier in the common file would have reached a container (ticfac
+finding `ea1a62d3`).
+
+The replacement is two optional files beside the common one —
+`.tick/runners.local.toml` (herdr, harness) and `.tick/runners.cloud.toml` (cloud).
+The override merges over the common file (tables field-wise, arrays replaced) and
+its role cell applies LAST, over any tier, then its own tier cell. The inline form
+is refused with a pointer to the file. tk reads only the common file, so the
+override files need nothing from tk beyond the doc in `runners-config.md`.
+
+Why this matters operationally: the operator wants claude escalation for hard ticks
+**locally** (Max subscription) and **never** in the cloud. `runners.local.toml`
+carries the ladder (strong = pi/GLM 5.3 → frontier = claude opus); the cloud never
+reads that file.

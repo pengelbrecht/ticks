@@ -157,6 +157,27 @@ Keep the tier's real meaning intact when you do this — the tier is chosen from
 
 **Args replace, they never merge.** A tier's `args` supersede the role's `args` wholesale. This is deliberate — merging two argv lists whose flags may conflict is not well-defined. It applies to `args` only: `model` and `effort` are scalars and override field-wise (above). The kind's full-auto template from `herdr-kinds.md` is prepended by the spawner and is not part of `args`.
 
+### Per-world override files
+
+Two optional files sit beside `runners.toml` and override it for one world each — the operator's shape: *"you can either have runners.toml (common), or runners.cloud.toml, runners.local.toml which override if they exist"*.
+
+| File | Read by |
+|---|---|
+| `.tick/runners.toml` | every run — the common file |
+| `.tick/runners.local.toml` | runs on this machine (the `herdr` and `harness` substrates) |
+| `.tick/runners.cloud.toml` | runs on the `cloud` substrate (the container) |
+
+With neither override file a run reads exactly `runners.toml`. The rules:
+
+- **Same schema, validated the same way.** An override is validated on its own first, so an error names it; the whole-file requirements (`[roles.implement]`, a role's `kind`, cross-table command references) are checked on the merged result.
+- **Tables merge field-wise; arrays replace wholesale** — `[[tier_policy.start]]`, `args`. A merged list of rules has no meaning anyone wrote.
+- **An override's role cell applies last** — over the role's own values *and* over any tier — then the override's own tier cell for the asked-for tier. Nothing the common file says about a tier can move a cloud run off what `runners.cloud.toml` routes.
+- **The cloud never reads `runners.local.toml`**, so a tier or ladder declared there does not exist for a cloud run. That is where a laptop's subscription-billed harness belongs.
+- **Under `cloud`, a role the cloud file does not declare is refused** at run start, and every role it declares must name its `kind`: the common file's kind was written for a laptop.
+- **The substrate that picks the file is decided from the common file** (and `TICKS_SUBSTRATE`); an override cannot move a run to another world.
+
+The retired inline form, `[roles.<name>.substrates.<substrate>]`, is refused with a pointer to the file it moved to. tk's own readers (`tk sandbox substrate`, the substrate decision) read only the common file.
+
 ### One table, one kind per reader
 
 `[roles]` is one table and more than one program reads it. The herdr-substrate spawner (`ticfac run-epic`) compiles a cell into a herdr spawn of that `kind`. The **pi extension** (`extensions/ticks-runner`, the runner adapter behind `/ticks-plan` and `/ticks-run`) compiles the same cell into `pi --provider/--model/--thinking` and spawns that subprocess itself. Because `model` lives **in the kind's own namespace**, a cell only means anything to the reader that dispatches that kind: `sonnet` is a `claude` id, `gpt-5.6-luna` is a `codex` id, and neither is a name `pi --model` takes.
