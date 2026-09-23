@@ -45,6 +45,28 @@ precisely why it is the one the version exists to make loud.
 
 ---
 
+## 6.0.0
+
+MAJOR. A rule changed: `tk-json-manifest.json`'s `merge-file` said a
+successful merge "was written to <path>", and that was the data-loss bug, not
+the contract (ticks #90, found from ticfac 2026-09-23).
+
+git invokes the driver as `merge-file %O %A %B %P` and reads the merge back
+from `%A` ONLY; `%P` is the file's logical path. A driver that writes `%P`
+leaves `%A` holding OURS, so every tick record both sides of a merge changed
+keeps one side in the commit and silently drops the other, while the correct
+merge is left in the working tree as an unstaged change. tk itself did exactly
+that until #90.
+
+- `tk-json-manifest.json` — `merge-file` exit code `0` now says the result is
+  written back over `<ours>` (%A) and that `<path>` is never written, matching
+  `merge-activity`, which already said "written back over <current>".
+
+**Who has to follow:** any host that implemented `merge-file`'s file effect
+from the old text writes the result to the wrong file and must write it over
+`<ours>` instead. A host that only invokes `tk merge-file` has nothing to do
+beyond running a tk that includes #90.
+
 ## 5.2.0
 
 MINOR. One contract added (ticfac tick u9l, epic av8); no existing fixture
