@@ -337,7 +337,7 @@ the toolchain set below changes.
 |---|---|
 | Runtimes | Go, Node (+ pnpm via corepack), Bun, Python (+ uv) |
 | Tools | git, ripgrep, jq, curl, unzip, a C toolchain (`build-essential`) |
-| Harnesses | `omp` (default kind), `pi`, `claude` |
+| Harnesses | `pi` (default kind), `omp`, `claude` |
 | Tracker | `tk`, with the ticks skill installed into `/root/.claude/skills/ticks` |
 | Escape hatch | `mise`, for a repository whose toolchain is outside the set |
 
@@ -443,7 +443,7 @@ starts a command in a sandbox.
 | `TICKS_EPIC` | yes | Epic the skill loop runs. |
 | `AI_GATEWAY_BASE_URL` | yes | The gateway every model call goes through — the factory's own `/api/gateway` prefix in a cloud run, or an AI Gateway base URL directly when you are driving the image by hand. Never a vendor host. |
 | `AI_GATEWAY_TOKEN` | yes | The run's gateway credential (D17). It is the ONLY model credential in the container, and it is what every vendor key variable is set to. |
-| `TICKS_HARNESS` | no | `omp` (default), `pi` or `claude`. |
+| `TICKS_HARNESS` | no | `pi` (default), `omp` or `claude`. The factory always sets it, so the default is a last resort only; it is `pi` because the cloud runs pi on GLM. |
 | `TICKS_MODEL` | no | The model the harness runs on. When unset, the entrypoint asks the checkout (`tk sandbox model`); when nothing routes one, the boot is refused with exit 7 rather than started. |
 | `TICKS_MODEL_PROBE_TIMEOUT` | no | Seconds the one-token gateway probe may take (default 30). |
 | `TICKS_HARNESS_PROBE_TIMEOUT` | no | Seconds the harness's own pre-flight round-trip may take (default 120). Larger than the gateway probe's because it starts a whole agent CLI. |

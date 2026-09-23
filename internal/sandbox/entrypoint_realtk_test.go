@@ -43,7 +43,7 @@ func TestEntrypointReachesTheSkillLoopWithTheRealTk(t *testing.T) {
 		t.Fatalf("exit %d, want 0 — the entrypoint did not reach the skill loop\n%s", code, out)
 	}
 	rec := f.harnessRecord()
-	mustContain(t, rec, "BIN=omp", "the harness never started")
+	mustContain(t, rec, "BIN=pi", "the harness never started")
 	mustContain(t, rec, "ticks", "the prompt names the skill")
 }
 
@@ -56,6 +56,7 @@ func TestEntrypointRoutesTheModelWithTheRealTk(t *testing.T) {
 	tk := buildRealTk(t)
 
 	f := newFixture(t, "")
+	f.env[EnvHarness] = "omp" // the assertions below are omp's provider naming
 	f.routeModelThroughTheRepository(`version = 2
 
 [orchestrator]
