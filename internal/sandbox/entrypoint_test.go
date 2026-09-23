@@ -1858,3 +1858,48 @@ func TestEntrypointProbesPiWithEverythingButTheRouteSwitchedOff(t *testing.T) {
 		mustContain(t, probe, want, "the probe isolates the route")
 	}
 }
+
+// GLM 5.3's catalog entry in pi 0.85.1 overstates its output limit, pi asks
+// for nearly all of it, and Workers AI refuses with a 400 on which pi -p
+// prints nothing and exits 0 — the first real pi boot died on that at the
+// probe. The correction is per model: GLM 5.3 gets it, a model with no known
+// correction gets none, because a blanket cap would break a model whose real
+// limit is lower.
+func TestEntrypointCorrectsPisCatalogForGLM53Only(t *testing.T) {
+	for model, want := range map[string]bool{
+		"workers-ai/@cf/zai-org/glm-5.3":                      true,
+		"workers-ai/@cf/zai-org/glm-5.3-flash":                true,
+		"workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast": false,
+	} {
+		t.Run(model, func(t *testing.T) {
+			f := newFixture(t, "- `true`\n")
+			f.env[EnvHarness] = "pi"
+			f.env[EnvModel] = model
+			if out, code := f.run(); code != 0 {
+				t.Fatalf("exit %d, want 0\n%s", code, out)
+			}
+			raw := f.piProviderConfig()
+			var cfg struct {
+				Providers map[string]struct {
+					ModelOverrides map[string]struct {
+						MaxTokens int `json:"maxTokens"`
+						Compat    struct {
+							ThinkingFormat string `json:"thinkingFormat"`
+						} `json:"compat"`
+					} `json:"modelOverrides"`
+				} `json:"providers"`
+			}
+			if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+				t.Fatalf("pi's models.json is not JSON: %v\n%s", err, raw)
+			}
+			id := strings.TrimPrefix(model, "workers-ai/")
+			o, has := cfg.Providers["cloudflare-workers-ai"].ModelOverrides[id]
+			if has != want {
+				t.Fatalf("override for %s present=%v, want %v:\n%s", id, has, want, raw)
+			}
+			if want && (o.MaxTokens != 65536 || o.Compat.ThinkingFormat != "deepseek") {
+				t.Errorf("override for %s = %+v, want maxTokens 65536 and thinkingFormat deepseek", id, o)
+			}
+		})
+	}
+}
