@@ -2506,3 +2506,4 @@
 {"ts":"2026-09-23T10:58:17.906874Z","tick":"uep","action":"create","actor":"noreply@anthropic.com","data":{"priority":1,"title":"tk's runconfig copy refuses ticfac's runners.toml: roles.\u003cx\u003e.substrates is unknown","type":"bug"}}
 {"ts":"2026-09-23T19:33:22.808536Z","tick":"uep","action":"close","actor":"noreply@anthropic.com","data":{"reason":"ticfac 5uo retires the inline form; override files documented in #92","title":"tk's runconfig copy refuses ticfac's runners.toml: roles.\u003cx\u003e.substrates is unknown"}}
 {"ts":"2026-09-23T21:26:55.921191Z","tick":"ymg","action":"create","actor":"noreply@anthropic.com","data":{"priority":3,"title":"The sandbox's last-resort harness default is omp; make it pi","type":"task"}}
+{"ts":"2026-09-23T22:36:27.793735Z","tick":"ymg","action":"close","actor":"noreply@anthropic.com","data":{"reason":"#93","title":"The sandbox's last-resort harness default is omp; make it pi"}}

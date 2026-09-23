@@ -2,12 +2,14 @@
   "id": "ymg",
   "title": "The sandbox's last-resort harness default is omp; make it pi",
   "description": "Filed from ticfac yoh finding 13e4137e (uqi). cloud/sandbox/common.sh and worker.sh default TICKS_HARNESS to omp. The factory always sets TICKS_HARNESS (ticfac pins RUN_HARNESS=pi since uqi), so this is a last resort only - but the operator's rule is pi on GLM in the cloud. Changing the default ripples through ~12 internal/sandbox tests whose stubs assume omp (BIN=omp, cloudflare-ai-gateway provider naming); they need to set TICKS_HARNESS=omp explicitly or be rewritten for pi.",
-  "status": "open",
+  "status": "closed",
   "priority": 3,
   "type": "task",
   "owner": "noreply@anthropic.com",
   "acceptance_criteria": "An unset TICKS_HARNESS boots pi; every internal/sandbox test that relies on omp sets TICKS_HARNESS=omp explicitly; go test ./internal/sandbox/ passes",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-23T21:26:55.92071Z",
-  "updated_at": "2026-09-23T21:26:55.92071Z"
+  "updated_at": "2026-09-23T22:36:27.785571Z",
+  "closed_at": "2026-09-23T22:36:27.785571Z",
+  "closed_reason": "#93"
 }
