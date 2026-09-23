@@ -344,7 +344,7 @@
       "since": 1,
       "description": "The git custom merge driver for .tick/issues/*.json. Its contract is the merged file it writes and the code it exits with, not stdout: git invokes it with %O %A %B %P and reads no output. Listed here because a host that merges tracker branches must produce the same resolution tk does — see contracts/tracker-layout.json.",
       "exit_codes": {
-        "0": "Merged; the result was written to <path>.",
+        "0": "Merged; the result was written back over <ours> (git's %A), the only file git reads a merge driver's result from. <path> (%P) is the file's logical path and is never written.",
         "1": "Could not read an input or write the result. Git falls back to conflict markers."
       }
     },
