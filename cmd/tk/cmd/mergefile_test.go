@@ -45,7 +45,7 @@ func TestMergeFileRefusesAddAdd(t *testing.T) {
 	writeFile(t, theirsPath, theirs)
 
 	captureCmdOutput(t)
-	err := ExecuteArgs([]string{"merge-file", basePath, oursPath, theirsPath, oursPath})
+	err := ExecuteArgs([]string{"merge-file", basePath, oursPath, theirsPath, ".tick/issues/abc.json"})
 	if err == nil {
 		t.Fatal("merge-file merged two ticks that share an id with no common ancestor; git would record a clean merge and one of the two ticks would vanish")
 	}
@@ -74,4 +74,57 @@ func readFile(t *testing.T, path string) string {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	return string(data)
+}
+
+// git's merge-driver contract, pinned: the driver is called as
+// `tk merge-file %O %A %B %P` and git reads the result back from %A ONLY.
+// %P is the file's logical path in the repository.
+//
+// The driver used to write to %P. The commit then kept %A - ours - so a tick
+// both sides had changed silently lost the other side's change, and the
+// correct merge was left in the working tree as an unstaged modification.
+func TestMergeFileWritesTheResultToOursAndLeavesThePathAlone(t *testing.T) {
+	const base = `{"id":"abc","title":"a tick","status":"open","priority":2,` +
+		`"type":"task","owner":"a","created_by":"a",` +
+		`"created_at":"2026-09-22T10:00:00Z","updated_at":"2026-09-22T10:00:00Z"}`
+	// ours closed it; theirs changed its priority. A correct merge has both.
+	const ours = `{"id":"abc","title":"a tick","status":"closed","priority":2,` +
+		`"type":"task","owner":"a","created_by":"a",` +
+		`"created_at":"2026-09-22T10:00:00Z","updated_at":"2026-09-22T12:00:00Z",` +
+		`"closed_at":"2026-09-22T12:00:00Z"}`
+	const theirs = `{"id":"abc","title":"a tick","status":"open","priority":0,` +
+		`"type":"task","owner":"a","created_by":"a",` +
+		`"created_at":"2026-09-22T10:00:00Z","updated_at":"2026-09-22T11:00:00Z"}`
+
+	dir := t.TempDir()
+	basePath := filepath.Join(dir, ".merge_file_O")
+	oursPath := filepath.Join(dir, ".merge_file_A")
+	theirsPath := filepath.Join(dir, ".merge_file_B")
+	writeFile(t, basePath, base)
+	writeFile(t, oursPath, ours)
+	writeFile(t, theirsPath, theirs)
+
+	// %P is relative, resolved against the driver's working directory. Run
+	// from a directory holding a DIFFERENT file at that path, so a write to
+	// %P is caught rather than landing somewhere harmless.
+	work := t.TempDir()
+	logical := filepath.Join(".tick", "issues", "abc.json")
+	if err := os.MkdirAll(filepath.Join(work, ".tick", "issues"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, filepath.Join(work, logical), "sentinel")
+	t.Chdir(work)
+
+	captureCmdOutput(t)
+	if err := ExecuteArgs([]string{"merge-file", basePath, oursPath, theirsPath, logical}); err != nil {
+		t.Fatalf("merge-file: %v", err)
+	}
+
+	got := readFile(t, oursPath)
+	if !strings.Contains(got, `"status": "closed"`) || !strings.Contains(got, `"priority": 0`) {
+		t.Errorf("%%A does not hold the merge of both sides (closed AND priority 0):\n%s", got)
+	}
+	if sentinel := readFile(t, filepath.Join(work, logical)); sentinel != "sentinel" {
+		t.Errorf("merge-file wrote to %%P, the file's logical path, which git never reads:\n%s", sentinel)
+	}
 }
