@@ -1,0 +1,13 @@
+{
+  "id": "si5",
+  "title": "The sandbox image's PID 1 never reaps orphans, so killed processes stay zombies",
+  "description": "Filed from ticfac (xte findings c315f3f4, fc286c57, 2026-09-23). In the factory sandbox image PID 1 is the Node control server, which does not reap orphaned children. Every process killed there - a timed-out gate's child, a cancelled harness's subprocesses - stays a zombie forever, and ticfac's container tests read a zombie as a live process (its gate-timeout test, ticfac 58z). Run an init that reaps (tini, or the control server's own reaper) as PID 1.",
+  "status": "open",
+  "priority": 2,
+  "type": "bug",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "A process orphaned and killed inside the sandbox is reaped; a test inside the image proves no zombie remains",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-23T10:58:17.875069Z",
+  "updated_at": "2026-09-23T10:58:17.875069Z"
+}

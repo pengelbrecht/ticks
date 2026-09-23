@@ -1,0 +1,13 @@
+{
+  "id": "uep",
+  "title": "tk's runconfig copy refuses ticfac's runners.toml: roles.\u003cx\u003e.substrates is unknown",
+  "description": "Filed from ticfac (xte findings 1d6b5baf, 20a9094a, 2026-09-23). ticfac added a substrate-aware overlay, roles.\u003crole\u003e.substrates, so cloud runs route every role to pi/GLM while local runs keep their own routing (ticfac tick 84z). tk's own copy of the runners config schema does not know the key and refuses the file - so tk commands that validate runners.toml fail in ticfac's repository.",
+  "status": "open",
+  "priority": 1,
+  "type": "bug",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "tk accepts roles.\u003cx\u003e.substrates in .tick/runners.toml, with a fixture shared with ticfac's schema",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-23T10:58:17.906643Z",
+  "updated_at": "2026-09-23T10:58:17.906643Z"
+}
