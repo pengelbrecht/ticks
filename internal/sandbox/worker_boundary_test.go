@@ -43,7 +43,7 @@ import (
 // each case proves is the guard's effect and never a broken agent.
 func workerAgent(f *workerFixture, body string) {
 	f.t.Helper()
-	writeStub(f.t, filepath.Join(f.binDir, "omp"), harnessStubPreamble+`printf 'work\n' > worked.txt
+	writeStub(f.t, filepath.Join(f.binDir, "pi"), harnessStubPreamble+`printf 'work\n' > worked.txt
 git add worked.txt
 git commit -q -m "tick ${TICKS_TICK}: the work"
 `+body+`

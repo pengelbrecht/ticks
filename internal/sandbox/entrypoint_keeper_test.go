@@ -48,7 +48,7 @@ func (f *fixture) keeping(watch string) (commitRecord, pushRecord string) {
 	f.env["TICKS_TEST_WATCH_BRANCH"] = watch
 	f.env["TICKS_TEST_COMMIT_RECORD"] = commitRecord
 	f.env["TICKS_TEST_PUSH_RECORD"] = pushRecord
-	writeStub(f.t, filepath.Join(f.binDir, "omp"), committingHarnessStub)
+	writeStub(f.t, filepath.Join(f.binDir, "pi"), committingHarnessStub)
 	return commitRecord, pushRecord
 }
 
@@ -146,7 +146,7 @@ func TestEntrypointTellsTheHarnessAboutTheRunBranch(t *testing.T) {
 func TestEntrypointHeartbeatsWhileTheHarnessIsSilent(t *testing.T) {
 	f := newFixture(t, "- `true`\n")
 	f.env[EnvKeeperInterval] = "1"
-	writeStub(t, filepath.Join(f.binDir, "omp"), harnessStubPreamble+"sleep 4\n")
+	writeStub(t, filepath.Join(f.binDir, "pi"), harnessStubPreamble+"sleep 4\n")
 
 	out, code := f.run()
 	if code != 0 {
@@ -170,7 +170,7 @@ func TestEntrypointHeartbeatsWhileTheHarnessIsSilent(t *testing.T) {
 func TestEntrypointPushesNothingWhenTheRunCommitsNothing(t *testing.T) {
 	f := newFixture(t, "- `true`\n")
 	f.env[EnvKeeperInterval] = "1"
-	writeStub(t, filepath.Join(f.binDir, "omp"), harnessStubPreamble+"sleep 3\n")
+	writeStub(t, filepath.Join(f.binDir, "pi"), harnessStubPreamble+"sleep 3\n")
 
 	out, code := f.run()
 	if code != 0 {

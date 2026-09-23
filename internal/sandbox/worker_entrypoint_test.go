@@ -344,7 +344,7 @@ func TestWorkerProbePrintsTheMarkerTheDispatcherChecksFor(t *testing.T) {
 func TestWorkerProbeWithholdsTheMarkerWhenTheContainerIsBroken(t *testing.T) {
 	for name, broken := range map[string]string{
 		"no tk":      "tk",
-		"no harness": "omp",
+		"no harness": "pi", // the default harness
 	} {
 		t.Run(name, func(t *testing.T) {
 			f := newWorkerFixture(t)

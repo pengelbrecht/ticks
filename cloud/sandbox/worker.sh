@@ -981,7 +981,7 @@ push_branch() {
 
 main() {
 	if [[ ${1:-} == "--probe" ]]; then
-		harness="${TICKS_HARNESS:-omp}"
+		harness="${TICKS_HARNESS:-pi}"
 		run_probe
 		exit $?
 	fi

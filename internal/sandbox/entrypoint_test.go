@@ -456,7 +456,7 @@ func TestEntrypointReachesTheSkillLoop(t *testing.T) {
 		t.Fatalf("exit %d, want 0\n%s", code, out)
 	}
 	rec := f.harnessRecord()
-	mustContain(t, rec, "BIN=omp", "the pinned harness runs by default")
+	mustContain(t, rec, "BIN=pi", "the pinned harness runs by default")
 	mustContain(t, rec, "ARG=-p", "the harness runs headless")
 	mustContain(t, rec, "ticks", "the prompt names the skill")
 	mustContain(t, rec, "ko8", "the prompt names the epic")
@@ -467,6 +467,28 @@ func TestEntrypointReachesTheSkillLoop(t *testing.T) {
 	if head != f.headSHA {
 		t.Errorf("checked out %s, want the submitted SHA %s", head, f.headSHA)
 	}
+}
+
+// The factory always sets TICKS_HARNESS, so the default is a last resort — but
+// when it is reached it must be the harness the cloud actually runs: pi (on
+// GLM), for the orchestrator and the per-tick worker alike (tick ymg).
+func TestEntrypointBootsPiWhenTheHarnessIsUnset(t *testing.T) {
+	f := newFixture(t, "- `true`\n")
+	delete(f.env, EnvHarness)
+	out, code := f.run()
+	if code != 0 {
+		t.Fatalf("exit %d, want 0\n%s", code, out)
+	}
+	mustContain(t, f.harnessRecord(), "BIN=pi", "an unset TICKS_HARNESS boots pi")
+	mustContain(t, out, "(harness pi,", "the boot log names the default it fell back to")
+
+	w := newWorkerFixture(t)
+	delete(w.env, EnvHarness)
+	out, code = w.run()
+	if code != 0 {
+		t.Fatalf("worker exit %d, want 0\n%s", code, out)
+	}
+	mustContain(t, out, "(harness pi)", "an unset TICKS_HARNESS boots a pi worker")
 }
 
 // The submitted SHA is the run's base, not "whatever the branch points at now".
@@ -690,7 +712,7 @@ func TestEntrypointStreamsHarnessOutputDuringTheRun(t *testing.T) {
 	f := newFixture(t, "- `true`\n")
 	gate := filepath.Join(f.root, "gate")
 	f.env["TICKS_TEST_GATE"] = gate
-	writeStub(t, filepath.Join(f.root, "bin", "omp"), harnessStubPreamble+`echo "harness: started"
+	writeStub(t, filepath.Join(f.root, "bin", "pi"), harnessStubPreamble+`echo "harness: started"
 while [ ! -f "$TICKS_TEST_GATE" ]; do sleep 0.05; done
 echo "harness: finished"
 `)
@@ -748,7 +770,7 @@ echo "harness: finished"
 // to tell a finished run from a crashed one.
 func TestEntrypointPropagatesTheHarnessExitStatus(t *testing.T) {
 	f := newFixture(t, "- `true`\n")
-	writeStub(t, filepath.Join(f.root, "bin", "omp"), harnessStubPreamble+"exit 42\n")
+	writeStub(t, filepath.Join(f.root, "bin", "pi"), harnessStubPreamble+"exit 42\n")
 	out, code := f.run()
 	if code != 42 {
 		t.Fatalf("exit %d, want 42\n%s", code, out)
@@ -1167,6 +1189,7 @@ func TestEntrypointExportsTheWorkersAIRoute(t *testing.T) {
 // through the one component that owns the runners.toml format.
 func TestEntrypointRoutesTheOrchestratorModelFromTheRepository(t *testing.T) {
 	f := newFixture(t, "- `true`\n")
+	f.env[EnvHarness] = "omp" // this test is about omp
 	f.routeModelThroughTheRepository(`version = 2
 
 [orchestrator]
@@ -1410,6 +1433,7 @@ func TestEntrypointStopsWhenTheGatewayNeverAnswersTheProbe(t *testing.T) {
 // The credential, under omp's own name for it.
 func TestEntrypointGivesOmpTheGatewayCredentialUnderItsOwnProviderName(t *testing.T) {
 	f := newFixture(t, "- `true`\n")
+	f.env[EnvHarness] = "omp" // this test is about omp
 	f.env[EnvModel] = "workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast"
 	out, code := f.run()
 	if code != 0 {
@@ -1424,6 +1448,7 @@ func TestEntrypointGivesOmpTheGatewayCredentialUnderItsOwnProviderName(t *testin
 // credential with no base URL would post to a literal `<account>`.
 func TestEntrypointPinsTheOmpProviderToTheProvedRoute(t *testing.T) {
 	f := newFixture(t, "- `true`\n")
+	f.env[EnvHarness] = "omp" // this test is about omp
 	f.env[EnvModel] = "workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast"
 	out, code := f.run()
 	if code != 0 {
@@ -1464,6 +1489,7 @@ func TestEntrypointKeepsTheRunTokenOutOfTheOmpProviderConfig(t *testing.T) {
 // resolved to a provider nothing here had authorised. The provider is named.
 func TestEntrypointHandsOmpAProviderQualifiedModel(t *testing.T) {
 	f := newFixture(t, "- `true`\n")
+	f.env[EnvHarness] = "omp" // this test is about omp
 	f.env[EnvModel] = "workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast"
 	out, code := f.run()
 	if code != 0 {
@@ -1477,6 +1503,8 @@ func TestEntrypointHandsOmpAProviderQualifiedModel(t *testing.T) {
 // wire shape — the same table, a different row.
 func TestEntrypointRoutesAnAnthropicOmpRunAtTheAnthropicProvider(t *testing.T) {
 	f := newFixture(t, "- `true`\n")
+	f.env[EnvHarness] = "omp" // this test is about omp
+
 	out, code := f.run() // the fixture's default model is claude-fable-5
 	if code != 0 {
 		t.Fatalf("exit %d, want 0\n%s", code, out)
@@ -1521,6 +1549,7 @@ func TestEntrypointWritesNoProviderConfigForTheClaudeHarness(t *testing.T) {
 
 func TestEntrypointProvesTheHarnessCanCallTheGatewayBeforeStartingIt(t *testing.T) {
 	f := newFixture(t, "- `true`\n")
+	f.env[EnvHarness] = "omp" // this test is about omp
 	f.env[EnvModel] = "workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast"
 	out, code := f.run()
 	if code != 0 {
@@ -1542,6 +1571,7 @@ func TestEntrypointProvesTheHarnessCanCallTheGatewayBeforeStartingIt(t *testing.
 // pre-flight stop with its own code, not the run's exit status.
 func TestEntrypointStopsWhenTheHarnessCannotCallTheGateway(t *testing.T) {
 	f := newFixture(t, "- `true`\n")
+	f.env[EnvHarness] = "omp" // this test is about omp
 	f.env[EnvModel] = "workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast"
 	f.env["TICKS_TEST_HARNESS_PROBE_EXIT"] = "1"
 	f.env["TICKS_TEST_HARNESS_PROBE_ANSWER"] = "error: No API key found for cloudflare-ai-gateway."
@@ -1653,6 +1683,7 @@ func TestEntrypointProbesTheHarnessBeforeTheSlowSteps(t *testing.T) {
 // The probe is bounded: a probe for a hang that itself hangs is the hang.
 func TestEntrypointBoundsTheHarnessProbe(t *testing.T) {
 	f := newFixture(t, "- `true`\n")
+	f.env[EnvHarness] = "omp" // this test is about omp
 	f.env[EnvHarnessProbeTimeout] = "7"
 	out, code := f.run()
 	if code != 0 {
