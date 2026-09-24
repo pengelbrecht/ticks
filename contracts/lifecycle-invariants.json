@@ -243,8 +243,8 @@
       "today": [
         {
           "file": "cloud/factory/src/run-workflow.ts",
-          "symbols": ["observe", "renewRunLease", "LeaseRenewal", "leaseLostTrip", "updateRunState", "finalize"],
-          "note": "the run record (updateRunState / writeRunRecord) is written BY the supervisor and is never read as liveness; `observe` asks the sandbox binding, and the lease is renewed against a Durable Object that outlives the isolate."
+          "symbols": ["observe", "askProcess", "ProcessQuestion", "ObservedProcessState", "renewRunLease", "LeaseRenewal", "leaseLostTrip", "updateRunState", "finalize"],
+          "note": "the run record (updateRunState / writeRunRecord) is written BY the supervisor and is never read as liveness; `observe` asks the sandbox binding, and the lease is renewed against a Durable Object that outlives the isolate. askProcess reports WHICH thing happened (ticfac tick 3ed): the container answered — 'no such process' included, which is `gone` — or the question failed, which is `unknown`, a statement about the observer and never `gone`."
         },
         {
           "file": "cloud/factory/src/sandbox-executor.ts",
@@ -470,8 +470,8 @@
         },
         {
           "file": "cloud/factory/src/run-workflow.ts",
-          "symbols": ["supervisePass", "MAX_SANDBOX_BOOTS"],
-          "note": "the orchestrator container is replaced only after a look saw its process exit or its sandbox gone, and the old one is destroyed before the replacement boots; a watch that runs out of looks drains the live one rather than booting beside it. Bounded at MAX_SANDBOX_BOOTS."
+          "symbols": ["supervisePass", "MAX_SANDBOX_BOOTS", "ObservedProcessState", "PROCESS_QUERY_ATTEMPTS", "MAX_UNANSWERED_LOOKS"],
+          "note": "the orchestrator container is replaced only after a look saw its process exit or its sandbox gone, and the old one is destroyed before the replacement boots; a watch that runs out of looks drains the live one rather than booting beside it. Bounded at MAX_SANDBOX_BOOTS. A look whose question failed (`unknown`, after PROCESS_QUERY_ATTEMPTS asks) HOLDS rather than reboots, and after MAX_UNANSWERED_LOOKS consecutive such looks the pass fails without booting a replacement (ticfac tick 3ed)."
         }
       ],
       "sequences": [
@@ -599,8 +599,8 @@
       "today": [
         {
           "file": "cloud/factory/src/run-workflow.ts",
-          "symbols": ["leaseLostTrip", "LeaseRenewal", "renewRunLease", "isTerminalExit", "terminalExitReason"],
-          "note": "`null` from renewRunLease is 'the renewal could not be made' and is NOT a lost lease; `ok: false` is a verdict carrying WHICH of the two ways the lease went. An orchestrator that exited with a configuration verdict is named by its class and not rebooted, which is a different ending from one that died."
+          "symbols": ["leaseLostTrip", "LeaseRenewal", "renewRunLease", "isTerminalExit", "terminalExitReason", "ProcessQuestion", "ObservedProcessState", "MAX_UNANSWERED_LOOKS"],
+          "note": "`null` from renewRunLease is 'the renewal could not be made' and is NOT a lost lease; `ok: false` is a verdict carrying WHICH of the two ways the lease went. An orchestrator that exited with a configuration verdict is named by its class and not rebooted, which is a different ending from one that died. A container that could not be asked (ProcessQuestion `answered: false`, observed as `unknown`) is a third ending: after MAX_UNANSWERED_LOOKS the run fails as unanswerable, in words neither an exit nor a sandbox death produces (ticfac tick 3ed)."
         },
         {
           "file": "cloud/factory/src/gateway.ts",
@@ -685,8 +685,8 @@
         },
         {
           "file": "cloud/factory/src/run-workflow.ts",
-          "symbols": ["MAX_SANDBOX_BOOTS", "MAX_CLOSEOUT_BOOTS"],
-          "note": "the related-but-different case: these bound orchestrator boots WITHIN one run, which then ends — there is no rolling window that could reopen them, and so no release to get wrong."
+          "symbols": ["MAX_SANDBOX_BOOTS"],
+          "note": "the related-but-different case: this bounds orchestrator boots WITHIN one run, which then ends — there is no rolling window that could reopen it, and so no release to get wrong."
         },
         {
           "file": "internal/reconcile/guards.go",

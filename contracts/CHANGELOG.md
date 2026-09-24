@@ -45,6 +45,44 @@ precisely why it is the one the version exists to make loud.
 
 ---
 
+## 6.2.0
+
+MINOR. No rule, statement, guard, sequence, threshold or vocabulary byte
+changed, and no invariant lost its only living site: four `today`
+cross-references in `lifecycle-invariants.json` are corrected against ticfac's
+epic yoh as it stands after ticks dl8 and 3ed.
+
+- **A11 no longer names `MAX_CLOSEOUT_BOOTS`.** ticfac tick dl8 deleted the
+  closeout pass and both of its constants. The pinned symbol reader only kept
+  passing because a comment in `run-workflow.ts` still spelled the name — a
+  pointer satisfied by prose is a fake pass, so the name comes out here and
+  the comment comes out of ticfac in the same pin bump. A11's run-workflow
+  site keeps `MAX_SANDBOX_BOOTS`; its Go site (`internal/reconcile/guards.go`)
+  and the cloud's strike budget are unchanged.
+- **A2, A6 and A9 name tick 3ed's "unknown question" symbols** in
+  `run-workflow.ts`. 3ed made the Workflow's `observe` keep an ANSWERED "no
+  such process" (`gone`) apart from a question that FAILED (`unknown`):
+  - A2 (liveness from outside) adds `askProcess`, `ProcessQuestion`,
+    `ObservedProcessState` — a failed question is a statement about the
+    observer, never `gone`;
+  - A6 (never redispatch live) adds `ObservedProcessState`,
+    `PROCESS_QUERY_ATTEMPTS`, `MAX_UNANSWERED_LOOKS` — an `unknown` look holds
+    rather than reboots, and a container that stays unaskable fails the pass
+    with no replacement booted;
+  - A9 (distinct failure classes) adds `ProcessQuestion`,
+    `ObservedProcessState`, `MAX_UNANSWERED_LOOKS` — "could not be asked" is
+    its own ending, never the words of an exit or a sandbox death.
+
+MINOR rather than PATCH because a pinning consumer's symbol reader now asks
+for names an older tree does not hold (3ed's), so an unchanged consumer is no
+longer complete; nothing it does is now wrong.
+
+**Who has to follow:** ticfac, whose `cloudflare/src/run-workflow.ts` must
+carry 3ed and must no longer spell `MAX_CLOSEOUT_BOOTS` (the dl8 comment that
+did is reworded in the same commit as the pin bump).
+
+---
+
 ## 6.1.0
 
 MINOR. No rule, statement, guard, sequence, threshold or vocabulary byte
