@@ -1,6 +1,6 @@
 {
   "$comment": "The versioned cross-language contract bundle. Read contracts/README.md for what the fixtures are and contracts/CHANGELOG.md for the rule that governs this file. `version` is pinned by exact value in cloud/factory/contracts.pin.json. Regenerate `files` and `digests` with `make contracts-bundle`; never regenerate them without bumping `version`. `version_digests` is the append-only ledger that makes that rule executable: each version records a sha256 over its own `version` + `digests`, written the first time it is cut and never rewritten, so a re-cut at an unchanged version contradicts it and both verifiers refuse. It begins at 2.1.1, the version that introduced it — 2.1.1 was cut on the epic integration branch and then superseded by 3.0.0 before either reached a release, and its entry stays because the ledger is append-only: it records what was cut, not what shipped.",
-  "version": "6.0.0",
+  "version": "6.1.0",
   "files": [
     "collect-vocabulary.json",
     "credential-ownership.json",
@@ -22,7 +22,7 @@
     "collect-vocabulary.json": "b2094cfbeec03ea2d6df78dab40eb6cbe8b0a9c256b7fe91c10ab679759e705e",
     "credential-ownership.json": "2648e83088dfe42ab626ffed07985205996d9b317a5c0bfe6833bc44cc67a3ba",
     "job-protocol.json": "ce5110a5bf27ce55e2e277f887b3ec7cf334ab6928c19c72bf3e218967677e7a",
-    "lifecycle-invariants.json": "018bb5dcef93da05c23bd094f6d2c8a86cdac33ddc0622cd36ad30c1317b7a1f",
+    "lifecycle-invariants.json": "3bdf856a0abc810dde9e4cd982ca8bd94269d1bf4e73384861b5fe996a6f8f28",
     "message-context.json": "9cceb63c00266692fc1938d60b7c61162d22794c2a64184167635938060581d5",
     "run-event-feed.json": "c97bd6ee166e6f5aaae45fe24aaf6c75f354748a0cd52618c1b073f3afd57296",
     "runners-config-contract.json": "976b17f81f84a54cc3ed503c465bc3bcbd27bfaa001b1c930e4115d7684334c6",
@@ -44,6 +44,7 @@
     "5.0.0": "c6aa5121d7b6dd1fba57ed8bcd8d7350c6a319beb221aa3cae5665a8bb79240f",
     "5.1.0": "a8071bd7bf902faf85aa8b37d68e27acdffa7315f6c669960db1a92e9bd0b929",
     "5.2.0": "be3df815341ee66c8375c9b39fb23f1ecfc9f117c3065ba803aef58ca1b641df",
-    "6.0.0": "3b4c996278eebda266ea00318ad6b60cccf414aff84a6cb9e5e9d55fcd486405"
+    "6.0.0": "3b4c996278eebda266ea00318ad6b60cccf414aff84a6cb9e5e9d55fcd486405",
+    "6.1.0": "ced1ae3193fa7d758f799ffad447ce9327857b2fa77f53375889f7aaa00f7fef"
   }
 }

@@ -334,6 +334,17 @@ file, and that is enough: §9.2 preserves run-workflow.ts's symbols when it is
 decomposed, this preserves the reasons, and a cross-reference nobody verifies
 rots into a list of names that used to exist.
 
+A `today` file path is spelled relative to the repository that holds the
+implementation, which since the factory left this repository is `ticfac`:
+`cloud/factory/...` and `cloud/sandbox/...` keep their pre-move spelling and
+name what `ticfac` ships at `cloudflare/` and `image/` (its reader carries that
+translation), a plain path such as `internal/reconcile/guards.go` names a
+`ticfac` file as it stands, `contracts/...` names this bundle, and
+`extensions/...` is the one prefix that names a file in THIS repository, which
+the `ticfac` reader skips. Since 6.1.0 the invariants the Workflow no longer
+holds name the `ticfac` Go that does — the reconciler and the executors that
+took the orchestration over (ticfac epic yoh).
+
 Appendix A #13's four fingerprint fields are the one thing the file does not
 define: `harness.fingerprint_fields` maps Appendix A's English names onto
 `job-protocol.json`'s `$defs.provenance` and both readers follow the pointer,

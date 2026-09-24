@@ -190,11 +190,19 @@
       "today": [
         {
           "file": "cloud/factory/src/run-workflow.ts",
-          "symbols": ["hardStopTrip", "hardStopRecord", "detectTrip", "tripRevokeReason", "drainAndKill", "runWaveBatch"],
-          "note": "hardStopTrip is read at every observation of every pass, budgets or no — the closeout pass deliberately enforces no budgets, and a hard stop is not a budget, so it is not on that switch. runWaveBatch revokes before any teardown."
+          "symbols": ["hardStopTrip", "hardStopRecord", "detectTrip", "tripRevokeReason", "drainAndKill", "supervisePass"],
+          "note": "hardStopTrip is read at every observation of every pass, budgets or no — the closeout pass deliberately enforces no budgets, and a hard stop is not a budget, so it is not on that switch. supervisePass reads hardStopRecord before every boot is even counted, so a standing hard stop mints no credential, and on a hard trip it revokes the run's tokens before drainAndKill tears the orchestrator down."
         },
-        { "file": "cloud/factory/src/gateway.ts", "symbols": ["issueRunToken", "revokeRunTokens", "revokeRunGatewayTokens"], "note": "the issue site the stop has to reach" },
-        { "file": "contracts/credential-ownership.json", "symbols": ["lifecycle.stop"], "note": "the bundle already pins 'a kill switch is a durable refusal to issue'" }
+        {
+          "file": "cloud/factory/src/gateway.ts",
+          "symbols": ["issueRunToken", "revokeRunTokens", "revokeRunGatewayTokens"],
+          "note": "the issue site the stop has to reach"
+        },
+        {
+          "file": "contracts/credential-ownership.json",
+          "symbols": ["lifecycle.stop"],
+          "note": "the bundle already pins 'a kill switch is a durable refusal to issue'"
+        }
       ],
       "sequences": [
         {
@@ -238,8 +246,26 @@
           "symbols": ["observe", "renewRunLease", "LeaseRenewal", "leaseLostTrip", "updateRunState", "finalize"],
           "note": "the run record (updateRunState / writeRunRecord) is written BY the supervisor and is never read as liveness; `observe` asks the sandbox binding, and the lease is renewed against a Durable Object that outlives the isolate."
         },
-        { "file": "cloud/factory/src/reconcile.ts", "symbols": ["probeLiveness", "NOT_ASKED", "classifyWorker"], "note": "every failure to ask is `known: false` — 'nobody can say' is a different answer from 'nothing is running'" },
-        { "file": "cloud/factory/src/progress.ts", "symbols": ["snapshotRefs", "compareSnapshots"], "note": "whether the epic MOVED is decided against the remote's refs, not against anything the run said" }
+        {
+          "file": "cloud/factory/src/sandbox-executor.ts",
+          "symbols": ["namedAttemptStatus", "findWorkProcess", "statusFromProcess"],
+          "note": "a per-tick worker's liveness is asked of its container BY NAME, from the live process list — never a remembered process id and never anything the worker wrote; an absent work process is `lost`, a statement about the observer and never `failed`"
+        },
+        {
+          "file": "internal/exec/cloudflaresandbox/executor.go",
+          "symbols": ["Inspect", "attemptStatus"],
+          "note": "ticfac's reconciler asks the dispatch door by identity, and a door it cannot reach is an error, never `lost` — 'nobody can say' is a different answer from 'nothing is running'"
+        },
+        {
+          "file": "internal/exec/subprocess/inspect.go",
+          "symbols": ["alive", "liveness_from_outside"],
+          "note": "the local executor asks the operating system (the supervisor's lock), never the runner log the job itself writes; the guard carries the fixture's own name"
+        },
+        {
+          "file": "cloud/factory/src/progress.ts",
+          "symbols": ["snapshotRefs", "compareSnapshots"],
+          "note": "whether the epic MOVED is decided against the remote's refs, not against anything the run said"
+        }
       ],
       "sequences": [
         {
@@ -268,10 +294,29 @@
       "today": [
         {
           "file": "cloud/factory/src/run-workflow.ts",
-          "symbols": ["WAVE_LEG_MS", "MAX_WAVE_LEGS", "runWaveBatch", "superviseWaveLoop", "waveSpawnBudget"],
-          "note": "a batch is a sequence of LEGS, each its own step sized to fit inside the cap; every leg re-establishes the wave from the durable layer rather than from a closure, because a step that was in flight when the isolate died runs again from the top."
+          "symbols": ["supervisePass", "waitDoneSignal", "BOOT_STEP_TIMEOUT_MS", "MAX_POLL_MS"],
+          "note": "since ticfac l6t deleted the wave legs, the Run Workflow holds no long wait inside a step: the watch is a sequence of looks, the wait between two looks is a step.waitForEvent (or a sleep) whose timeout is the poll cadence — waits do not count against the execution cap — and every look re-reads the process, the lease and the budgets rather than carrying the previous look's memory. The one step that starts paid work carries a deliberate BOOT_STEP_TIMEOUT_MS under the cap."
         },
-        { "file": "cloud/factory/src/workflow-limits.ts", "symbols": ["WORKFLOW_STEP_TIMEOUT_MS", "STEP_BUDGET_FRACTION", "STEP_WORK_BUDGET_MS", "stepBudget", "shareStepBudget", "fitsInStep"], "note": "the cap and the clamp; a deployment var that would name a longer leg is clamped, never trusted" }
+        {
+          "file": "cloud/factory/src/workflow-limits.ts",
+          "symbols": ["WORKFLOW_STEP_TIMEOUT_MS", "STEP_BUDGET_FRACTION", "STEP_WORK_BUDGET_MS"],
+          "note": "the cap, stated once, and the work budget harness.thresholds.step_cap_ms is pinned to. Its clamps (stepBudget, shareStepBudget, fitsInStep) have no production caller since the wave legs they sized were deleted, so they are not listed as where the rule is kept."
+        },
+        {
+          "file": "internal/reconcile/guards.go",
+          "symbols": ["OpenStep", "Spend", "ExceededCap", "guardStepCap"],
+          "note": "the long waits moved into ticfac's reconciler, in the orchestrator container: a wait longer than the cap is a sequence of legs, and a spent leg is refused rather than overrun (guard `step_cap`)"
+        },
+        {
+          "file": "internal/reconcile/window.go",
+          "symbols": ["restWindow"],
+          "note": "where a leg ends: the next leg is a fresh step that re-fetches origin and re-reads the checkpoint, never a continuation that remembers the last one"
+        },
+        {
+          "file": "internal/reconcile/reconcile.go",
+          "symbols": ["DefaultStepCap"],
+          "note": "the cap the reconciler's legs are sized against, asserted equal to harness.thresholds.step_cap_ms by TestTheDefaultCadenceIsTheFixtures"
+        }
       ],
       "sequences": [
         {
@@ -313,10 +358,24 @@
       "today": [
         {
           "file": "cloud/factory/src/run-workflow.ts",
-          "symbols": ["MIN_POLL_MS", "MAX_POLL_MS", "POLL_BACKOFF", "pollDelay", "deadlineCap", "spendCap", "BUDGET_POLL_HEADROOM", "renewalTtl", "waveLeaseHeartbeat"],
-          "note": "renewalTtl is the one place the cadence and the lease ttl are related — `pollMs * 3`, clamped — rather than two files each doing the arithmetic."
+          "symbols": ["MIN_POLL_MS", "MAX_POLL_MS", "POLL_BACKOFF", "pollDelay", "deadlineCap", "spendCap", "BUDGET_POLL_HEADROOM", "renewalTtl"],
+          "note": "renewalTtl is the one place the cadence and the lease ttl are related — `pollMs * 3`, clamped — rather than two files each doing the arithmetic. The lease is renewed at every look and right after every boot, never by a separate heartbeat."
         },
-        { "file": "cloud/factory/src/worker-dispatch.ts", "symbols": ["DEFAULT_WAIT_POLL_MS", "probeTimeoutMs"], "note": "the executor's own addressing interval, inside a leg" }
+        {
+          "file": "internal/exec/cloudflaresandbox/record.go",
+          "symbols": ["PollInterval"],
+          "note": "the cloud executor's own addressing interval for a live per-tick container, stated by the executor rather than by its caller"
+        },
+        {
+          "file": "internal/reconcile/guards.go",
+          "symbols": ["Poll", "noteAlive", "guardPollUnderWipe"],
+          "note": "the poll IS the keepalive: a job not addressed within the wipe threshold is learned gone here, not waited on (guard `poll_under_wipe`)"
+        },
+        {
+          "file": "internal/reconcile/reconcile.go",
+          "symbols": ["DefaultPollInterval", "DefaultWipeThreshold"],
+          "note": "the cadence and the threshold pinned in one place, asserted against harness.thresholds by TestTheDefaultCadenceIsTheFixtures; an executor whose own interval is not well under the threshold is refused"
+        }
       ],
       "sequences": [
         {
@@ -395,11 +454,25 @@
       "guards": ["never_redispatch_live"],
       "today": [
         {
-          "file": "cloud/factory/src/reconcile.ts",
-          "symbols": ["reconcileWave", "classifyWorker", "probeLiveness", "NOT_ASKED", "dispatchable", "adoptable", "adoptions", "settled"],
-          "note": "the evidence order — manifests, then git, then the live sandbox list — and the classification that makes 'nobody can say' its own class."
+          "file": "internal/reconcile/dispatch.go",
+          "symbols": ["claimDispatch", "disposition", "adopt", "adoptAttempt", "redispatchAttempt", "holdAttemptWork", "guardNeverRedispatchLive"],
+          "note": "ticfac's reconciler, which since epic yoh makes every dispatch decision: an attempt with a marker on origin is ADOPTED by its identity; a fresh attempt is dispatched only over one that settled, was rejected and left nothing on its branch; one nobody can address is held, never redispatched (guard `never_redispatch_live`)"
         },
-        { "file": "cloud/factory/src/run-workflow.ts", "symbols": ["runWaveBatch", "MAX_WORKER_DISPATCHES", "MAX_SANDBOX_BOOTS"], "note": "a leg that finds a tick's container gone redispatches it; bounded at two — the first attempt and the recovery." }
+        {
+          "file": "internal/exec/cloudflaresandbox/executor.go",
+          "symbols": ["Start", "startAttempt", "RefusedUnknown"],
+          "note": "the cloud executor asks the dispatch door by identity before any boot: a local record plus a live container is an adoption, a local record plus an unaddressable container is a hold"
+        },
+        {
+          "file": "cloud/factory/src/sandbox-executor.ts",
+          "symbols": ["startNamedAttempt", "findWorkProcess", "attemptSandboxName"],
+          "note": "the door's own adoption: a named container already holding a live work process hands back the same handle instead of booting a rival — decided from the live process list, never from git evidence"
+        },
+        {
+          "file": "cloud/factory/src/run-workflow.ts",
+          "symbols": ["supervisePass", "MAX_SANDBOX_BOOTS"],
+          "note": "the orchestrator container is replaced only after a look saw its process exit or its sandbox gone, and the old one is destroyed before the replacement boots; a watch that runs out of looks drains the live one rather than booting beside it. Bounded at MAX_SANDBOX_BOOTS."
+        }
       ],
       "sequences": [
         {
@@ -430,11 +503,29 @@
       "today": [
         {
           "file": "cloud/factory/src/run-workflow.ts",
-          "symbols": ["readWaveRequest", "writeRunRecord", "recordRunProgress", "manifestRecorder", "finalize"],
-          "note": "the Workflow reads back exactly the request stamped with the pass number it asked for (src/sandbox.ts, `pass`), rather than trusting the write it just made."
+          "symbols": ["assessProgress", "applyProgress", "finalize"],
+          "note": "since ticfac l6t the Workflow writes no request a later step acts on; what it keeps of this rule is the second half — a run is concluded finished from origin's refs re-read at the end, never from the orchestrator's exit or its done signal."
         },
-        { "file": "cloud/factory/src/artifacts.ts", "symbols": ["readWaveRequest", "writeWaveOutcomes", "writeReconcileRecord"], "note": "the write sites the read-back covers" },
-        { "file": "contracts/ticfac-run-state.json", "symbols": ["cas.modes", "cas.sequences"], "note": "the compare-and-swap that makes a refused write observable rather than silent — the other half of this invariant" }
+        {
+          "file": "internal/runstate/store.go",
+          "symbols": ["CreateIfAbsent", "UpdateIfSHA", "peek", "ConflictStaleSHA"],
+          "note": "every record ticfac's reconciler acts on lives on origin under compare-and-swap; a refused push is re-examined against origin, never assumed to have landed, and the writer's view moves only on a push that succeeded"
+        },
+        {
+          "file": "internal/exec/cloudflaresandbox/store.go",
+          "symbols": ["writeAttempt", "readAttempt"],
+          "note": "the cloud executor returns no handle until the attempt record it wrote reads back as the attempt it named"
+        },
+        {
+          "file": "internal/exec/subprocess/executor.go",
+          "symbols": ["writeAttempt", "writePID", "read_back_after_write"],
+          "note": "the local executor's attempt record and supervisor pid are read back before anything acts on them (guard `read_back_after_write`)"
+        },
+        {
+          "file": "contracts/ticfac-run-state.json",
+          "symbols": ["cas.modes", "cas.sequences"],
+          "note": "the compare-and-swap that makes a refused write observable rather than silent — the other half of this invariant"
+        }
       ],
       "sequences": [
         {
@@ -466,8 +557,21 @@
           "symbols": ["finalize", "updateRunState", "superviseRun"],
           "note": "finalize ALWAYS runs — whatever happened, the lease is released and the index row reaches a terminal state; a run that ends without releasing its lease wedges the project until the lease ttl expires."
         },
-        { "file": "cloud/factory/src/reconcile.ts", "symbols": ["classifyWorker", "settled", "settledOutcome"], "note": "the replacement supervisor settles from manifests, git and the live process list — never from what the dead one intended" },
-        { "file": "cloud/factory/src/run-room.ts", "symbols": ["renewDispatchLease", "releaseDispatchLease", "alarm"], "note": "an abandoned lease expires on a DO alarm rather than waiting for its holder to come back and release it" }
+        {
+          "file": "internal/reconcile/dispatch.go",
+          "symbols": ["settleBeforeDispatch", "adopt", "guardSettleFromEvidence"],
+          "note": "a restarted reconciler on a fresh clone reads `.ticfac/` from origin and settles each in-flight attempt from the tracker, the branch and the executor's answer — never from what the dead one intended; one nobody can address is held for a person (guard `settle_from_evidence`)"
+        },
+        {
+          "file": "internal/reconcile/settle.go",
+          "symbols": ["Settle", "settlements", "recordSettlement"],
+          "note": "a person's settlement of a held attempt, recorded durably as a decision the next reconciler reads"
+        },
+        {
+          "file": "cloud/factory/src/run-room.ts",
+          "symbols": ["renewDispatchLease", "releaseDispatchLease", "alarm"],
+          "note": "an abandoned lease expires on a DO alarm rather than waiting for its holder to come back and release it"
+        }
       ],
       "sequences": [
         {
@@ -495,11 +599,24 @@
       "today": [
         {
           "file": "cloud/factory/src/run-workflow.ts",
-          "symbols": ["leaseLostTrip", "LeaseRenewal", "renewRunLease", "cloudWaveLoss", "describeCloudWaveLoss", "tripFromCancellation"],
-          "note": "`null` from renewRunLease is 'the renewal could not be made' and is NOT a lost lease; `ok: false` is a verdict carrying WHICH of the two ways the lease went."
+          "symbols": ["leaseLostTrip", "LeaseRenewal", "renewRunLease", "isTerminalExit", "terminalExitReason"],
+          "note": "`null` from renewRunLease is 'the renewal could not be made' and is NOT a lost lease; `ok: false` is a verdict carrying WHICH of the two ways the lease went. An orchestrator that exited with a configuration verdict is named by its class and not rebooted, which is a different ending from one that died."
         },
-        { "file": "cloud/factory/src/gateway.ts", "symbols": ["spendFailureRemedy", "modelRoutingComplaint"], "note": "an expired token, a revoked one and a run that is over are three answers; collapsing them would hide the kill switch" },
-        { "file": "cloud/factory/src/worker-collect.ts", "symbols": ["workerCollector"], "note": "an absent report and landed work are different verdicts (contracts/collect-vocabulary.json)" }
+        {
+          "file": "cloud/factory/src/gateway.ts",
+          "symbols": ["spendFailureRemedy", "modelRoutingComplaint"],
+          "note": "an expired token, a revoked one and a run that is over are three answers; collapsing them would hide the kill switch"
+        },
+        {
+          "file": "cloud/factory/src/worker-collect.ts",
+          "symbols": ["workerCollector"],
+          "note": "an absent report and landed work are different verdicts (contracts/collect-vocabulary.json)"
+        },
+        {
+          "file": "internal/reconcile/reconcile.go",
+          "symbols": ["refuse", "collapsedMessage", "RefusedUnaddressed", "guardDistinctFailureClasses"],
+          "note": "every refusal ticfac's reconciler writes carries its own reason and message — a failing gate, a crossed boundary and an attempt nobody can address never share one (guard `distinct_failure_classes`)"
+        }
       ],
       "sequences": [
         {
@@ -561,8 +678,21 @@
           "symbols": ["strikeBudget", "escalationFor", "clearEscalation", "escalate", "STRIKE_BUDGET", "STRIKE_WINDOW_MS"],
           "note": "ONE function answers 'may this branch buy a remediation run?', and it reads the escalation FIRST: an open escalation refuses, full stop — no window, no arithmetic, because 'time passes' is the answer that caused the bug."
         },
-        { "file": "cloud/factory/src/ci-escalations.ts", "symbols": ["ciEscalationsRoute", "CI_ESCALATIONS_CLEAR_PATH"], "note": "the person's release door" },
-        { "file": "cloud/factory/src/run-workflow.ts", "symbols": ["MAX_SANDBOX_BOOTS", "MAX_WORKER_DISPATCHES"], "note": "the related-but-different case: these bound attempts WITHIN one run, which then ends — there is no rolling window that could reopen them, and so no release to get wrong." }
+        {
+          "file": "cloud/factory/src/ci-escalations.ts",
+          "symbols": ["ciEscalationsRoute", "CI_ESCALATIONS_CLEAR_PATH"],
+          "note": "the person's release door"
+        },
+        {
+          "file": "cloud/factory/src/run-workflow.ts",
+          "symbols": ["MAX_SANDBOX_BOOTS", "MAX_CLOSEOUT_BOOTS"],
+          "note": "the related-but-different case: these bound orchestrator boots WITHIN one run, which then ends — there is no rolling window that could reopen them, and so no release to get wrong."
+        },
+        {
+          "file": "internal/reconcile/guards.go",
+          "symbols": ["MayDispatch", "StrikeOut", "PersonRelease", "ClockRelease", "guardReleaseByPerson"],
+          "note": "ticfac's per-tick hold: MayDispatch is read before every dispatch and only PersonRelease lifts a hold (guard `release_by_person`). Its table has no production writer yet — decided and written down in guards.go and doc.go as later wiring — so the cloud's ci-remediation strike budget above remains this rule's live enforcement."
+        }
       ],
       "sequences": [
         {

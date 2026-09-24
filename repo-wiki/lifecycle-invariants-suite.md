@@ -43,21 +43,21 @@ rots into a list of names that used to exist.
 
 | # | Invariant | Where it lives today |
 |---|---|---|
-| A1 | A stop is a durable refusal to *issue* credentials; revoke before teardown | `run-workflow.ts` `hardStopTrip`/`hardStopRecord`/`drainAndKill`, `gateway.ts` `issueRunToken` |
-| A2 | A supervisor cannot report its own death | `run-workflow.ts` `observe`/`renewRunLease`, `reconcile.ts` `probeLiveness`/`NOT_ASKED` |
-| A3 | No step outlives the host's cap | `run-workflow.ts` `WAVE_LEG_MS`/`runWaveBatch`, `workflow-limits.ts` `STEP_WORK_BUDGET_MS` |
-| A4 | Polling is the keepalive | `run-workflow.ts` `MIN_POLL_MS`/`MAX_POLL_MS`/`pollDelay`/`renewalTtl` |
+| A1 | A stop is a durable refusal to *issue* credentials; revoke before teardown | `run-workflow.ts` `hardStopTrip`/`hardStopRecord`/`supervisePass`/`drainAndKill`, `gateway.ts` `issueRunToken` |
+| A2 | A supervisor cannot report its own death | `run-workflow.ts` `observe`/`renewRunLease`, `sandbox-executor.ts` `namedAttemptStatus`, ticfac `internal/exec/cloudflaresandbox` `Inspect` |
+| A3 | No step outlives the host's cap | `run-workflow.ts` `supervisePass`/`waitDoneSignal`, ticfac `internal/reconcile` `OpenStep`/`restWindow` |
+| A4 | Polling is the keepalive | `run-workflow.ts` `MIN_POLL_MS`/`MAX_POLL_MS`/`pollDelay`/`renewalTtl`, ticfac `internal/reconcile` `Poll` |
 | A5 | In-progress work is pushed on a timer | `cloud/sandbox/entrypoint.sh` `start_keeper`, `progress.ts`, `run-workflow.ts` `assessProgress` |
-| A6 | A live job is never redispatched | `reconcile.ts` `classifyWorker`/`adoptions`, `run-workflow.ts` `MAX_WORKER_DISPATCHES` |
-| A7 | Read back after write | `run-workflow.ts` `readWaveRequest`, `artifacts.ts`, `sandbox.ts`'s `pass` stamp |
-| A8 | An in-flight state is settled by whoever finds it next | `run-workflow.ts` `finalize`, `reconcile.ts` `settled`, `run-room.ts` alarm expiry |
-| A9 | Never collapse distinct failure classes | `run-workflow.ts` `leaseLostTrip`/`LeaseRenewal`/`cloudWaveLoss`, `gateway.ts` `spendFailureRemedy` |
+| A6 | A live job is never redispatched | ticfac `internal/reconcile` `adopt`/`disposition`, `sandbox-executor.ts` `startNamedAttempt`, `run-workflow.ts` `MAX_SANDBOX_BOOTS` |
+| A7 | Read back after write | ticfac `internal/runstate` CAS, the executors' `writeAttempt` read-back, `run-workflow.ts` `assessProgress` |
+| A8 | An in-flight state is settled by whoever finds it next | `run-workflow.ts` `finalize`, ticfac `internal/reconcile` `settleBeforeDispatch`/`Settle`, `run-room.ts` alarm expiry |
+| A9 | Never collapse distinct failure classes | `run-workflow.ts` `leaseLostTrip`/`LeaseRenewal`/`terminalExitReason`, `gateway.ts` `spendFailureRemedy`, ticfac `internal/reconcile` `refuse` |
 | A10 | Boundaries are enforced by the substrate | `extensions/ticks-runner/boundary.ts`, `credentials.ts` grades |
 | A11 | A struck-out unit is released by a person | `ci-remediation.ts` `strikeBudget`/`clearEscalation` |
 | A12 | Effective budgets are reported after clamping | `run-workflow.ts` `boundedBudget`/`effectiveRunBudget` |
 | A13 | Evidence is fingerprinted to what it evaluated | `contracts/job-protocol.json` `$defs.provenance`, `pr-review.ts` `reviewEvidence` |
 
-All thirteen name a `run-workflow.ts` symbol — the table above shows each
+Since bundle `6.1.0` (ticfac l6t deleted the Workflow's wave path) a site may name ticfac's Go, spelled as a plain ticfac path; `contracts/README.md` says how each prefix resolves. All thirteen still name a `run-workflow.ts` symbol — the table above shows each
 invariant's most characteristic site, and several name a second file as well
 (A5 the sandbox entrypoint, A10 the runner boundary, A11 `ci-remediation.ts`).
 That is the point of §12 step 7's sentence about why that file is 3,500 lines.

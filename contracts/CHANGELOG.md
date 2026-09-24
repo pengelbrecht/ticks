@@ -45,6 +45,47 @@ precisely why it is the one the version exists to make loud.
 
 ---
 
+## 6.1.0
+
+MINOR. No rule, statement, guard, sequence, threshold or vocabulary byte
+changed: `lifecycle-invariants.json`'s `today` cross-references for nine of the
+thirteen invariants (A1–A4, A6–A9, A11) are re-pointed at where each rule is
+enforced now. Found from ticfac 2026-09-24: ticfac tick l6t (epic yoh) deleted
+the Run Workflow's per-tick wave path — `runWaveBatch`, `superviseWaveLoop`,
+the wave legs, `readWaveRequest` / `writeWaveOutcomes`, the wave-loss
+accounting and the whole of `reconcile.ts` — because orchestration moved into
+ticfac's own Go reconciler running in the orchestrator container. The pinned
+reader that greps the named symbols then failed on every one of them.
+
+The rules did not move out of existence, they moved house:
+
+- where the Workflow still holds a rule, the site names the symbols that hold
+  it now (`supervisePass`, `waitDoneSignal`, `BOOT_STEP_TIMEOUT_MS`,
+  `assessProgress`, `terminalExitReason`, `MAX_CLOSEOUT_BOOTS`, and the
+  per-tick door's `startNamedAttempt` / `namedAttemptStatus` in
+  `sandbox-executor.ts`);
+- where ticfac's Go now holds it, the site names that Go — the reconciler
+  (`internal/reconcile`: adoption by identity, settlement from evidence, the
+  step legs, the poll keepalive, distinct refusals, the person-released hold),
+  the run-state store's compare-and-swap (`internal/runstate`), and the two
+  executors' read-back and liveness (`internal/exec/cloudflaresandbox`,
+  `internal/exec/subprocess`).
+
+That second kind is the additive part, and the reason this is MINOR rather
+than PATCH: a `today` site may now name a plain `ticfac` path, and
+`contracts/README.md` says how a reader resolves each prefix. Every invariant
+still names at least one living site; none lost its only implementation.
+Two sites were narrowed rather than re-pointed, because pointing at code that
+no longer enforces anything is the failure the cross-reference exists to
+prevent: `workflow-limits.ts` keeps only the cap constants (its clamps have no
+production caller since the legs went), and A7 no longer names `artifacts.ts`
+(nothing reads back what is written there now).
+
+**Who has to follow:** a pinning consumer whose tree holds the named symbols
+has nothing to change beyond the version; its symbol reader goes green again.
+
+---
+
 ## 6.0.0
 
 MAJOR. A rule changed: `tk-json-manifest.json`'s `merge-file` said a
