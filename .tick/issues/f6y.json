@@ -1,0 +1,13 @@
+{
+  "id": "f6y",
+  "title": "Retire the run/reconcile/wave/closeout prompts and phase table from the sandbox entrypoint",
+  "description": "From ticfac yoh finding 93b6bea0 (dl8, 2026-09-24). ticfac no longer boots a container whose harness orchestrates (yoh's dl8 deleted that path; ticfac runs run-epic in the container, and the Workflow only supervises). cloud/sandbox/entrypoint.sh still carries the run/reconcile/wave/closeout prompts and the phase table only that path reached. Remove them (keeping the PR-review job and the worker path), then ticfac re-pins the sandbox.",
+  "status": "open",
+  "priority": 3,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "entrypoint.sh carries no orchestrating-phase prompts or phase table; the PR-review boot and the worker boot are unchanged and their internal/sandbox tests pass; README updated",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-24T11:37:29.48027Z",
+  "updated_at": "2026-09-24T11:37:29.48027Z"
+}
