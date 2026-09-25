@@ -2,12 +2,14 @@
   "id": "nue",
   "title": "worker.sh consumes TICKS_ROLE_PROMPT so a cloud worker runs on the profile's prompt",
   "description": "From ticfac yoh finding 55f3f8d2 (9iz, high). ticfac's dispatch door now carries the rendered role prompt to the worker container as TICKS_ROLE_PROMPT (yoh tick 9iz), but cloud/sandbox/worker.sh builds its own prompt and ignores it, so a cloud worker never runs on the profile's prompt. worker.sh should use TICKS_ROLE_PROMPT when set (falling back to today's prompt when absent, for older factories), with a test in internal/sandbox.",
-  "status": "open",
+  "status": "closed",
   "priority": 1,
   "type": "task",
   "owner": "noreply@anthropic.com",
   "acceptance_criteria": "worker.sh runs the harness on TICKS_ROLE_PROMPT when it is set and on today's prompt when it is not; internal/sandbox tests cover both; README documents the variable",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-24T16:48:42.388957Z",
-  "updated_at": "2026-09-24T16:48:42.388957Z"
+  "updated_at": "2026-09-25T08:50:44.263699Z",
+  "closed_at": "2026-09-25T08:50:44.263699Z",
+  "closed_reason": "#96; ticfac pinned in #54"
 }
