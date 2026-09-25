@@ -142,6 +142,7 @@ plans no waves and dispatches nobody), plus:
 | Variable | Required | Meaning |
 |---|---|---|
 | `TICKS_TICK` | yes | The one tick this container implements. A worker with no tick refuses to boot (exit 2) rather than run something else's prompt. |
+| `TICKS_ROLE_PROMPT` | no | The rendered role prompt the dispatch resolved for this attempt — the prompt **text** itself (not a path), at most 64 KiB of printable ASCII plus tab/LF/CR, set by a factory's sandbox dispatch door (ticfac `worker-boot.ts`, yoh tick 9iz). When set (and not blank) the harness runs on it **verbatim** and `tk sandbox worker-prompt` is not called, so the worker runs on exactly the prompt the run's records digest into `prompt_digest`. When absent — an older factory, or the image driven by hand — the worker renders its prompt from the checkout as before (tick nue). |
 | `TICKS_WORKER_SETUP` | no | `always` (default) or `skip` — whether this worker runs the repository's `[sandbox]` setup. See below. |
 | `TICKS_WORKER_TIMEOUT` | no | Seconds the harness may run before the container stops waiting and pushes what it has; `0` (default) leaves it unbounded. Derived per run from its wall-clock allowance — see below. |
 | `TICKS_WORKER_STATE_DIR` | no | Where the container keeps the harness pid and any lodged cancellation, so `--cancel` (a second process) can find them. Defaults to `/tmp/ticks-worker`; overridden only by the repository's tests. |

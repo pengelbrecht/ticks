@@ -454,6 +454,71 @@ func TestWorkerRunsPiOnTheTicksOwnPrompt(t *testing.T) {
 	}
 }
 
+// A factory that rendered the role prompt its profile chose carries it in
+// TICKS_ROLE_PROMPT (tick nue; ticfac yoh tick 9iz), and the worker runs on
+// THAT text — not on a second prompt it renders from the checkout, which the
+// run's recorded prompt_digest would not describe. Multi-line, because a
+// rendered prompt is markdown and the whole of it must reach the harness.
+func TestWorkerRunsTheHarnessOnTheDispatchedRolePrompt(t *testing.T) {
+	for _, harness := range []string{"omp", "pi"} {
+		t.Run(harness, func(t *testing.T) {
+			f := newWorkerFixture(t)
+			f.env[EnvHarness] = harness
+			f.env[EnvRolePrompt] = "# Implement tick tap\n\nFACTORY-ROLE-PROMPT-LINE-ONE\n\tFACTORY-ROLE-PROMPT-LINE-TWO\n"
+			// Were the checkout asked, this is what it would answer; the
+			// harness must never see it.
+			f.env["TICKS_TEST_PROMPT"] = "CHECKOUT-RENDERED-PROMPT"
+			out, code := f.run()
+			if code != 0 {
+				t.Fatalf("exit %d:\n%s", code, out)
+			}
+			rec := f.harnessRecord()
+			mustContain(t, rec, "FACTORY-ROLE-PROMPT-LINE-ONE", "the role prompt's first line")
+			mustContain(t, rec, "\tFACTORY-ROLE-PROMPT-LINE-TWO", "the role prompt's second line, indentation intact")
+			if strings.Contains(rec, "CHECKOUT-RENDERED-PROMPT") {
+				t.Errorf("the harness was given the checkout's prompt although the dispatch carried one:\n%s", rec)
+			}
+			if strings.Contains(f.tkCalls(), "sandbox worker-prompt") {
+				t.Errorf("the worker rendered a prompt from the checkout although the dispatch carried one:\n%s", f.tkCalls())
+			}
+			mustContain(t, out, EnvRolePrompt, "the log line saying which prompt the worker runs on")
+			if _, ok := f.remoteFile(WorkerBranch(f.epic, f.tick), WorkerResultFile(f.tick)); !ok {
+				t.Error("a worker on the dispatched prompt did not push its report")
+			}
+		})
+	}
+}
+
+// An older factory sends no TICKS_ROLE_PROMPT, and a blank one is no prompt
+// at all: either way the worker falls back to today's prompt, rendered from
+// the checkout — never a harness started on an empty job.
+func TestWorkerFallsBackToTheCheckoutPromptWithoutARolePrompt(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		set   bool
+		value string
+	}{
+		{name: "absent"},
+		{name: "empty", set: true, value: ""},
+		{name: "blank", set: true, value: " \n\t\n"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			f := newWorkerFixture(t)
+			delete(f.env, EnvRolePrompt)
+			if tc.set {
+				f.env[EnvRolePrompt] = tc.value
+			}
+			f.env["TICKS_TEST_PROMPT"] = "CHECKOUT-RENDERED-PROMPT"
+			out, code := f.run()
+			if code != 0 {
+				t.Fatalf("exit %d:\n%s", code, out)
+			}
+			mustContain(t, f.tkCalls(), "sandbox worker-prompt", "the fallback's prompt delegation")
+			mustContain(t, f.harnessRecord(), "CHECKOUT-RENDERED-PROMPT", "the checkout's prompt")
+		})
+	}
+}
+
 func TestWorkerRefusesAPromptItCouldNotBuild(t *testing.T) {
 	f := newWorkerFixture(t)
 	f.env["TICKS_TEST_PROMPT_EXIT"] = "1"

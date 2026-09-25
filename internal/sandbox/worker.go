@@ -93,6 +93,16 @@ const (
 	// stream, because a container that crashes before it prints anything is
 	// exactly the one being read.
 	EnvTraceID = "TICKS_TRACE_ID"
+	// EnvRolePrompt is the rendered role prompt a dispatch carries into the
+	// container (tick nue; ticfac yoh tick 9iz): the profile's own prompt
+	// TEXT, at most 64 KiB of printable ASCII plus tab, LF and CR, the same
+	// text the run's records digest into `prompt_digest`.
+	//
+	// When it is set the worker runs its harness on it verbatim; when it is
+	// absent (a factory that predates it, or the image driven by hand) the
+	// worker renders its prompt from the checkout with `tk sandbox
+	// worker-prompt`, as it always has.
+	EnvRolePrompt = "TICKS_ROLE_PROMPT"
 )
 
 // Values of [EnvWorkerSetup].

@@ -128,6 +128,15 @@ readonly EXIT_AGENT=11
 # derived, because a worker sandbox with no tick has nothing to do and must say
 # so at boot instead of running an orchestrator prompt by accident.
 tick_id="${TICKS_TICK:-}"
+# The rendered role prompt the dispatch resolved for this attempt (tick nue;
+# ticfac yoh tick 9iz). A factory's sandbox dispatch door carries the
+# profile's own prompt TEXT — not a path, not a reference — in this variable,
+# bounded at 64 KiB of printable ASCII plus tab/LF/CR, and the run's records
+# digest exactly that text into `prompt_digest`. When it is set the harness
+# runs on it verbatim; when it is absent (an older factory, or the image
+# driven by hand) the worker renders today's prompt from the checkout. See
+# build_worker_prompt.
+role_prompt="${TICKS_ROLE_PROMPT:-}"
 # How long the harness may run before this script stops waiting for it and
 # pushes what there is, in seconds; 0 leaves it unbounded. It exists because
 # the dispatcher's own wait timeout ends in `teardownWorker` KILLING the
@@ -499,9 +508,25 @@ sweep_boundary_state() {
 # refused would have printed its refusal and then started the harness on an
 # empty prompt anyway. Same trap as the `local x=$(...)` one common.sh warns
 # about in resolve_model, one level further out.
+#
+# THE FACTORY'S PROMPT WINS WHEN IT SENT ONE (tick nue). A dispatch that
+# carries TICKS_ROLE_PROMPT has already rendered the prompt its profile chose
+# and recorded its digest; rendering a second one here would run the worker on
+# a prompt the run's records do not describe. So the checkout's template is the
+# FALLBACK — for a factory that predates the variable — not a second opinion.
+# A value that is only whitespace is treated as absent rather than handed to a
+# harness as an empty job.
 prompt_text=""
 build_worker_prompt() {
 	local status
+	if [[ -n ${role_prompt//[[:space:]]/} ]]; then
+		prompt_text="$role_prompt"
+		say "running on the dispatch's role prompt (TICKS_ROLE_PROMPT, ${#role_prompt} characters)"
+		return 0
+	fi
+	if [[ -n $role_prompt ]]; then
+		warn "TICKS_ROLE_PROMPT is set but blank; rendering the worker prompt from the checkout instead"
+	fi
 	prompt_text="$(tk sandbox worker-prompt --root "$workdir" --tick "$tick_id" --branch "$worker_branch" --base "$base_sha")"
 	status=$?
 	if ((status != 0)); then
