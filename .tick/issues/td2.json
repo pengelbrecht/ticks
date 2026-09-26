@@ -1,0 +1,17 @@
+{
+  "id": "td2",
+  "title": "Skill: acceptance names the command the gate actually runs, with its flags",
+  "description": "The skill's examples ('Can be verified by running tests', --acceptance \"Tests pass\" / \"All validation tests pass\") invite acceptance the gate cannot confirm. Observed in ticfac runs: per-tick gates went green while 7 of 10 relevant tests SKIPPED under -short, and a TS gate ran no vitest at all, so five behaviour ticks merged with their tests unrun by the gate.\n\nChange: in the tick-writing guidance and tick-patterns.md, say acceptance names the exact command from [testing.commands] (or the repo's wrapper, e.g. its Makefile target) and the flags the gate runs it with; a test the gate does not run is not evidence — add it to the gate or name the gap in the acceptance. Replace the vague examples.",
+  "status": "open",
+  "priority": 1,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "labels": [
+    "skill",
+    "from-ticfac"
+  ],
+  "acceptance_criteria": "No skill example uses 'tests pass' as a whole acceptance; the rule 'evidence runs under the gate's own flags, or the gap is named' appears in SKILL.md tick-writing guidance and tick-patterns.md with a good/bad example pair",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-09-26T12:51:42.351999382Z",
+  "updated_at": "2026-09-26T12:51:42.351999382Z"
+}

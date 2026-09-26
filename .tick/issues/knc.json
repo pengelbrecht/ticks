@@ -1,0 +1,17 @@
+{
+  "id": "knc",
+  "title": "Skill: epic definition of done as [A\u003cn\u003e] items, not one prose sentence",
+  "description": "SKILL.md 'Epic definition of done' gives a single prose --acceptance as its example. [A\u003cn\u003e]-marked items are documented only for PROJECTS (goal-design.md). But acceptance is consumed item by item: [evidence.acceptance] maps A\u003cn\u003e ids to commands, and ticfac (a consumer runner) addresses epic acceptance by item id — its runconfig refuses an id that is not A\u003cn\u003e 'as written in the tick's acceptance criteria', and its defect-absorption rule (ticfac gvc/pzp) names WHICH item a finding makes unreachable, and refuses to absorb when the epic states no done. A prose done cannot be addressed that way.\n\nChange: make [A\u003cn\u003e]-marked lines the default shape for an epic's --acceptance, with an example; say each item is either RUNNABLE (names the command that proves it) or not-yet-runnable (checked by prediction/judgement, and says so); keep the existing A\u003cn\u003e uniqueness rule across epic and project.",
+  "status": "open",
+  "priority": 1,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "labels": [
+    "skill",
+    "from-ticfac"
+  ],
+  "acceptance_criteria": "SKILL.md's epic DoD section and its example use [A\u003cn\u003e] items; the runnable vs not-yet-runnable distinction is stated; tk-commands/goal-design references agree with it; no example in the skill shows an epic DoD as a single prose sentence",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-09-26T12:51:42.262661519Z",
+  "updated_at": "2026-09-26T12:51:42.262661519Z"
+}
