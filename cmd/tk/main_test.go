@@ -2600,14 +2600,85 @@ func TestLegacyDispatchCoversAllCobraCommands(t *testing.T) {
 	}
 }
 
-func TestMainHelpListsTell(t *testing.T) {
+// TestRemovedExecutionVerbsAreUnknown pins ticks as a tracker only (epic
+// chz): the execution verbs moved to ticfac, and asking this tk for one must
+// fail as an unknown command (exit 2) rather than half-run a stale path.
+func TestRemovedExecutionVerbsAreUnknown(t *testing.T) {
+	for _, argv := range [][]string{
+		{"cloud"},
+		{"cloud", "run", "abc"},
+		{"sandbox"},
+		{"herd"},
+		{"herd", "spawn", "abc"},
+		{"factory"},
+		{"channel"},
+		{"tell", "hello"},
+		{"merge"},
+		{"config", "migrate"},
+	} {
+		argv := argv
+		t.Run(strings.Join(argv, " "), func(t *testing.T) {
+			if cobracmd.IsCommand(argv[0]) {
+				t.Fatalf("%q is still a registered command", argv[0])
+			}
+			_, code := captureStdout(func() int {
+				return run(append([]string{"tk"}, argv...))
+			})
+			if code != exitUsage {
+				t.Fatalf("tk %s: exit %s, want %d (unknown command)", strings.Join(argv, " "), exitInfo(code), exitUsage)
+			}
+			if !strings.Contains(lastStderr, "unknown command: "+argv[0]) {
+				t.Fatalf("tk %s: stderr does not say unknown command:\n%s", strings.Join(argv, " "), lastStderr)
+			}
+		})
+	}
+}
+
+// TestMainHelpListsNoExecutionVerb pins that the top-level usage advertises
+// only what is registered: none of the verbs ticfac took over.
+func TestMainHelpListsNoExecutionVerb(t *testing.T) {
 	out, code := captureStdout(func() int {
 		return run([]string{"tk", "--help"})
 	})
 	if code != exitSuccess {
 		t.Fatalf("tk --help: exit %d", code)
 	}
-	if !strings.Contains(out, "tell") {
-		t.Fatalf("tk --help does not list tell:\n%s", out)
+	for _, verb := range []string{"tk cloud", "tk herd", "tk sandbox", "tk factory", "tk channel", "tk tell", "tk merge ", "config migrate"} {
+		if strings.Contains(out, verb) {
+			t.Errorf("tk --help still mentions %q:\n%s", verb, out)
+		}
+	}
+	line := ""
+	for _, l := range strings.Split(out, "\n") {
+		if strings.HasPrefix(l, "Commands: ") {
+			line = strings.TrimPrefix(l, "Commands: ")
+		}
+	}
+	listed := map[string]bool{}
+	for _, entry := range strings.Split(line, ", ") {
+		listed[strings.Fields(entry)[0]] = true
+	}
+	for _, verb := range []string{"cloud", "herd", "sandbox", "factory", "channel", "tell", "merge", "config"} {
+		if listed[verb] {
+			t.Errorf("Commands line lists removed verb %q: %s", verb, line)
+		}
+	}
+	for _, name := range cobracmd.CommandNames() {
+		if !listed[name] {
+			t.Errorf("Commands line omits registered command %q: %s", name, line)
+		}
+	}
+}
+
+// `tk help` is the usage, like `tk --help`, not an unknown command.
+func TestMainHelpWordPrintsUsage(t *testing.T) {
+	out, code := captureStdout(func() int {
+		return run([]string{"tk", "help"})
+	})
+	if code != exitSuccess {
+		t.Fatalf("tk help: exit %d", code)
+	}
+	if !strings.Contains(out, "Commands: ") {
+		t.Errorf("tk help did not print the usage:\n%s", out)
 	}
 }

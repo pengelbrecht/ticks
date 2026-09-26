@@ -102,7 +102,7 @@ func runReject(cmd *cobra.Command, args []string) error {
 	}
 
 	// Add feedback note FIRST (before processing verdict) to prevent race condition
-	// where tk run picks up task before feedback is saved
+	// where a runner picks the task up again before the feedback is saved
 	timestamp := time.Now().Format("2006-01-02 15:04")
 	line := fmt.Sprintf("%s - [human] %s", timestamp, feedback)
 	if strings.TrimSpace(t.Notes) == "" {

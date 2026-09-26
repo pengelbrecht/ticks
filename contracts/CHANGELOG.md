@@ -1,20 +1,22 @@
 # Contract bundle changelog
 
 The bundle in this directory is versioned so a consumer outside this repository
-can pin it by exact value: `cloud/factory/contracts.pin.json` does today, and
-`ticfac` will from its own repository
-(`docs/projects/2026-09-01-ticfac-architecture/SPEC.md` §3.2). This file is the
-other half of that pin — the version says *which bytes*, the entry below says
-*what changed and who has to follow*.
+can pin it by exact value: ticfac does, in its `contracts.pin.json`. This file is
+the other half of that pin — the version says *which bytes*, the entry below
+says *what changed and who has to follow*.
+
+Since 7.0.0 the bundle carries only ticks' own formats: the `tk --json` command
+contract and the tracker's on-disk layout. Contracts that describe ticfac's
+formats are authored in ticfac.
 
 ## The rule
 
 **Every change to a file in `contracts/` bumps `version` in `bundle.json` and
 adds an entry here, in the same commit.** Both halves are enforced:
-`internal/contracts` (Go) and `cloud/factory/scripts/contracts.mjs`
-(TypeScript) each re-hash the fixtures and refuse a manifest that does not
-match, each refuses a version with no entry here, and each refuses a manifest
-re-cut at a version `version_digests` already records (see below).
+`make contracts-bundle-check` (`scripts/contracts-bundle.mjs`) here, and the
+pinned consumer's own verifier on its side, each re-hash the files and refuse a
+manifest that does not match, refuse a version with no entry here, and refuse a
+manifest re-cut at a version `version_digests` already records (see below).
 
 Versioning is semver over *consumer obligation*, not over file size:
 
@@ -28,22 +30,71 @@ Do **not** re-cut the digests without bumping the version — and since `2.1.1`
 you cannot. `bundle.json`'s `version_digests` records a sha256 over each
 version's own `version` + `digests` the first time that version is cut, and
 never rewrites it, so a re-cut at an unchanged version is refused by
-`make contracts-bundle`, by `contracts.Verify` (Go) and by `verifyBundle`
-(TypeScript). That was the one change a pinned consumer could not see, which is
-precisely why it is the one the version exists to make loud.
+`make contracts-bundle` and by the consumer's verifier. That was the one change
+a pinned consumer could not see, which is precisely why it is the one the
+version exists to make loud.
 
 ## How to cut a bump
 
-1. Edit the fixture, and every implementation of the rule, in one commit
+1. Edit the file, and every implementation of the rule, in one commit
    (`contracts/README.md` — a one-sided edit is what these files exist to catch).
 2. Bump `version` in `contracts/bundle.json`.
 3. Add the entry below.
 4. `make contracts-bundle` — rewrites `files` and `digests`, and records the new
    version's entry in `version_digests`. It refuses if the version is one it
    has already cut with different bytes.
-5. Set `bundleVersion` in `cloud/factory/contracts.pin.json` to the new version.
+5. Tell the consumer: ticfac moves its `bundleVersion` pin when it has read the
+   entry and followed it.
 
 ---
+
+## 7.0.0
+
+MAJOR. Thirteen fixtures are removed; an unchanged consumer that reads any of
+them from this bundle is now **wrong**. ticks became a tracker only (epic chz):
+execution, the sandbox image and their contract formats belong to ticfac, and
+ticfac authors each removed file from its tick 4i8 onward, starting from its
+6.3.0 bytes under a ticfac-side version and changelog.
+
+Removed from the bundle, with their ticks-side readers:
+
+- `collect-vocabulary.json`
+- `credential-ownership.json`
+- `job-protocol.json`
+- `lifecycle-invariants.json`
+- `message-context.json`
+- `run-event-feed.json`
+- `runners-config-contract.json`
+- `sandbox-image-cases.json`
+- `signal-source-cases.json`
+- `sweep-policy-cases.json`
+- `sweep-selection-contract.json` (its Go reader
+  `internal/tick/sweep_selection_parity_test.go` is deleted too)
+- `ticfac-run-state.json`
+- `worker-boot-contract.json`
+
+Kept: `tk-json-manifest.json` and `tracker-layout.json`. Their shapes are
+unchanged — no key removed, no type changed — but their meaning moved in three
+places a consumer should read:
+
+- **`graph` — `dispatch` no longer reflects a width.** tk no longer reads
+  `.tick/runners.toml` (`[orchestration].max_parallel`). The `dispatch` object
+  keeps every key with fixed no-width values: `max_parallel` is always `0`,
+  `free` always `-1`, `source` omitted; `in_flight`/`in_flight_ids` still count
+  the epic's in_progress children, and `now` lists every unclaimed agent-ready
+  wave-1 tick, uncapped. An orchestrator that wants a width caps `now` itself.
+- **`claim` (`update --status in_progress`) — no exit 8.** The wave-width gate
+  is gone, so tk never refuses a claim for width. Exit codes 8, 9 and 10 are
+  retired and will not be reused.
+- **`$comment` prose** in both files no longer names `cloud/factory`, `tk
+  sandbox`, `tk cloud` or `worker-boot-contract.json` as live; no structural
+  field changed.
+
+The contract version the manifest serves (`contract: 1`) is unchanged.
+
+ticfac's pin at 6.3.0 keeps working: it verifies the vendored bytes against the
+ticks commit it pinned, not against this branch. It adopts 7.0.0 when 4i8 lands
+— pin only the two files kept here.
 
 ## 6.3.0
 

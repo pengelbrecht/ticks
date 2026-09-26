@@ -1,0 +1,15 @@
+{
+  "id": "chz",
+  "title": "Cut ticks down to a terminal-first tracker: everything ticfac handles leaves",
+  "gloss": "ticks becomes tracker-only",
+  "description": "Operator decision 2026-09-26: ticfac owns execution, the sandbox image and its own contract formats; the ticks.sh cloud board is retired; tracker commands lose their execution hooks. Then cut v0.32.0 (the release hold of 2026-08-31 is lifted).\n\nKeeps: the tracker (store, merge drivers, query, graph incl. wave DISPLAY, TUI, local board, gc, beads import, skills, tk --json contract, question store tk ask/answer), authoring policy (role review/closeout, awaiting incl. checkpoint, EPIC-SKELETON, definition of done), and a contract bundle of ticks' OWN formats (tk-json-manifest, tracker-layout) for ticfac to pin.\n\nSafe order: ticfac builds its container's tk from a pinned ticks commit (factory.pin.json) and verifies vendored contracts/image against pinned commits, so deleting from ticks main breaks nothing in ticfac; ticfac's takeover (verbs, image/, contracts) is ticfac's 6in and must land before ticfac moves those pins.",
+  "status": "open",
+  "priority": 1,
+  "type": "epic",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "hzm",
+  "acceptance_criteria": "[A1] No tk cloud, tk sandbox, tk herd, tk config migrate or tk merge command is registered, and the packages only they used are gone: go build ./... and go vet ./... pass and 'tk --help' lists no execution verb.\n[A2] tk graph, tk update and tk frontier/close read no .tick/runners.toml and no herd manifest; tk next has no autonomous runner path; role/awaiting/EPIC-SKELETON and graph waves as display still work (their tests pass).\n[A3] cloud/, extensions/ticks-runner, plugins/herdr-ticks, tickboard/cloud and the board's run/cloud UI are gone; CI has no sandbox/worker/ticks-runner/deploy-cloud job; scripts/docs/repo-wiki keep only tracker material.\n[A4] contracts/ carries only tk-json-manifest.json and tracker-layout.json at bundle 7.0.0 (MAJOR), with a CHANGELOG entry naming where each removed file's authorship went (ticfac).\n[A5] The ticks skill covers tracker use and authoring only; execution references are handed to ticfac; SKILL.md says ticfac runs epics.\n[A6] go test -short ./..., the public-repo guard and the UI typecheck/test pass in CI on the PR.\n[A7] CHANGELOG 0.32.0 describes what actually ships, and v0.32.0 is tagged after the PR merges; the release workflow succeeds.",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-09-26T14:04:25.836906749Z",
+  "updated_at": "2026-09-26T14:04:25.836906749Z"
+}

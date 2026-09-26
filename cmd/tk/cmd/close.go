@@ -11,7 +11,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/pengelbrecht/ticks/internal/config"
 	"github.com/pengelbrecht/ticks/internal/github"
 	"github.com/pengelbrecht/ticks/internal/tick"
 )
@@ -215,15 +214,11 @@ func runClose(cmd *cobra.Command, args []string) error {
 // actually lands — and one quiet line otherwise, so a wave of ordinary closes
 // does not drown the signal it exists to carry.
 func printCloseContinuation(w io.Writer, root string, t tick.Tick) {
-	autonomous := false
-	if cfg, err := config.LoadOrDefault(filepath.Join(root, ".tick", "config.json")); err == nil {
-		autonomous = cfg.Policy.GetAutonomousMode()
-	}
 	// Judge the container the run is working in, not the repository: the
 	// closed tick's epic, or — for an epic or its close-out, where the next
 	// work is the next epic — the enclosing project. No container: the whole
 	// repository, as before.
-	rep, err := evaluateFrontier(root, closeFrontierScope(root, t), "", autonomous)
+	rep, err := evaluateFrontier(root, closeFrontierScope(root, t), "")
 	if err != nil {
 		return // advisory only; never fail a close over it
 	}
@@ -246,7 +241,7 @@ func printCloseContinuation(w io.Writer, root string, t tick.Tick) {
 	fmt.Fprintf(w, "\nTHIS IS NOT A STOPPING POINT. frontier%s: %s\n", rep.scopeLabel(), rep.summary())
 	fmt.Fprintln(w, "End the turn on a dispatch, never on a close: plan and launch the next")
 	fmt.Fprintln(w, "feasible work in THIS turn, or name the blocker that prevents it.")
-	fmt.Fprintln(w, "(`tk frontier` for the full list; re-read the run charter in the ticks skill.)")
+	fmt.Fprintln(w, "(`tk frontier` for the full list.)")
 }
 
 // closeFrontierScope picks the container whose frontier a close is judged

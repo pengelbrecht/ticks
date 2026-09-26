@@ -2,8 +2,8 @@
 // `tk` behaves, so a test binary can start from a known state.
 //
 // Why this exists: an agent run exports `TK_ACTOR=<runner>:orchestrator` — the
-// form `references/agent-runner.md` mandates and `cloud/sandbox/entrypoint.sh`
-// sets — and `go test ./...` typed in that shell inherits it. The verdict guard
+// form runners (ticfac and its sandbox entrypoint) export
+// — and `go test ./...` typed in that shell inherits it. The verdict guard
 // then refuses `tk approve`, `tk reject` and `tk update --verdict` for exactly
 // the reason it is supposed to, and the command tests, which read the real
 // process environment, fail with a bare `expected approve exit 0, got 2`. That

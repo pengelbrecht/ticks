@@ -2,7 +2,7 @@
   "id": "46q",
   "title": "Implement PATCH /ticks/:id - update tick",
   "description": "Add endpoint to update a tick. This is the core endpoint for third-party integrations.\n\n## Endpoint\n\n```\nPATCH /api/projects/:project/ticks/:tickId\nContent-Type: application/json\n```\n\n## Request body\n\nPartial update - only include fields to change:\n\n```json\n{\n  \"status\": \"closed\",\n  \"closed_reason\": \"Approved by CI system\"\n}\n```\n\n## Allowed fields\n\n| Field | Type | Notes |\n|-------|------|-------|\n| title | string | |\n| description | string | |\n| status | string | open, in_progress, closed, blocked, awaiting |\n| priority | number | 0-4 |\n| owner | string | |\n| labels | string[] | Replaces existing labels |\n| closed_reason | string | Only when status=closed |\n\n## Forbidden fields (server-managed)\n\n- `id` - immutable\n- `created_at` - immutable\n- `updated_at` - auto-set by server\n- `closed_at` - auto-set when status changes to closed\n- `type` - immutable after creation\n- `parent` - immutable after creation\n- `notes` - use POST /ticks/:id/notes instead\n\n## Response (200 OK)\n\nReturns the full updated tick.\n\n## Response (400 Bad Request)\n\n```json\n{\n  \"error\": \"Invalid field: foo\"\n}\n```\n\n## Response (404 Not Found)\n\n```json\n{\n  \"error\": \"Tick not found\"\n}\n```\n\n## Implementation\n\n```typescript\n// PATCH /api/projects/:project/ticks/:tickId\nif (tickMatch \u0026\u0026 request.method === \"PATCH\") {\n  const tickId = tickMatch[1];\n  const tick = this.ticks.get(tickId);\n  \n  if (!tick) {\n    return Response.json({ error: \"Tick not found\" }, { status: 404 });\n  }\n  \n  const updates = await request.json() as Record\u003cstring, unknown\u003e;\n  \n  // Validate allowed fields\n  const allowedFields = new Set([\n    \"title\", \"description\", \"status\", \"priority\", \n    \"owner\", \"labels\", \"closed_reason\"\n  ]);\n  \n  for (const key of Object.keys(updates)) {\n    if (!allowedFields.has(key)) {\n      return Response.json({ error: `Invalid field: ${key}` }, { status: 400 });\n    }\n  }\n  \n  // Apply updates\n  const now = new Date().toISOString();\n  const updated: Tick = {\n    ...tick,\n    ...updates,\n    updated_at: now,\n  };\n  \n  // Auto-set closed_at when closing\n  if (updates.status === \"closed\" \u0026\u0026 tick.status !== \"closed\") {\n    updated.closed_at = now;\n  }\n  \n  // Store and broadcast\n  this.ticks.set(tickId, updated);\n  await this.persistState();\n  this.broadcast({ type: \"tick_updated\", tick: updated });\n  \n  // Log for audit\n  const userId = request.headers.get(\"X-User-Id\") || \"unknown\";\n  console.log(`[ProjectRoom:${this.projectId}] Tick ${tickId} updated via API by ${userId}`);\n  \n  return Response.json(updated);\n}\n```\n\n## Sync behavior\n\nAfter PATCH:\n1. DO state updated\n2. Persisted to storage\n3. `tick_updated` broadcast to all WebSocket clients\n4. Local `tk run --cloud` receives and writes to `.tick/issues/`\n\n## Files to modify\n\n- `cloud/worker/src/project-room.ts`",
-  "status": "open",
+  "status": "closed",
   "priority": 1,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -14,5 +14,7 @@
   "parent": "qr4",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-22T07:33:19.413296Z",
-  "updated_at": "2026-01-22T07:33:19.413296Z"
+  "updated_at": "2026-09-26T14:25:23.777984251Z",
+  "closed_at": "2026-09-26T14:25:23.777984251Z",
+  "closed_reason": "closed with parent epic (--force)"
 }

@@ -1,6 +1,6 @@
 # Code Smells (maintainability axis)
 
-A curated baseline for the **Maintainability** review axis — Martin Fowler's "Bad Smells in Code" (*Refactoring*, ch. 3), trimmed to the high-signal subset that an LLM reviewer can spot in a diff. Read this only when the diff earns a maintainability pass (see `agent-runner.md` → *Reviewing the work*); it is not an always-on baseline.
+A curated baseline for the **Maintainability** review axis — Martin Fowler's "Bad Smells in Code" (*Refactoring*, ch. 3), trimmed to the high-signal subset that an LLM reviewer can spot in a diff. Read this only when the diff earns a maintainability pass (for example at an epic's final-review tick); it is not an always-on baseline.
 
 ## Binding rules
 

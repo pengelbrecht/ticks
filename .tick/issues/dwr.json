@@ -2,7 +2,7 @@
   "id": "dwr",
   "title": "Implement DELETE /ticks/:id - delete tick",
   "description": "Add endpoint to delete a tick via API.\n\n## Endpoint\n\n```\nDELETE /api/projects/:project/ticks/:tickId\n```\n\n## Response (204 No Content)\n\nSuccess - tick deleted.\n\n## Response (404 Not Found)\n\n```json\n{\n  \"error\": \"Tick not found\"\n}\n```\n\n## Implementation\n\n```typescript\n// DELETE /api/projects/:project/ticks/:tickId\nif (tickMatch \u0026\u0026 request.method === \"DELETE\") {\n  const tickId = tickMatch[1];\n  \n  if (!this.ticks.has(tickId)) {\n    return Response.json({ error: \"Tick not found\" }, { status: 404 });\n  }\n  \n  this.ticks.delete(tickId);\n  await this.persistState();\n  this.broadcast({ type: \"tick_deleted\", id: tickId });\n  \n  const userId = request.headers.get(\"X-User-Id\") || \"unknown\";\n  console.log(`[ProjectRoom:${this.projectId}] Tick ${tickId} deleted via API by ${userId}`);\n  \n  return new Response(null, { status: 204 });\n}\n```\n\n## Warning\n\nDeletion is permanent. Consider:\n- Requiring confirmation header: `X-Confirm-Delete: true`\n- Or only allowing close (not delete) via API\n- Logging deletions for audit\n\n## Files to modify\n\n- `cloud/worker/src/project-room.ts`",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -14,5 +14,7 @@
   "parent": "qr4",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-22T07:34:02.409854Z",
-  "updated_at": "2026-01-22T07:34:02.409854Z"
+  "updated_at": "2026-09-26T14:25:23.777984251Z",
+  "closed_at": "2026-09-26T14:25:23.777984251Z",
+  "closed_reason": "closed with parent epic (--force)"
 }

@@ -24,8 +24,7 @@ make build     # writes ./bin/tk (gitignored)
 and, if you work with coding agents, by every agent running on the machine. It
 may also be carrying a hand-applied local patch. Running `go build -o
 ~/.local/bin/tk ./cmd/tk` from a clean tree silently reverts that patch and
-swaps the binary out from under everything else mid-run. That has broken
-`tk herd` for other agents once already.
+swaps the binary out from under everything else mid-run.
 
 Replacing the machine-wide binary is a release action, so you have to ask for
 it explicitly:

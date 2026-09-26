@@ -28,7 +28,7 @@ Replacing it is a release action and needs an explicit
 
 ## Ticks Skill
 
-The distributable skill lives in `skills/ticks/` and is the source of truth. Runner-neutral behavior belongs in `skills/ticks/references/agent-runner.md`; Claude and Codex mechanics belong in their respective adapters. Keep cross-runner handoff based on git and `.tick/` state, never a harness-private session ID.
+The distributable skill lives in `skills/ticks/` and is the source of truth. It covers tracker use and authoring (planning, good ticks, epics, gates); running epics is ticfac's (github.com/pengelbrecht/ticfac), so execution guidance does not belong in this skill. Keep handoff based on git and `.tick/` state, never a harness-private session ID.
 
 ## Landing the Plane (Session Completion)
 

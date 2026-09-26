@@ -8,12 +8,6 @@ const legacyOperatorEmail = ["pe", "@", "writeflow.com"].join("");
 
 export const PUBLIC_REPO_ALLOWLIST = Object.freeze([
   {
-    path: "internal/tickboard/cloud/client_test.go",
-    rule: "email",
-    literal: legacyOperatorEmail,
-    reason: "Pre-existing cloud requester identity regression fixture on main.",
-  },
-  {
     path: ".tick/issues/xps.json",
     rule: "email",
     literal: legacyOperatorEmail,

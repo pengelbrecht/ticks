@@ -1,11 +1,11 @@
 ---
 name: ticks
-description: Work with Ticks issue tracker and AI agent runner. Use when managing tasks or issues with tk commands, running AI agents on epics, breaking down requirements into ticks, or working in a repo with a .tick directory. Triggers on phrases like create ticks, tk, run ticks, epic, close the task, plan this, break this down.
+description: Work with the Ticks issue tracker (tk) - track tasks, plan and break down work into ticks and epics, author good ticks and epic definitions of done, and handle human gates. Use when managing tasks or issues with tk commands, planning or decomposing requirements into ticks, or working in a repo with a .tick directory. Running epics is ticfac's job, not this skill's. Triggers on phrases like create ticks, tk, epic, close the task, plan this, break this down.
 ---
 
 # Ticks Workflow
 
-Ticks is an issue tracker designed for AI agents. The `tk` CLI manages tasks, and `tk board` provides a web-based board for monitoring; epics are executed by the current harness using the shared protocol in `references/agent-runner.md` and its Claude, Codex, Pi, or Prime Agent adapter.
+Ticks is a terminal-first issue tracker designed for AI agents. The `tk` CLI manages ticks, and `tk board` serves a local web board over the same data. This skill covers using the tracker and authoring work in it: planning, breaking work into ticks and epics, writing ticks an agent can finish, and handling human gates. Ticks does not run epics — [ticfac](https://github.com/pengelbrecht/ticfac) does (see *Running an epic*).
 
 ## When to Use Ticks vs TodoWrite
 
@@ -41,7 +41,7 @@ ls .tick/ 2>/dev/null || tk init
 
 **3. tk installed:**
 ```bash
-which tk || echo "Install: curl -fsSL https://ticks.sh/install | sh"
+which tk || echo "Install: curl -fsSL https://raw.githubusercontent.com/pengelbrecht/ticks/main/install.sh | sh"
 ```
 
 A current `tk` can also install or update this skill directly via `tk skills install ticks`, but this skill works fine without ever running that command.
@@ -59,44 +59,26 @@ git check-ignore .tick/
 # If it returns ".tick/", remove the entry from .gitignore
 ```
 
-**5. Per-project run config (`.tick/runners.toml` + `.tick/config.md`):**
+**5. Project files (`.tick/config.md`, `.tick/learnings.md`):**
 
-A project's run config lives in two tracked files in `.tick/`, split by who reads it. **Anything a program parses lives in `.tick/runners.toml`**, validated against `references/runners-config.schema.json`; **prose a model reads lives in `.tick/config.md`**. Both are optional and purely additive.
+Two optional, tracked prose files in `.tick/` carry what every agent working the repo should know. Both are purely additive; absence means nothing extra applies.
 
-`.tick/runners.toml` — the structured half, semantics in **`references/runners-config.md`**:
+`.tick/config.md` — prose a model reads:
 
-- **`[testing.commands]`** — exact test commands, including surgical per-package invocations, as `id = { command = "…" }`. Eliminates the most common repeated failure: every fresh agent re-deriving (or guessing wrong) how to run the tests. `testing.notes` carries the caveats that are *not* commands.
-- **`[evidence.commands]`** — controller-owned commands that may execute only during closeout, never in implementation children, per-tick verification, post-wave gates, or final-review tests. The table a command sits in **is** its authorization; there is no flag to flip.
-- **`[evidence.acceptance]`** — optional closeout authorization, mapping each stable acceptance item id to the id of the one command that proves it (`A1 = "go"`). Nothing outside this file authorizes shell — not tracker prose, not a model's suggestion — and an item with no mapping is unverified, which leaves closeout and the epic open.
-- **`[environment.commands]`** — pre-flight checks the orchestrator runs once before launching wave 1: CLI tools present, services up, env vars set. Write these as commands that *verify* the condition, not as instructions that ask the agent to ask the human. *Test, don't ask.*
-- **`[orchestrator]`, `[orchestration]`, `[roles.*]`** — which substrate orchestrates the run and which worker serves each role and tier.
-- **`[signals.sources.*]`** — webhook senders this repo accepts signals from, so their deliveries become draft ticks: a signature scheme (naming a Worker *secret binding*, never a secret), a mapping from payload paths to tick fields, and the `external_ref` path the signal funnel dedups on. Registering the source, in a file the repo reviews, *is* the consent boundary.
+- **Rules** — project-specific constraints for implementers (naming conventions, forbidden patterns, required review steps, etc.).
+- **Standing orders** — decision classes the human pre-delegates, each with its default (library choice within the existing stack: decide and log; naming and internal API shape: decide and log; data deletion, force-pushes, external side effects, roadmap changes: always ask). They turn "am I allowed to decide this?" into a lookup; settle them at goal-ready handoff. A decision taken under one is logged with `tk decide` (see *Decide and log*).
+- Narrative `Testing` hints that are guidance rather than commands.
 
-`.tick/config.md` — the prose half:
+`.tick/learnings.md` — operational learnings for future agents, read in full at every planning pass, so its size is a per-agent context tax:
 
-- **Rules** — project-specific constraints for implementers (naming conventions, forbidden patterns, required review steps, etc.), included verbatim in every implementer prompt.
-- **Standing orders** — decision classes the human pre-delegates to autonomous runs, each with its default (library choice within the existing stack, naming, internal API shape, …). Consumed by the decide-and-log ladder in `references/agent-runner.md` → *Decide and log*; settled at goal-ready handoff. Optional — absence just means nothing is pre-delegated.
-- Narrative `Testing` hints that are guidance rather than commands, when a repo prefers them in markdown over `testing.notes`.
+- **Format:** short `Problem → Cause → Rule` entries, grouped under category headers.
+- **Hard cap: 150 lines.** When adding entries, merge duplicates, delete entries the codebase has outgrown, and cut the lowest-signal ones until the file is at or under the cap.
 
-A repo whose `.tick/config.md` still carries the old machine-parsed sections is on a **deprecated fallback**: it still runs, and each load warns. **`references/runners-config.md`** → *The deprecated markdown path* is the one place that path is documented, and it carries the one-command migration; do not restate it elsewhere.
+**Read both fresh at point of use.** Re-read them from disk at each planning pass; never inline a stale copy from an earlier session.
 
-**Read fresh at point of use** — same rule as `.tick/learnings.md`. The orchestrator reads both at run start; implementers read them from their worktree. Neither inlines a stale copy from an earlier session.
+The repo's declared test commands live in `.tick/runners.toml` `[testing.commands]` — that file belongs to ticfac, which reads it when it runs an epic. When authoring, name those commands in acceptance (see *Creating Good Tasks*); do not invent new ones there without the human.
 
-**Fallback when absent:** current behavior — implementers discover test commands themselves.
-
-**Why not `AGENTS.md` or `CLAUDE.md`?** Those files guide interactive agents in their respective harnesses. The `.tick/` run config is the runner-neutral contract for dispatched implementers and is consumed programmatically. Projects may cross-reference them, but runner config must not depend on one vendor's instruction file.
-
-**6. Pi executable extension (when running an epic in Pi):**
-
-Check whether Pi registered `/ticks-plan`, `/ticks-run`, `/ticks-status`, and `/ticks-dashboard` (RPC clients can inspect `get_commands`). If they are absent, explain that the skill supplies instructions but cannot activate extension code, and recommend the package:
-
-```bash
-pi install git:github.com/pengelbrecht/ticks
-# Local checkout:
-pi install /absolute/path/to/ticks
-```
-
-Do not claim that loading or invoking this skill enables those commands. A generic skill installer may have installed only `skills/ticks/`. The user may install the package or choose the manual Pi adapter flow in `references/pi-runner.md`.
+**Why not `AGENTS.md` or `CLAUDE.md`?** Those files guide interactive agents in their respective harnesses. The `.tick/` files are harness-neutral and travel with the tracker. Projects may cross-reference them, but they must not depend on one vendor's instruction file.
 
 ### Step 1: Gather What's Already Known
 
@@ -157,7 +139,7 @@ tk create "Add email validation" -d "Make sure emails are valid" --acceptance "T
 # No test cases, no command the gate runs - agent will guess, and the gate cannot confirm it
 ```
 
-**Acceptance names the command the gate actually runs, with its flags.** Name the exact `[testing.commands]` entry (or the repo's wrapper for it, e.g. a `make test` target) and the flags the gate runs it with. A test the gate does not run — skipped under `-short`, in a suite the gate never invokes — is not evidence, however green it is locally: add it to the gate, or name the gap in the acceptance. "Tests pass" is never a whole acceptance. Good/bad pair in `references/tick-patterns.md` → *Acceptance names the gate's command*.
+**Acceptance names the command the gate actually runs, with its flags.** Name the exact entry from the repo's declared test commands (`[testing.commands]` in `.tick/runners.toml`, which ticfac reads), or the repo's wrapper for it (e.g. a `make test` target), and the flags the gate runs it with. A test the gate does not run — skipped under `-short`, in a suite the gate never invokes — is not evidence, however green it is locally: add it to the gate, or name the gap in the acceptance. "Tests pass" is never a whole acceptance. Good/bad pair in `references/tick-patterns.md` → *Acceptance names the gate's command*.
 
 **Mention a tick as `id (gloss)`, never a bare id** — in chat, reports, notes and commit messages: `kdn (add google oauth login)`, not `kdn`. The gloss is an optional short label (at most 40 characters) set with `tk create --gloss "<label>"` or `tk update <id> --gloss "<label>"`; when it is empty, write a short paraphrase of the title yourself (programs fall back to the title cut to 40 characters). `tk show` heads a glossed tick with `id (gloss)`, and `tk list` shows the gloss in place of the title. Set `--gloss` whenever a title is longer than a few words.
 
@@ -165,17 +147,7 @@ Run the **Definition of Ready** checklist in `references/tick-patterns.md` again
 
 ### Step 3: Create Ticks from Requirements
 
-**Dispatch planning at frontier tier.** Decomposition is the highest-leverage decision in the epic. Always synthesize at frontier tier, even when implementation will use a cheaper model or lower reasoning effort. Use parallel read-only exploration when the harness supports it. See `references/agent-runner.md` → "Planning tier" and the active harness adapter.
-
-In Pi with the package extension installed, prefer safe automated planning:
-
-```text
-/ticks-plan <existing-childless-epic-id>                  # model-running dry-run
-/ticks-plan --requirements "new epic requirements"        # model-running dry-run
-/ticks-plan <target> --apply                              # explicit tracker apply
-```
-
-Planning dry-run is **not** a no-op: it runs configured read-only scouts and the frontier planner, persists logs/reports, and reports model usage/cost, while guaranteeing zero tracker mutation. Planning prompts include the relevant `[testing]`, `[evidence]` and `[evidence.acceptance]` tables and `.tick/config.md` Rules as context, but models cannot add or authorize executable commands. `--apply` is separately explicit, requires clean non-default-branch controller state, asks again in TUI, and is the only mode that creates/commits ticks. Scout count/concurrency overrides are bounded (`--scouts 3..6`, `--scout-cap 2..4`). The extension validates strict versioned JSON, dependency acyclicity, vertical acceptance, and same-wave file safety before any mutation; the controller—not the model—adds the EPIC-SKELETON. See `references/pi-runner.md` for recovery and non-TUI confirmation semantics.
+**Plan with your strongest model.** Decomposition is the highest-leverage decision in the epic: do it at the most capable model and reasoning effort available, even when implementation will later use a cheaper one. Use parallel read-only exploration when the harness supports it.
 
 Transform the gathered requirements into ticks organized by epic.
 
@@ -200,7 +172,7 @@ Ticks has one recursive container type. Role is derived from structure and the e
 The core principle: **containment is free and passive; orchestration is opt-in.**
 
 - Any tick with children is a **container**: it rolls up progress and groups its descendants. No execution cost.
-- The **`-t epic`** marker turns a container into an **orchestration unit**: `tk next` runs its children as waves, it gets the EPIC-SKELETON process ticks (final review + close-out/retro — see below), it is a roadmap node. The marker means the same thing whether the epic is empty or populated — it is never derived from structure alone. **Promoting an existing container to an epic (`tk update <id> -t epic`) triggers the EPIC-SKELETON check immediately** — promotion bypasses the normal planning flow, so verify/create the two process ticks at the moment of promotion, not later.
+- The **`-t epic`** marker turns a container into an **orchestration unit**: its children form waves (a runner such as ticfac runs them), it gets the EPIC-SKELETON process ticks (final review + close-out/retro — see below), it is a roadmap node. The marker means the same thing whether the epic is empty or populated — it is never derived from structure alone. **Promoting an existing container to an epic (`tk update <id> -t epic`) triggers the EPIC-SKELETON check immediately** — promotion bypasses the normal planning flow, so verify/create the two process ticks at the moment of promotion, not later.
 - A container *without* the marker and with only atomic children is a **bucket** — its children flow through the normal ready queue independently, never coordinated as a unit. Use a bucket when you want to group a pile of unrelated tasks for visibility without running them as an epic.
 - A container *without* the marker that holds at least one other container is a **project**. A project groups and provides a human checkpoint (see continuation below). An "initiative" is just a project of projects — same type, different convention.
 
@@ -216,11 +188,11 @@ tk create "Auth foundation" -t epic -d "<rough scope>" \
 [A4] (not yet runnable — judged at final review) Login error messages name the field that failed."
 ```
 
-Optional, but strongly encouraged — it is the single thing that lets a run know when it is *actually* finished rather than just out of ticks. The Epic-close retro verifies the code against this definition item by item (`references/agent-runner.md` → Outside-in verification); without it, the retro falls back to re-deriving scope from the epic's prose.
+Optional, but strongly encouraged — it is the single thing that lets a run know when it is *actually* finished rather than just out of ticks. The close-out tick verifies the code against this definition item by item; without it, close-out falls back to re-deriving scope from the epic's prose.
 
-**Items, not a sentence.** Acceptance is consumed item by item: `[evidence.acceptance]` maps an `A<n>` id to the command that proves it, and a runner reports *which* item a finding makes unreachable. A prose done cannot be addressed that way. Each item is either:
+**Items, not a sentence.** Acceptance is consumed item by item: a runner maps an `A<n>` id to the command that proves it, and reports *which* item a finding makes unreachable. A prose done cannot be addressed that way. Each item is either:
 
-- **Runnable** — it names the command that proves it (the one `[evidence.acceptance]` will map), or
+- **Runnable** — it names the command that proves it, or
 - **Not yet runnable** — no command proves it yet, so it is checked by prediction or judgement, and the line says so (`(not yet runnable — …)`, or `(human judgment)` for taste).
 
 Keep `A<n>` ids unique across containers — the epic and its project must not both use `A1`; continue the numbering.
@@ -273,7 +245,7 @@ tk create "Close out <epic A>: run epic retro, then flesh out the next feasible 
 
 The `--role review|closeout` flag makes the skeleton **structural**: `tk graph <epic> --json` reports `missing_process_ticks` (the roles no child carries) from this field, so a missing or incomplete skeleton is detected mechanically, never by title-matching. If an epic already has these ticks without roles, repair with `tk update <id> --role review|closeout`.
 
-The final-review tick's work is reviewing the epic's full diff and resolving or routing findings before close-out unblocks (full semantics: `references/agent-runner.md` → "Meta-work ticks"). Executing the close-out means: run the epic-close retro (see `references/agent-runner.md`), then pick the next **feasible** epic in soft order — skip any that is hard-blocked or gated — read its rough scope, partition it into child ticks **including its own EPIC-SKELETON pair**, and continue with `tk graph <that-epic>`. The epic boundary is handled structurally — no discretionary handoff, no human re-prompt needed.
+The final-review tick's work is reviewing the epic's full diff against its description and acceptance, and resolving or routing findings (blockers become repair ticks that block the review) before close-out unblocks. The close-out tick's work is: verify the epic's definition of done outside-in, item by item; run the epic-close retro (harvest learnings into `.tick/learnings.md`, compact it); then pick the next **feasible** epic in soft order — skip any that is hard-blocked or gated — read its rough scope, partition it into child ticks **including its own EPIC-SKELETON pair**, and continue with `tk graph <that-epic>`. The epic boundary is handled structurally — no discretionary handoff, no human re-prompt needed. Whoever runs the epic (ticfac, or an agent working ticks by hand) executes these two ticks; authoring them is this skill's job.
 
 **Planning triggers from `tk`.** Three CLI signals tell you that an epic needs planning or repair now:
 
@@ -299,18 +271,18 @@ tk create "Team workspaces" -t epic -d "<rough scope>" --blocked-by <A>
 tk create "Billing" -t epic -d "<rough scope>" --after <B> --awaiting checkpoint
 ```
 
-To run fully hands-off through all project checkpoints, pass `--autonomous` to `tk next`, or set `policy.autonomous_mode: true` in `.tick/config.json`. Other awaiting types (work, approval, input, …) still gate in autonomous mode — only checkpoint boundaries flow through.
+In tk a checkpoint always gates: `tk next` and `tk frontier` report the boundary as waiting until someone answers it. Flowing through checkpoints unattended is a runner policy — ticfac's — not a tk flag.
 
 #### Goal-ready handoff
 
 When the front epic has a goal-compatible definition of done (above), the plan is ready to hand off: the run can flesh it out, implement, review, close it, and continue down the roadmap without checking in. After planning, make this an explicit decision *with the user* rather than sliding into the run:
 
-- **Done is goal-compatible** → recommend the walk-away path and give the one command: run the epic from the harness (Step 5), adding `--autonomous` to `tk next` (or `policy.autonomous_mode: true`) to flow through project checkpoints as well.
+- **Done is goal-compatible** → recommend the walk-away path and give the one command: run the epic with ticfac (see *Running an epic*); whether the run also flows through project checkpoints is ticfac's policy, not a tk setting.
 - **Done is missing or not goal-compatible** → say what is unclear, offer to tighten it first, or run with the default human checkpoint at each project boundary.
 
 This is where you decide *how far* the run goes before it stops for you — one epic, one project, or the whole roadmap — instead of discovering it mid-run. Settle *which decisions are the run's* here too: write the delegated decision classes and their defaults into `.tick/config.md` → **Standing orders** (see the config section above), so a mid-run judgment call is a lookup plus a logged decision instead of an interrupt.
 
-The same decision extends to projects: a project whose goal facts are all auto-verifiable with approved `[evidence.acceptance]` mappings (see *Project goals* above and `references/goal-design.md`) is safe to hand off end-to-end — the run verifies the goal at the project boundary and stops only on a real gap. A project with human-judgment facts always stops at its checkpoint, autonomous mode or not.
+The same decision extends to projects: a project whose goal facts are all auto-verifiable, each by a named command (see *Project goals* above and `references/goal-design.md`) is safe to hand off end-to-end — the run verifies the goal at the project boundary and stops only on a real gap. A project with human-judgment facts always stops at its checkpoint, autonomous mode or not.
 
 #### Target dates and the slip signal
 
@@ -392,7 +364,7 @@ Ticks in the same wave (no blocking relationship between them) run concurrently,
 
 **Order for working state and fail fast.** Sequence ticks so each leaves the build green and the app runnable, and put the riskiest or most uncertain ticks early — discover a wrong assumption on tick 2, not tick 12. For a phase boundary where you want to look before continuing, create an `--awaiting checkpoint` tick; for a genuinely open question, create an `--awaiting input` tick rather than guessing.
 
-**Planning is interactive; execution is autonomous.** Settle questions here, in the conversation, where the human is already present — a run that *can* reach them on a device (the operator channel: `tk tell` / `tk ask` / `tk answer`) has a cheaper answer, not a lower bar for needing one. When a run may use that channel, and for what, is the routing table in `references/agent-runner.md` → *The operator channel*.
+**Planning is interactive; execution is autonomous.** Settle questions here, in the conversation, where the human is already present — a question a run can park with `tk ask` (see *Assisting with Awaiting Ticks*) has a cheaper answer, not a lower bar for needing one.
 
 **Before running, review the epic's ticks.** Once the ticks exist, do a quick pass:
 1. **Coverage** — walk each requirement from the gathered understanding (for this phase) and point to the tick that implements it. Add ticks for any gaps.
@@ -407,7 +379,7 @@ This review is cheap and catches the partitioning mistakes that are expensive to
 
 ### Step 4: Guide User Through Blocking Human Tasks
 
-If human tasks block automated tasks, guide the user through them before running the agent.
+If human tasks block automated tasks, guide the user through them before the epic runs.
 
 ```bash
 # Check for blocking human tasks
@@ -420,17 +392,22 @@ Walk the user through each blocking task, then close it:
 tk close <id> --reason "Completed: connection string in .env"
 ```
 
-### Step 5: Run the Epic
+### Step 5: Hand off to ticfac
 
-Execute the epic from the current harness. Read **`references/agent-runner.md`** first, then your harness adapter — **`references/codex-runner.md`** if you are running in Codex, **`references/claude-runner.md`** if you are running in Claude Code, **`references/pi-runner.md`** if you are running in Pi, **`references/prime-runner.md`** if you are running in Prime Agent. The adapter settles *who orchestrates*; a second, independent choice settles *how workers are dispatched* — the **substrate**, either the harness's own subagents or a heterogeneous [herdr](https://herdr.dev) fleet (**`references/herdr-runner.md`**, read alongside your harness adapter, never instead of it). `.tick/runners.toml` `[orchestration].substrate` (`herdr | harness | auto | cloud`, default `auto`) decides, with explicit degradation to harness dispatch when herdr is pinned but unavailable — semantics in **`references/runners-config.md`**. If you haven't already, settle the *Goal-ready handoff* decision (above) before launching: how far should this run go before it stops for a human? The shape is:
+Ticks does not run epics. Once the epic is planned and reviewed, settle the *Goal-ready handoff* decision with the user and hand it to ticfac — see *Running an epic* below.
 
-1. `tk graph <epic-id> --json` — get the waves and how wide you can run. If the result contains `"needs_planning": true`, the epic has no child ticks yet — flesh it out first (see the Big picture section above), then re-run `tk graph`.
-2. EPIC-SKELETON pre-flight — if the same result carries a non-empty `missing_process_ticks`, create the missing process ticks now with `--role` (templates in the Big picture section above), before wave 1.
-3. For each wave, launch one implementer per ready tick, each in its own git worktree, using the adapter's parallel dispatch primitive.
-4. Wait with the adapter's completion primitive and merge each verified branch provisionally; retain branches/worktrees and defer successful tracker transitions.
-5. Persist and run the post-wave test gate on the fully merged tree. Only on success, close the wave durably and clean up; on failure, keep all affected ticks open with repair state retained and block dependents. Then move to the next wave; the final-review and close-out ticks unblock in sequence when the implementation waves are done.
+## Running an epic
 
-You own all tick state; implementers only write code in their worktrees. Run wave to wave continuously unless you hit a real blocker.
+Ticks is the tracker; **[ticfac](https://github.com/pengelbrecht/ticfac) runs epics** — waves, worker dispatch, merging, gates and close-out. Start a run with `ticfac run-epic <epic>`; see ticfac's docs for substrates, runner configuration (`.tick/runners.toml`) and recovery.
+
+A runnable epic, from ticks' side, needs:
+
+- a **goal-compatible definition of done** — `[A<n>]` items, each runnable or marked not yet runnable (see *Epic definition of done*);
+- child ticks that pass the **Definition of Ready** (`references/tick-patterns.md`), with no two same-wave ticks sharing a file or resource;
+- the **EPIC-SKELETON** — a `--role review` final-review tick and a `--role closeout` close-out tick; `tk graph <epic> --json` shows `needs_planning: false` and an empty `missing_process_ticks`;
+- any blocking human tasks resolved (Step 4).
+
+Working a tick by hand without ticfac is fine: pick it with `tk next <epic>`, do the work, and `tk close <id> --reason "Completed: …"`.
 
 ## Quick Reference
 
@@ -464,7 +441,7 @@ tk next <epic-id>            # Next task for agent
 tk next <epic-id> --json     # JSON: action field is "implement" | "plan" | "await"
 tk blocked                   # Blocked tasks
 tk list --awaiting=          # Tasks awaiting human
-tk frontier --check          # Continuation predicate: exit 0 = dispatchable work exists, 1 = at rest
+tk frontier --check          # Continuation predicate: exit 0 = actionable work exists, 1 = at rest
 tk graph <epic-id>           # Dependency graph with parallelization
 tk graph <epic-id> --json    # JSON output; needs_planning:true means epic needs child ticks;
                              # non-empty missing_process_ticks means EPIC-SKELETON needs repair
@@ -477,7 +454,7 @@ tk show <id>                                           # Show details
 tk close <id> --reason "Completed: <one-line summary>" # Close tick — always pass --reason
 tk update <id> --gloss "short label"                   # Set the label shown as id (gloss)
 tk note <id> "text"                                    # Add note
-tk decide <id> --question "…" --choice "…" --reason "…"  # Log a provisional decision (decide, don't ask — agent-runner.md)
+tk decide <id> --question "…" --choice "…" --reason "…"  # Log a provisional decision (see Decide and log)
 tk decisions <epic-id>                                 # The Decisions-taken table for reports
 tk approve <id>                                        # Approve awaiting tick
 tk reject <id> "feedback"                              # Reject with required feedback
@@ -486,52 +463,38 @@ tk reject <id> "feedback"                              # Reject with required fe
 **Close-reason convention:** always pass `--reason` with a concrete summary when closing.
 `tk close <id> --reason "Completed: <one-line summary of what landed>"` — never a bare `tk close`.
 
-**Actor convention (orchestrated runs):** export `TK_ACTOR=<runner>:orchestrator` at run start, such as `claude:orchestrator`, `codex:orchestrator`, `pi:orchestrator`, or `prime:orchestrator`, so activity entries preserve runner provenance. Use `--actor <name>` to override for a single call.
+**Actor convention:** an agent acting on ticks exports `TK_ACTOR=<runner>:<role>` (e.g. `claude:orchestrator`) so activity entries preserve provenance. Use `--actor <name>` to override for a single call. A runner-shaped actor cannot clear a human gate (see *Assisting with Awaiting Ticks*).
 Precedence: `--actor` flag > `TK_ACTOR` env > tick-owner default.
 
-### Running the Epic
+### Reading the Graph
 
-Drive execution from the current harness (shared details in `references/agent-runner.md`; then `codex-runner.md` for Codex, `claude-runner.md` for Claude Code, `pi-runner.md` for Pi, `prime-runner.md` for Prime Agent).
-
-Then pick the dispatch **substrate** — harness-native subagents, or a herdr fleet of independent per-tick workers (`references/herdr-runner.md`, additional to the harness adapter). It comes from `.tick/runners.toml` `[orchestration].substrate` (`herdr | harness | auto | cloud`, default `auto` = herdr when a read-only probe finds it, harness otherwise; `cloud` means one worker sandbox per tick and is terminal — never substitute another substrate for it), unless an explicit `$TICKS_SUBSTRATE` set by whatever booted the run replaces it for this run — a cloud sandbox has no herdr server to probe for, so it is told, and its checkout is never rewritten; `references/runners-config.md` has the decision table and the explicit-degradation rule.
-
-```bash
-# 1. Get the dependency graph (waves + max parallelism)
-tk graph <epic-id> --json
-```
-
-```
-# 2. Select the role tier, then launch one isolated implementer per ready tick.
-#    Planning and final review use frontier settings. Implementation uses the
-#    adapter's economy/balanced/strong mapping.
-#
-# 3. Wait using the adapter's native primitive, then integrate each tick:
-git diff --name-only HEAD...<agent-branch> -- .tick/   # boundary check: must be empty
-git merge <agent-branch>   # if it conflicts: abort, have the agent rebase + resolve in its worktree
-tk close <tick-id> --reason "Completed: <one-line summary of what landed>"
-
-# 4. After the wave's merges land, run the test suite before launching the next wave
-```
-
-### Planning Parallel Execution
-
-Before launching agents, use `tk graph` to understand the parallelism:
+Use `tk graph` to check an epic's shape and parallelism while planning:
 
 ```bash
 tk graph <epic-id>        # Human-readable wave breakdown
-tk graph <epic-id> --json # Machine-readable for orchestration
+tk graph <epic-id> --json # Machine-readable
 ```
 
 The graph shows:
 - **Waves**: groups of ticks that can run in parallel
 - **Max parallel** (`stats.max_parallel`): how wide the widest wave *could* be — graph shape, not a launch budget
-- **Dispatch** (`dispatch`): the configured wave width (`[orchestration].max_parallel`), how many implementers are in flight, how many slots are free, and `dispatch.now` — the exact tick ids to launch right now
 - **Critical path**: minimum number of sequential waves to finish the epic
 - **Dependencies**: what each tick is blocked by
 
-Launch `dispatch.now`, not the whole wave: the width is enforced on the dispatch path, so claiming a tick beyond it (`tk update <id> --status in_progress`, or a spawn issued by `ticfac run-epic` under the herdr substrate) is refused with exit 8 until a slot frees. Merge each wave before starting the next so dependent ticks build on completed work.
+Waves are a feasibility map, not a dispatch order: they say what *may* run at once. How much of that width a run spends is the runner's decision (ticfac's).
 
 See `references/tk-commands.md` for full reference.
+
+## Decide and log
+
+Asking a human mid-work discharges responsibility, which is why agents over-ask. Before surfacing a question, walk this ladder — top rung that applies wins:
+
+1. **Look it up.** A question the codebase, git history, config or environment can answer is not a question.
+2. **Standing orders.** A question inside a class `.tick/config.md` → *Standing orders* delegates is already answered: apply the default and log it.
+3. **Reversible → decide and log.** If un-making it costs a follow-up commit, make the call and record it: `tk decide <tick-id> --question "…" --choice "…" --reason "…" [--class <standing-order-class>]`. `tk decisions <epic-or-project-id>` renders the *Decisions taken* table for reports and PR bodies, so the human reviews by exception.
+4. **Irreversible, outside every delegated class, or scope-removing → the human's call.** Park it with `tk ask` (below) — never a bare question in session output.
+
+`tk decide` refuses a tick that is awaiting a human; that decision is the human's (`tk answer` / `tk approve`).
 
 ## Assisting with Awaiting Ticks
 
@@ -556,7 +519,16 @@ tk note <id> "Use sliding window algorithm" --from human
 tk approve <id>
 ```
 
-If a run parked a question on the tick with `tk ask`, settle that question instead of clearing the gate around it — `tk answer <id> <answer…>` is the terminal twin of answering on the operator's device, and it clears the awaiting and edits the delivered message the same way:
+A run can park a question on a tick instead of stopping for it:
+
+```bash
+tk ask <id> --question "Which region should this deploy to?"   # a plain question
+tk ask <id> --question "Ship it?" --gate approve                # an approval gate
+tk ask <id> --question "Which region?" --async                  # register, print the id, return
+tk ask --collect [--wait]                                        # drain settled answers as JSON lines
+```
+
+`tk list --awaiting` surfaces parked questions. Settle the question itself instead of clearing the gate around it — `tk answer <id> <answer…>` clears the awaiting and records the answer:
 
 ```bash
 tk answer <id> eu-west-1                # a plain question — becomes a [human] note

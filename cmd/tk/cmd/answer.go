@@ -27,18 +27,18 @@ var answerCmd = &cobra.Command{
 
 The answer becomes a
 ` + "`[human]`" + ` note on the tick (or a verdict, for a --gate approve question), and
-the tick stops awaiting. A run blocked on the pending entry (` + "`tk ask --collect --wait`" + `,
-or an agent relayed through ` + "`tk herd wait`" + `) sees the answer and stops waiting.
+the tick stops awaiting. A run blocked on the pending entry (` + "`tk ask --collect --wait`" + `)
+sees the answer and stops waiting.
 
 For a question with options, give an option label or its id; matching is
 case-insensitive. A multi-select question takes several of them. Anything else
 is the free-text answer, which is what a question with no options expects (and
 what an "other" answer is on a question that allows one).
 
-The question answered is the oldest one still open on the tick. An
-orchestrator/pane relay is instead answered by the question id printed by
-` + "`tk herd wait`" + `. Find tick questions with ` + "`tk list --awaiting`" + `, or
-the entries under .tick/pending.
+The question answered is the oldest one still open on the tick. A question
+parked by an orchestrator rather than on a tick is answered by its question id.
+Find tick questions with ` + "`tk list --awaiting`" + `, or the entries under
+.tick/pending.
 
 Answering a --gate approve question is a verdict, so it carries the same
 provenance rule as ` + "`tk approve`" + `: when TK_ACTOR is runner-shaped (the mandated

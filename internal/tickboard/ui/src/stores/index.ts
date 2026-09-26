@@ -5,14 +5,7 @@
 
 // Connection state
 export {
-  $isCloudMode,
-  $projectId,
-  $localClientConnected,
   $syncConnected,
-  $isReadOnly,
-  setCloudMode,
-  setLocalMode,
-  setLocalClientConnected,
   setSyncConnected,
 } from './connection.js';
 
@@ -41,18 +34,6 @@ export {
   type Epic,
 } from './ticks.js';
 
-// Live run state (observability only — never tick authority)
-export {
-  $liveRun,
-  $liveTicks,
-  applyRunEvent,
-  clearLiveRun,
-  type LiveRun,
-  type LiveTick,
-  type LiveRunState,
-  type LiveTickState,
-} from './run.js';
-
 // Roadmap state
 export {
   $roadmap,
@@ -65,11 +46,9 @@ export {
 export {
   $commsClient,
   $connectionStatus,
-  $effectiveConnectionStatus,
   type ConnectionStatus,
   initComms,
   initLocalComms,
-  initCloudComms,
   disconnectComms,
   initCommsAutoConnect,
   getCommsClient,

@@ -1,32 +1,15 @@
-import { defineConfig, type Plugin } from 'vite';
+import { defineConfig } from 'vite';
 import { viteStaticCopy } from 'vite-plugin-static-copy';
 import { resolve } from 'path';
 
-// Plugin to serve index.html for /p/* routes (cloud mode testing)
-function cloudModeRoutes(): Plugin {
-  return {
-    name: 'cloud-mode-routes',
-    configureServer(server) {
-      server.middlewares.use((req, res, next) => {
-        // Serve index.html for /p/{projectId}/* paths
-        if (req.url?.startsWith('/p/')) {
-          req.url = '/index.html';
-        }
-        next();
-      });
-    },
-  };
-}
-
 export default defineConfig({
-  base: './',  // Use relative paths for cloud proxy compatibility
+  base: './',  // Relative paths so a path-prefixing proxy works
   server: {
     proxy: {
       // Proxy API requests to testrig or local Go server
       '/api': {
         target: process.env.VITE_API_URL || 'http://localhost:18787',
         changeOrigin: true,
-        ws: true,  // Enable WebSocket proxy for cloud mode
       },
     },
   },
@@ -36,7 +19,6 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: resolve(__dirname, 'index.html'),
-        app: resolve(__dirname, 'app.html'),
       },
       output: {
         entryFileNames: 'assets/[name]-[hash].js',
@@ -46,7 +28,6 @@ export default defineConfig({
     },
   },
   plugins: [
-    cloudModeRoutes(),
     viteStaticCopy({
       targets: [
         {

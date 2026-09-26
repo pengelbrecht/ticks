@@ -1,7 +1,7 @@
 {
   "name": "@pengelbrecht/ticks-pi",
   "version": "0.19.0",
-  "description": "Ticks issue tracker skill and Pi epic orchestrator extension",
+  "description": "Ticks issue tracker skill (tracker use and authoring) as a Pi package",
   "type": "module",
   "license": "MIT",
   "repository": {
@@ -12,11 +12,9 @@
   "keywords": [
     "pi-package",
     "ticks",
-    "agent-orchestration"
+    "issue-tracker"
   ],
   "files": [
-    "extensions/ticks-runner",
-    "scripts/pi-ticks-live-scenario.ts",
     "skills/ticks",
     "CHANGELOG.md",
     "LICENSE",
@@ -25,14 +23,7 @@
   "pi": {
     "skills": [
       "./skills"
-    ],
-    "extensions": [
-      "./extensions"
     ]
-  },
-  "peerDependencies": {
-    "@earendil-works/pi-coding-agent": "*",
-    "@earendil-works/pi-tui": "*"
   },
   "packageManager": "pnpm@11.0.6"
 }

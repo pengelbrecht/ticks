@@ -17,7 +17,7 @@ import (
 //
 // Before this table ~25 commands reported both as 1 (generic failure) because
 // they wrapped repoRoot() and store.Read() with a bare fmt.Errorf, while
-// approve/reject/merge and the tk herd family already returned the typed
+// approve and reject already returned the typed
 // codes. Classification is now central — repoRoot() itself carries
 // ExitNoRepo, notFoundIfMissing() carries ExitNotFound — so a command added
 // later inherits it instead of opting in.
@@ -75,7 +75,6 @@ func TestNoRepoExitsNoRepo(t *testing.T) {
 		// Already exit 3 before this change — must stay 3.
 		{"approve", []string{"approve", "abc"}},
 		{"reject", []string{"reject", "abc", "not good enough"}},
-		{"merge", []string{"merge", "abc"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := runOutsideRepo(t, tc.args)
@@ -128,7 +127,6 @@ func TestMissingTickExitsNotFound(t *testing.T) {
 		// Already exit 4 before this change — must stay 4.
 		{"approve", []string{"approve", "zzz"}},
 		{"reject", []string{"reject", "zzz", "not good enough"}},
-		{"merge", []string{"merge", "zzz"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			seedTickRepo(t)

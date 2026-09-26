@@ -1,9 +1,8 @@
 /**
  * Comms module - Unified communication abstraction for the ticks board.
  *
- * This module provides a unified interface for server-client communication,
- * abstracting the differences between local mode (SSE + REST) and cloud mode
- * (WebSocket + REST via Durable Objects).
+ * This module provides the interface for server-client communication with
+ * the local board server (SSE for events, REST for reads and writes).
  *
  * @example
  * ```typescript
@@ -35,8 +34,6 @@ export type {
   ConnectionDisconnectedEvent,
   ConnectionLocalStatusEvent,
   ConnectionErrorEvent,
-  RunEvent,
-  RunEventReceivedEvent,
   CommsEvent,
   // Write operation types
   TickCreate,
@@ -56,7 +53,6 @@ export type {
   CommsClient,
   TickEventHandler,
   ConnectionEventHandler,
-  RunEventHandler,
   Unsubscribe,
 } from './client.js';
 
@@ -65,5 +61,4 @@ export { ReadOnlyError, ConnectionError } from './client.js';
 
 // Implementations
 export { LocalCommsClient } from './local.js';
-export { CloudCommsClient } from './cloud.js';
 export { MockCommsClient, type WriteOperation, type WriteOperationType, type WriteResponse } from './mock.js';

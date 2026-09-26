@@ -20,16 +20,6 @@ import (
 // If allTicks is provided it is used to look up blocker status and child presence
 // (for when candidates is a filtered subset and children/blockers may live outside it).
 func EpicsNeedingPlanning(candidates []tick.Tick, allTicks ...[]tick.Tick) []tick.Tick {
-	return EpicsNeedingPlanningWithMode(candidates, false, allTicks...)
-}
-
-// EpicsNeedingPlanningWithMode is EpicsNeedingPlanning with an explicit
-// autonomous-mode switch. When autonomous is false the result is identical to
-// EpicsNeedingPlanning. When autonomous is true, an epic whose ONLY reason to be
-// gated is awaiting: checkpoint (a project close-out boundary, design §5/§8) is
-// no longer excluded — continuation flows through the project boundary. No other
-// awaiting type is affected. See gatesHuman for the exact bypass scope.
-func EpicsNeedingPlanningWithMode(candidates []tick.Tick, autonomous bool, allTicks ...[]tick.Tick) []tick.Tick {
 	lookup := candidates
 	if len(allTicks) > 0 {
 		lookup = allTicks[0]
@@ -39,14 +29,14 @@ func EpicsNeedingPlanningWithMode(candidates []tick.Tick, autonomous bool, allTi
 
 	var out []tick.Tick
 	for _, t := range candidates {
-		if needsPlanning(t, index, childIndex, autonomous) {
+		if needsPlanning(t, index, childIndex) {
 			out = append(out, t)
 		}
 	}
 	return out
 }
 
-func needsPlanning(t tick.Tick, index map[string]tick.Tick, childIndex ChildIndex, autonomous bool) bool {
+func needsPlanning(t tick.Tick, index map[string]tick.Tick, childIndex ChildIndex) bool {
 	// Must be an epic
 	if t.Type != tick.TypeEpic {
 		return false
@@ -59,10 +49,8 @@ func needsPlanning(t tick.Tick, index map[string]tick.Tick, childIndex ChildInde
 	if t.DeferUntil != nil && t.DeferUntil.After(time.Now()) {
 		return false
 	}
-	// Not awaiting human action. Under autonomous mode a pure
-	// awaiting: checkpoint boundary does not gate (gatesHuman bypasses ONLY
-	// checkpoint); every other awaiting type still gates.
-	if gatesHuman(t, autonomous) {
+	// Not awaiting human action (any awaiting type, checkpoint included).
+	if t.IsAwaitingHuman() {
 		return false
 	}
 	// Not blocked by any open blocker

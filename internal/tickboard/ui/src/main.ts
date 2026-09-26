@@ -31,7 +31,7 @@ import '@shoelace-style/shoelace/dist/components/spinner/spinner.js';
 import '@shoelace-style/shoelace/dist/components/icon-button/icon-button.js';
 import '@shoelace-style/shoelace/dist/components/details/details.js';
 
-// Set base path for Shoelace assets (relative for cloud proxy compatibility)
+// Set base path for Shoelace assets (relative, so a path-prefixing proxy works)
 import { setBasePath } from '@shoelace-style/shoelace/dist/utilities/base-path.js';
 setBasePath('./shoelace');
 

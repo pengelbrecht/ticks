@@ -52,8 +52,7 @@ if $CHECK_MODE; then
         tick.schema.json \
         activity.schema.json \
         api/requests.schema.json \
-        api/responses.schema.json \
-        websocket/messages.schema.json
+        api/responses.schema.json
     cd "$PROJECT_ROOT"
 
     gofmt -w "$TEMP_DIR/types.go"

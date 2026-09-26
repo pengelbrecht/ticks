@@ -167,9 +167,8 @@ goal (fact sheet in its `acceptance_criteria` — see `goal-design.md`), the che
 facts item by item and presents the verification table plus any human-judgment facts as the
 sign-off agenda, instead of an unstructured "come look."
 
-To run fully hands-off through all project checkpoints, pass `--autonomous` to `tk next`, or set
-`policy.autonomous_mode: true` in `.tick/config.json`. Other awaiting types (work, approval,
-input, …) still gate in autonomous mode — only checkpoint boundaries flow through.
+In tk a checkpoint always gates; flowing through project checkpoints unattended is a runner
+policy (ticfac's), not a tk flag.
 
 ---
 

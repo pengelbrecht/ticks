@@ -5,254 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.32.0] - UNRELEASED — do not tag from `main` yet
+## [0.32.0] - 2026-09-26
 
-> **Held deliberately (Peter, 2026-08-31).** Tagging this from `main` would
-> publish the cloud factory for the first time — 30 `tk factory` / `tk cloud`
-> command files plus the embedded Worker bundle, about 9% of the binary — in the
-> same release cycle it is being extracted out of this repo, and a later release
-> would then remove it again. The extraction (project `a4n`) is mid-flight; the
-> next tag comes once it settles what ships from where. This is why v0.31.1 was
-> cut from the v0.31.0 tag rather than from `main`.
-
-### Fixed
-
-- **The orchestrator guard judges the run's scope, and `--clear` sticks (`cmd/tk/cmd/herd_watch.go`, `frontier.go`, `close.go`)** —
-  `tk herd guard` consulted a repository-wide frontier, so an orchestrator running one epic
-  in a repository with other open work was nudged as "idle" while its workers were live:
-  six false nudges in one run, every named tick from another epic. And `tk herd watch
-  --clear` deleted the registration, which the next `tk herd spawn` — arming being automatic —
-  wrote straight back. Now the watch carries a **scope** (the epic of the first spawned tick,
-  or `tk herd watch --scope <id>` for an epic or project), the guard evaluates `tk frontier`
-  within it, and the nudge names it. A scope is the container's whole subtree, not its direct
-  children, so `tk frontier <project>` sees its epics' ticks. `--clear` leaves a tombstone spawn
-  respects; an explicit `tk herd watch <target>` replaces it. The close-time verdict
-  (`tk close`) is scoped the same way: an ordinary tick to its epic, an epic or its close-out
-  to the enclosing project. (tick t62)
-
-- **The Phase 0 contracts said things nothing checked (`contracts/` bundle `3.0.0`, `credential-ownership.json`, `ticfac-run-state.json`, `job-protocol.json`, `lifecycle-invariants.json`, `tk-json-manifest.json`, both readers of each; `cloud/factory/test/schema-subset.ts` deleted)** — epic 692's final review, and every item is one failure wearing different clothes: **a fixture that reads as if it asserted something, with nothing on either side actually asserting it.** `credential-ownership.json` was the only contract using keywords outside the strict subset (`oneOf`, `const`, `minLength`, `format`, `pattern`), so *both* readers hand-rolled a partial walk over it, both silently ignored what they did not carry, and `format: uri` meant `url.ParseRequestURI` in Go and `new URL` in TypeScript — two different claims wearing one word; the schema is now `type`/`enum`/`additionalProperties` only, validated by the strict validator on both sides, with the rest demoted to `description`, which is honest about being prose. **Every negative example everywhere now pins the refusal it expects**: `credential-ownership.json` shipped none at all (nothing had ever watched its schema refuse a document; it now has five) and `ticfac-run-state.json`'s seven carried a `why` sentence and nothing else, so a case could start failing for an unrelated reason and stay green — the whole point of `json-schema.ts` matching Go's refusal text character for character. **One TypeScript strict-subset validator, not two**: `test/schema-subset.ts` was a second, weaker copy (`required` checked with `in`, keyword values not type-checked, divergent error text, no unknown-keyword test) — a second spelling of one rule, reproduced inside the machinery that exists to catch second spellings — and `tk-json-manifest.json`'s schemas are now parsed strictly on the TypeScript side too, where before only `$ref` resolution was checked. **The lifecycle suite's `wipe_threshold_ms` was `600000`, which is `WORKFLOW_STEP_TIMEOUT_MS`** — the Workflow step cap, not a wipe threshold; the real one is `SANDBOX_SLEEP_AFTER = "20m"`. Every inequality the two readers asserted held, both agreed, and the fixture described a host that does not exist, because a relation between two numbers cannot tell you either is the right number. Each threshold now names the constant it must equal and the reader that can reach it asserts equality — TypeScript imports `SANDBOX_SLEEP_AFTER`, `MAX_POLL_MS` and `STEP_WORK_BUDGET_MS`; Go reads `entrypoint.sh`'s `TICKS_KEEPER_INTERVAL` default. **The negative controls are per guard** (disabling A1's and A13's two together let the first one's divergence satisfy the whole control), each with a blast-radius assertion that every other invariant stays green while it is off; and **A10's `.tick/`/`.ticfac/` prefixes moved out of both harnesses into the JSON**, since a boundary hard-coded twice is a boundary the fixture describes and does not define. Also: `job-protocol.json`'s `review-epic` evidence golden is epic-level (`tick_id: null`, the integration ref in both ref fields, `acceptance: "required"`) as SPEC §6.3 defines the role, instead of a tick-level advisory record no §6.3 review could have produced; and the `tk --json` manifest now **records what it does not publish** — SPEC §3.1 listed `tk sandbox image|setup|substrate|worker-prompt --json` and `tk ask … --json`, but no `sandbox` subcommand registers `--json` at all and `tk ask --json` means *read the question from stdin as JSON*, so a host reimplementing that list would have blocked on an empty stdin. The gap is in the manifest's `$comment` and asserted from both sides; §3.1 and `contracts/README.md` were corrected to the manifest rather than the reverse. No new `--json` flag was implemented — that is a release decision about tk's published surface, not a fixture edit. Tests and fixtures only; `cloud/factory` moves its pin to `3.0.0`.
-
-- **`tk herd plugin` — provision the guard's trigger instead of assuming it (`cmd/tk/cmd/herd_plugin.go`)** — the watchdog is armed by `tk` but *invoked* by the herdr-ticks plugin's `pane.agent_status_changed` hook, which is the one environment dependency left in the anti-stall path. It failed silently for the whole life of the feature, and not by being absent: on the maintainer's own machine the plugin was **installed and enabled**, pinned to a GitHub commit three weeks older than `guard-hook.sh`. Every presence check passed; the guard never ran once. So the check is for the **hook**, never for a version — the plugin reports `0.1.0` both before and after the guard landed, so a version comparison would have said healthy throughout. `tk herd plugin` reports herdr/installed/enabled/guard-hook and the resolved commit; `--install` installs or updates (idempotent); `--check` exits **10** (`ExitPluginUnhealthy`) when the guard cannot fire, its own code because the next action is neither a retry nor a config fix. The first `tk herd spawn` of a run — the same call that arms the watch — warns when it has armed a watchdog the plugin cannot serve, so a skipped run-start step is loud rather than silent; the check is gated on `HERDR_ENV=1`, since outside a herdr pane there is no plugin host to be unhealthy. Nothing here starts a herdr server, workspace or TUI: `herdr plugin list` is read-only.
-
-- **`tk close` now reports whether the close is a stopping point (`cmd/tk/cmd/close.go`)** — the substrate-neutral half of the same problem. "End a turn on a dispatch, never on a close" is the doctrine, and a close is exactly where the stall lands: finishing a body of work triggers the instinct to summarise and hand control back. Every countermeasure until now was something *separate* that had to be installed or remembered — a herdr plugin hook (absent entirely on a machine without herdr, and three weeks stale on the maintainer's own), a run-start registration nobody typed, a rule in a reference file that decays with context distance. This one rides the command the orchestrator is already running: nothing to install, nothing to configure, no multiplexer, harness or plugin in the path, and it cannot be uninstalled without uninstalling `tk`. Closing an **epic** or a **closeout-role** tick with an actionable frontier prints a loud directive naming what is dispatchable; an ordinary wave close gets one quiet `frontier:` line, so a wave of closes does not drown the signal; a frontier at rest says so on the loud path and stays silent on the quiet one. Advisory in both directions — a frontier that cannot be evaluated prints nothing and never fails the close.
-
-- **The orchestrator watchdog is now armed by dispatch, not by memory — it had never fired once (`cmd/tk/cmd/herd_spawn.go`, `herd_watch.go`)** — a *worker* is supervised as a side effect of being dispatched: `tk herd spawn` writes its manifest, and `tk herd notify` enumerates those manifests to find the roster. The *orchestrator* had no such thing. It was supervised only if somebody typed `tk herd watch <pane>`, and **nothing in the codebase ever typed it** — the command had zero callers. So the guard hook file-tested for `.watch-orchestrator.json`, did not find it, and exited 0; `tk herd guard` then no-opped on the same absence a second time. Silent by construction, on every run since it shipped a day earlier. That asymmetry is now closed at the point that created it: **the first `tk herd spawn` of a run arms the watch**, reading the orchestrator's own pane from `HERDR_PANE_ID` — which spawn has, because the orchestrator is the process running it. An existing registration always wins and is never overwritten, since re-arming each spawn would reset the guard's episode memory mid-stall, exactly when it must not be. Arming failure is advisory: a run without a safety net still dispatches. Relatedly, **a bare `tk herd watch` now self-targets** instead of exiting 2. This does not weaken the explicit-target rule — that rule bans defaulting to whatever herdr has *focused*, which answers a question about the operator; `HERDR_PANE_ID` is set by herdr in the pane's own shell, so reading it is the server naming the process's own identity. Only a direct child of the pane's shell has it, so this reaches the orchestrator and never a plugin hook. The run charter and the loop's run-start step now carry the one-line confirmation (`tk herd watch --status`) rather than the arming ritual, because the ritual is gone. Still open (tick `0vz`): the guard's mechanical *trigger* remains the herdr plugin hook, so on a machine without the plugin the watchdog is armed and never invoked.
-
-- **`tk skills install` can no longer delete a directory full of other skills** —
-  `--dir` names the skill's *own* directory, but without `--dir` the skill name is
-  appended for you, and that asymmetry reads as "put ticks in my skills folder"
-  when it means "make this folder BE the ticks skill". Run as
-  `tk skills install ticks --dir ~/.claude/skills --force`, it destroyed 44 skills:
-  the stamp check *did* refuse the first attempt, but it could only say "not
-  tk-managed", which sounds like one stale directory, so `--force` looked like the
-  fix. Install now detects a skills **parent** — no `SKILL.md` at the root, but one
-  or more children that have one (symlinked children included, since that is how
-  skills.sh installs) — and refuses it as `ErrSkillsParent`, naming the siblings at
-  risk and the `--dir` you probably meant. **`--force` does not override this
-  refusal**, because the whole failure was `--force` being reached for after an
-  error message that undersold the blast radius, and no legitimate install ever
-  targets a folder full of other skills. The `--dir` help and command doc now state
-  the append asymmetry outright.
+ticks is now the tracker and nothing else. Running epics — waves, workers,
+sandboxes, the cloud factory, merging and close-out — moved to
+[ticfac](https://github.com/pengelbrecht/ticfac), which drives ticks through
+`tk --json`. This is the first release since that extraction began, so it
+removes more than it adds.
 
 ### Added
 
-- **SPEC Appendix A's thirteen lifecycle invariants are now a conformance suite every executor must pass (`contracts/lifecycle-invariants.json` (new), bundle `2.1.0`, `internal/factory/lifecycle/` (new), `cloud/factory/test/lifecycle-invariants.test.ts` + `lifecycle-harness.ts` (new); `repo-wiki/lifecycle-invariants-suite.md`)** — Appendix A's preamble says what these are: "Each of these was paid for by a failed cloud run before it was written down. They are conformance tests, not guidance." Until now they were prose in a design document, which is the one form in which a rule that cost a live run to learn can be re-broken for free. §12 Phase 0 step 7 asks for them "before any reconciler code exists", and that ordering is the hard part — the code that will get them wrong is in another repository and has not been written. So the suite **ships with its own executor**: a fake harness modelling exactly what the thirteen rules depend on and nothing else (a stop record, credentials, jobs, an origin, a host step, a poll cadence, holds, claims, a budget, evidence), with a closed thirty-op vocabulary, implemented independently on both sides. No git, no container, no network, no clock — it runs where the reconciler does not exist, and ticfac inherits it unchanged in Phase 1. **Thirteen named tests**, `TestA1…TestA13` in Go and thirteen `it`s in vitest, each carrying the live failure that earned it (the closeout pass that read no stop record and minted a fresh credential over an operator's revocation; the wave that killed its own supervisor at minute ten; run_62c289d1's correct accounting and wrong cadence; the worker that died holding 643 uncommitted lines and settled looking finished; the escalation table with two writes and zero reads; `--max-cost 40` silently becoming $8) and the symbols the rule lives in **today** — all thirteen name a `run-workflow.ts` symbol, which is §12 step 7's point about why that file is 3,500 lines: §9.2 preserves the symbols, this preserves the reasons. The **Go** reader greps each named file and requires each named symbol to still be in it, so a cross-reference that rots fails a test rather than sending the next reader somewhere the rule is not; the vitest reader executes inside workerd, which has no filesystem, so it checks the cross-reference's shape and leaves the existence check to Go. **Every rule names a guard, and every guard is proven to bite:** fifteen named guards, one or two per invariant, each individually disableable, and each test disables them ONE AT A TIME — each guard on its own must make at least one of its invariant's sequences stop matching, and every OTHER invariant must stay green while it is off, so a guard two rules were quietly sharing fails instead of passing. (Disabling an invariant's guards together, as the first cut did, cannot see a dead guard: for A1 and A13 the first guard's divergence satisfied the whole control while the second could have stopped enforcing anything.) That is `ticfac-run-state.json`'s CAS negative control generalised, and it is not ceremony — these thirteen failures are all the quiet kind (a boundary that stopped enforcing, a poll that stopped keeping alive, a fingerprint nobody checks) and none of them raise. The op vocabulary is closed over **both** modes on purpose: `recorded`, `stuck_awaiting_claimer` and `reported_requested` are unreachable with the guards on because they are what a *wrong* implementation produces. `gate` is part of the contract — it names the reconciler and each executor the SPEC plans, says the invariants may not be waived by a profile, a deployment var or a prompt, and records that a new **executor** re-runs the suite while a new runner does not (claude, codex and pi are runners on one worktree-per-attempt executor, so Appendix A is tested once). A13's four fingerprint fields are the one thing the file does not define: it maps Appendix A's English names onto `job-protocol.json`'s `$defs.provenance` and both readers follow the pointer, asserting each field is a property of provenance *and* required by it — the bundle 2.0.0 rule applied a third time. Tests only; no behaviour changed, and it is meant not to.
+- **`tk --json` is a published contract (`contracts/tk-json-manifest.json`, `internal/tkcontract`)** — the commands and output shapes a consumer may rely on, with `--json-contract <n>` / `TK_JSON_CONTRACT` to pin one; a contract this build cannot serve exits 11 before anything runs. Every published command is run and validated against its schema in CI.
+- **Tick gloss (`--gloss`)** — an optional short label, at most 40 characters, so a tick can be mentioned as `id (gloss)`. `tk show` heads a glossed tick with it, `tk list` shows it in place of the title, `--json` carries it. A longer gloss is refused, never truncated.
+- **`tk decide` / `tk decisions`** — log a provisional decision on a tick (question, choice, reason) and read them back as a table for reports and PR bodies.
+- **`tk frontier`** — one mechanical answer to "is there anything actionable here?" for a scope: actionable, in flight, waiting on a person, or done; `--check` exits 0/1 for scripts. `tk close` reports the same verdict after a close.
+- **Planning lint in `tk graph`** — unjustified human gates (a planned `--requires`/`--awaiting` with no recorded reason) and not-agent-ready ticks (no verification command, unquantified adjectives, placeholders, no files) are reported as warnings.
+- **The ticks skill ships with the repo (`skills/`)** and covers tracker use and authoring: good ticks, Definition of Ready, epic definitions of done as `[A<n>]` items, the review/close-out skeleton, projects and goal design.
+- **Contract bundle (`contracts/`, 7.0.0)** — `tk-json-manifest.json` and `tracker-layout.json`, versioned and digest-checked, for consumers to pin.
 
-- **The executor protocol's record schemas are frozen before any executor exists (`contracts/job-protocol.json`, bundle `1.2.0`, `internal/factory/jobprotocol/`, `cloud/factory/test/job-protocol.test.ts`)** —
-  ticfac SPEC §4.3 collapses WorkerProvider, Worker, Workspace and AgentRunner into
-  four operations (`start`/`inspect`/`cancel`/`collect`), and its whole value is that
-  the reconciler does not know which executor answered. Nothing enforces that: an
-  executor is free to return a JobStatus whose `terminal` flag disagrees with its
-  `state`, and a controller reading it either waits forever or disposes a live
-  workspace. So the seven records — JobSpec, JobHandle, JobStatus, the cancel
-  acknowledgement, JobResult, the role-result envelope and the evidence record — are
-  now versioned JSON Schemas in the contract bundle, each with a `schema_id` and
-  `schema_version`, **written before the code that implements them** rather than
-  extracted from it afterwards.
+### Changed
 
-  The schemas ship with the documents they admit and the documents they must refuse.
-  SPEC §4.3's illustrative JobSpec is a golden example, so the design document's own
-  printout cannot quietly stop validating; eighteen negative examples each pin the
-  exact refusal text, because "something failed" is also satisfied by a validator
-  that has stopped checking the thing the case was written about. Three rules that
-  were prose are now things a document can fail: a cancel acknowledgement must state
-  `credentials_revoked: true` and `order: revoke-then-stop` (a job stopped before its
-  credentials are revoked holds a live one across the gap, and a restart inside that
-  gap boots with it); a flat-rate credential must state `budget_field: null` rather
-  than omit it, so "no budget to enforce" and "budget forgotten" stop looking
-  identical; and a failed JobResult must name a `failure_class`, which is what keeps
-  `quota_exhausted` distinguishable from a broken route later, when only the record
-  survives.
+- **Checkpoints always gate.** `awaiting: checkpoint` is waiting like every other awaiting type; flowing through checkpoints unattended is a runner's policy, not a tk flag. An old `.tick/config.json` with `policy.autonomous_mode` still loads; the key is ignored.
+- **Claims are never refused for wave width.** `tk update --status in_progress` no longer reads `[orchestration].max_parallel`; exit codes 8, 9 and 10 are retired. `tk graph --json`'s `dispatch` block keeps its keys with no width (`max_parallel` 0, `free` -1; `now` lists every unclaimed agent-ready wave-1 tick).
+- **`tk` with no known command** prints the usage, which is now derived from the registered commands; `tk help` works like `tk --help`.
 
-  Both halves read it — `internal/factory/jobprotocol` in Go and
-  `cloud/factory/test/job-protocol.test.ts` in TypeScript — through the same strict
-  JSON Schema subset, whose two implementations produce byte-identical refusal
-  messages so one fixture can assert against both. Cross-contract, the cost and stop
-  semantics are checked against `credential-ownership.json` and the role-result
-  status vocabulary against `collect-vocabulary.json`: a second spelling of a rule
-  already written down is invisible drift, since each file stays consistent with
-  itself.
+### Removed
 
-- **One evidence record, defined once and checked ACROSS contract files (`contracts/job-protocol.json`, `contracts/ticfac-run-state.json`, bundle `2.0.0`, `internal/factory/jobprotocol/`, `internal/factory/runstate/`, `cloud/factory/test/evidence-record.test.ts`)** —
-  bundle `1.2.0` shipped two descriptions of one file,
-  `.ticfac/runs/<run-id>/evidence/<key>.json`: `job-protocol.json`'s
-  `records.evidence` published `ticfac.evidence.v1` flat and closed, while
-  `ticfac-run-state.json` carried its own `evidence_envelope` requiring a nested
-  `provenance` object and a `key`. **No document satisfied both** — validating
-  the run-state golden example against `records.evidence` produced 22 violations
-  — and every suite was green, because each validated its own examples against
-  its own schema. Nothing in the bundle was looking *across* files, so nothing
-  in the bundle could see it. `2.0.0` is MAJOR because settling it makes every
-  1.2.0 writer wrong: the fourteen flat provenance fields become one shared
-  `$defs.provenance` object that checkpoint, attempt, decision and evidence all
-  carry; `key` is required and is the record's identity; `evidence_ref` names
-  that `key` (`evidence_id` is gone, so a citation resolves to the record it
-  names); `acceptance` keeps one vocabulary, `required | advisory`, and the
-  run-state golden example's `"accepted"` — a *result* wearing an acceptance's
-  name — becomes a negative example. `ticfac-run-state.json` stops defining the
-  record and keeps `references.evidence`: it still owns where the file goes, how
-  it is written and the envelope; `job-protocol.json` owns what is in it.
-
-  **Two new checks, both of which look across files rather than inside one**,
-  because that is the only place this class of drift is visible. Each contract's
-  golden evidence example is now validated against the OTHER contract's rule
-  from both languages (`evidence_cross_contract_test.go` in both Go packages,
-  `evidence-record.test.ts`); and a bundle-wide rule — **a `schema_id` that
-  appears in more than one contract file resolves to exactly one definition** —
-  is enforced by `contracts.VerifySchemaIDs` (Go) and `verifySchemaIds`
-  (TypeScript), each with a negative control that re-creates the 1.2.0 shape and
-  asserts the refusal. The flat record and the `"accepted"` acceptance are kept
-  as negative examples, so the shape that used to validate against half the
-  bundle now fails loudly.
-
-- **The `.ticfac/` run-state layout, persistence policy and compare-and-swap rules are frozen as a contract (`contracts/ticfac-run-state.json`, `internal/factory/runstate/`, `cloud/factory/test/ticfac-run-state.test.ts`)** —
-  ticfac Phase 0 step 6 (SPEC §4.2, §10.4). ticfac keeps its run state in the
-  repository it executes against, and §10.4 already said what that looks like:
-  `runs/<id>/checkpoint.json` updated under a SHA guard, `attempts/<n>.json`
-  whose *existence* is the dispatch's idempotency marker, `evidence/<key>.json`
-  and `decisions/<n>.json` created once, plus a gitignored `.index.json` and
-  `logs/`. What it could not do as prose is fail a build. Two hosts implement
-  the same compare-and-swap through different machinery — a local host with
-  `git push --force-with-lease`, a Worker through the GitHub contents API,
-  which is a compare-and-swap on the branch ref — and that is the shape this
-  repository has already paid for once: a rule fixed on one side only, with
-  both suites green because each was consistent with itself.
-
-  So the contract carries a **five-operation in-memory git fake** (shared
-  origin, per-actor views that can go stale) and seven sequences replayed
-  against it on both sides: two reconcilers racing one dispatch, a restarted
-  reconciler replaying its own create, a stale view refused and re-fetched, an
-  update from an actor that never fetched, a local commit that is not durable,
-  and a poll that learns nothing and writes nothing. Both readers carry the
-  negative control the bundle's own checks set the precedent for — disable the
-  guard and every sequence expecting a refusal must go red — because the
-  failure here is silent: a guard that has stopped guarding does not raise, it
-  lets a second reconciler dispatch the same attempt and pays for both jobs.
-
-  Also pinned: record schemas with golden and negative examples validated from
-  Go (`internal/tkcontract`) and from TypeScript (an independently written
-  validator over the same strict subset, since a golden example only one
-  language validates proves one language agrees with itself); the envelope rule
-  that every committed file carries a `schema_version` and the provenance
-  fields of an evidence record; `durable means pushed on origin`, the terminal
-  record landing on the target ref exactly once, the `ticfac/run-<id>` tag
-  placed at *terminal state* rather than at merge so a cancelled run's history
-  is as reachable as a successful one's, and `ticfac gc`; and the `.gitignore`
-  fragment, which is in this repository's own `.gitignore` and checked with
-  `git check-ignore` rather than asserted in prose. The evidence record's own
-  fields are left to `contracts/job-protocol.json`'s `records.evidence`, which
-  landed in the same bundle version — this contract owns where an evidence file
-  goes and how it is written, that one owns what is in it. Contract bundle
-  `1.2.0`, which adds both.
-
-  **The two shapes shipped in 1.2.0 disagreed, and nothing could see it** —
-  `records.evidence` was flat and closed, this contract's `evidence_envelope`
-  required a nested `provenance` object and a `key`, no document satisfied
-  both, and both suites stayed green because each validated its own examples
-  against its own schema. Bundle `2.0.0` settled it (below): there is now ONE
-  evidence record, defined by `job-protocol.json`, and this contract keeps only
-  `references.evidence` — the path, the compare-and-swap mode and the
-  envelope. A consumer of `1.2.0` must read the `2.0.0` entry in
-  `contracts/CHANGELOG.md` before writing an evidence record.
-
-- **`contracts/` is now a versioned, pinned, executable bundle (`contracts/bundle.json`, `contracts/CHANGELOG.md`, `internal/contracts/`, `cloud/factory/scripts/contracts.mjs`)** —
-  the cross-language fixtures had a mechanism for *travelling* to a consumer after
-  the factory extraction, but no answer to the question a consumer actually asks:
-  **which version of the contracts is this code written against?** `contracts/` was a
-  directory, and a directory cannot be pinned. It is now a bundle with a `version`, a
-  file list and a sha256 per file, and `cloud/factory/contracts.pin.json` pins that
-  version by exact value in `bundleVersion` — the ticfac SPEC §3.2 requirement, which
-  `ref` did not discharge because `ref` names a module download, not a behavioural
-  contract. Both languages re-hash the fixtures against the manifest on every build:
-  `internal/contracts` in the CI `go` job's own named step, `verifyBundle` in
-  `pnpm contracts:check`. So a fixture edited without the bundle being re-cut fails
-  both. The harder half — a bundle **re-cut** without a version bump, which leaves
-  the manifest internally consistent again and is the one drift a pinned consumer
-  cannot see — is caught by `version_digests` (added in bundle `2.1.1`): the
-  manifest records a sha256 over each version's own `version` + `digests` the first
-  time that version is cut and never rewrites it, so the re-cut contradicts the
-  ledger and is refused by `make contracts-bundle`, by Go and by TypeScript, each
-  with a negative control that performs the dishonest re-cut. The changelog rule is executable too: a version with no
-  `contracts/CHANGELOG.md` entry is refused, because a version nobody can read the
-  meaning of tells a consumer nothing about what adopting it costs. And because a gate
-  nothing has ever seen fail is not known to be a gate, both sides ship **negative
-  controls** — `internal/contracts/bundle_test.go` and
-  `cloud/factory/scripts/contracts.test.mjs` — that deliberately break a fixture in a
-  throwaway copy and assert the check refuses it, discharging *a copied JSON file
-  without an executable check is not a contract* in the only form that means anything.
-  Re-cut a bundle with `make contracts-bundle`; it never bumps the version for you, on
-  purpose. No fixture bytes changed and no runtime behaviour changed: bundle `1.0.0`
-  freezes the nine existing contracts exactly as they were.
-- **`tk --json` is now a published contract, not an emergent one (`contracts/tk-json-manifest.json`, `internal/tkcontract`, `cmd/tk/cmd/version.go`)** —
-  SPEC §3.1 of the ticfac architecture makes `tk --json` the *only* tracker API: a
-  consumer orchestrates released `tk` behaviour and never imports `internal/`. That
-  only means something if the surface is written down and enforced, so it now is.
-  `contracts/tk-json-manifest.json` lists every command a consumer may call — the
-  reads (`version`, `show`, `list`, `ready`, `next`, `deps`, `graph`, `status`), the
-  controlled writes (claim, `update`, `note`, `close`, `reopen`) and the two git merge
-  drivers whose contract is an exit code rather than stdout — each with its argv, its
-  JSON schema, and the contract version it was added in. `tk version --json` reports
-  that contract number, the contracts this build can serve, and the minimum `tk`
-  release that serves them, so a consumer can decide compatibility from the binary
-  alone. **A caller can pin what it was built against and tk fails closed:**
-  `--json-contract <n>` (or `TK_JSON_CONTRACT`) is refused with exit **11** —
-  its own slot, because "install a different tk" is neither a retry nor a
-  command-line fix — *before* the command runs, `tk version --json` included, since
-  that call is how the mismatch is discovered. The manifest is not a document: its
-  Go reader runs all 15 published commands against a fixture repository and validates
-  the real stdout against the schema, and every fixture asserts the result is
-  substantive — an empty list validates against every schema in the file, which is how
-  `tk ready --json` first passed the suite while returning nothing. Schemas keep
-  `additionalProperties` open, so adding a field is not a break and only a removal or a
-  type change is. `tk note` gained `--json` to close the one gap in the write set: a
-  controlled write returns the record it wrote, so a consumer never follows a write
-  with a read. And the §3.1 qualification is part of the published file, not folklore —
-  a host that cannot execute a Go binary (a Cloudflare Workflow or isolate)
-  implements this same contract in its own language and proves it with the pinned
-  bundle in `contracts/`, `tracker-layout.json` first. Every host that can run `tk`
-  runs `tk`.
-
-
-- **The ticks skill is available to anyone who clones this repo (`skills/README.md`)** —
-  `.claude/skills/ticks` and `.agents/skills/ticks` are now checked-in symlinks back
-  to `skills/ticks/`, the source of truth, so a fresh clone has a working skill with
-  no install step and no second copy to drift. `skills/README.md` explains why
-  `tk skills install ticks` must not be run *inside* this repo: `--force` would swap
-  the symlink for a copy of whatever version the binary was last built from.
-
-- **Continuation doctrine against mid-epic orchestrator stalls (`skills/ticks/`)** — long autonomous runs were stalling on the orchestrator itself, in both shapes herdr can distinguish: `blocked` on its own harness's approval UI, and `idle` after voluntarily handing control back with an actionable frontier. The root causes are structural, not ignorance of the rules — every continuation rule was prompt-enforced and decayed with context distance, and asking was the only sanctioned way to discharge responsibility for a judgment call. The doctrine half ships now: a **Decide and log** ladder in `agent-runner.md` (look it up → standing orders → reversible: decide, `tk note "decision: …"`, proceed → irreversible: `tk ask`), with the PR + CI gate named as the approval surface for every reversible decision and a **Decisions taken** table required in retro/checkpoint reports and PR bodies; a **Standing orders** section in `.tick/config.md` (settled at goal-ready handoff) that pre-delegates decision classes so "am I allowed to decide this?" becomes a lookup; an explicit discipline rule that **chat is not an input surface during execution** — a question in session output stalls the whole run, `tk ask` stalls one tick; a ten-line `run-charter.md` re-read fresh at every post-wave gate as the context-decay countermeasure; and a herdr-runner section (*The orchestrator is an agent too*) requiring the orchestrator be launched with its kind's full-auto template and diagnosing stalls via `herdr agent explain`. The mechanical half is specified in `docs/design/orchestrator-continuation.md` and ships below.
-
-- **`tk decide` and `tk decisions` — the decide-and-log verb (`cmd/tk/cmd/decide.go`, `decisions.go`)** — `tk decide <id> --question … --choice … --reason … [--class <standing-order-class>]` records a provisional decision as a structured `decision:` note line; `tk decisions [container-id] [--json]` parses every such line (hand-written ones from older runs included) back into the **Decisions taken** table, subtree-scoped and including closed ticks, because review-by-exception happens after the fact. A decision is never a gate-clear: an *awaiting* tick is refused — the parked question is the human's, settled via `tk answer`/`tk approve` — while a `--requires` tick accepts decisions, which are exactly what the human reviews at the gate.
-
-- **`tk frontier` — the continuation predicate (`cmd/tk/cmd/frontier.go`)** — one mechanical answer to "is this run legitimately at rest?". `--check` exits 0 when dispatchable work exists — a ready open tick (labeled `implement`/`review`/`closeout` by role), an epic needing planning, or a herd worker whose `RESULT-<tick>.md` sits uncollected in its recorded worktree — and 1 when every open path waits on a human, is in flight, or the scope is done (2+ means the check itself failed, so hooks can branch on the code). In-flight workers without a result are deliberately never actionable: whether a silent worker is stale is reconcile's judgment, and nudging an orchestrator whose fleet is legitimately running would be noise. Autonomous mode flows through checkpoint boundaries exactly as `tk next` does. Harness- and substrate-neutral by construction — it reads only `.tick/`, the graph/next selection logic, and herd manifests — so any turn-end mechanism can wire it in.
-
-- **`tk herd watch` + `tk herd guard` + a plugin guard hook — the orchestrator watchdog (`cmd/tk/cmd/herd_watch.go`, `plugins/herdr-ticks/scripts/guard-hook.sh`)** — workers were already supervised; the one agent in a herd run nobody was watching is the orchestrator's own pane. `tk herd watch <agent-or-pane>` registers it at run start (explicit target, herdr's own rule — nothing guesses which pane the orchestrator is; state in `.tick/logs/herd/.watch-orchestrator.json`, one file for the run because the orchestrator spans epics like the unpinned dashboard). The herdr-ticks plugin's new `pane.agent_status_changed` hook then runs `tk herd guard`: `working` re-arms the episode; `idle` with an actionable frontier is prompted to continue — the nudge restates the charter and lands as the most recent thing in the orchestrator's context, the context-decay countermeasure in mechanical form — at most `--nudge-max` (default 3) per stall episode with a `--nudge-interval` floor (default 2m), then one `request` chime and silence; `idle` at rest is left alone; `blocked` chimes `request` once — the guard **never** answers an approval UI, for the orchestrator exactly as for workers. Edge-triggered against persisted state under a lock, same discipline as `tk herd notify`, so event storms and the paint feedback bounce judge once. (`tk herd orchestrate` — spawning the orchestrator itself through the helper with its kind's full-auto template — is deferred: it needs a pane-at-checkout herdr method the client does not model, and wire shapes here are pinned against live servers, never guessed.)
-
-- **Planning lint for unjustified human gates (`cmd/tk/cmd/graph.go`)** — "resolve is the default; awaiting is the exception you justify" was doctrine with no check. `tk graph` now warns on every open gated child (`--requires`, or a planning-time `--awaiting`; checkpoint and escalation are structural or mid-run by definition and not linted) that carries no `gate:` justification line in its description or notes, and reports the same ids as `unjustified_gates` in `--json`. The convention is one note — `tk note <id> "gate: <why planning could not settle this>"` — and the lint is a warning, never a refusal: gates stay cheap to create interactively; the target is planner output.
+- **Execution commands:** `tk cloud *`, `tk sandbox *`, `tk herd *`, `tk factory *`, `tk channel`, `tk tell`, `tk config migrate`, `tk merge`, and `tk next --autonomous` / `tk frontier --autonomous`. Their replacements live in ticfac (`ticfac run-epic`, `ticfac cloud`, `ticfac factory`, `ticfac herd`).
+- **The hosted board:** `tk board --cloud`, the ticks.sh Worker (`cloud/worker`) and its deploy job. `tk board` (the local board) is unchanged.
+- **The sandbox image scripts (`cloud/sandbox`)**, the pi runner extension (`extensions/ticks-runner`) and the herdr plugin (`plugins/herdr-ticks`).
+- **Runner configuration reading:** tk no longer reads `.tick/runners.toml`; the file and its schema belong to ticfac.
+- **Contract fixtures for ticfac's formats** (job protocol, run state, lifecycle invariants, collect vocabulary, run event feed, runners config, worker boot, message context, sweeps, signal sources, sandbox image, credential ownership) — ticfac authors them now. See `contracts/CHANGELOG.md` 7.0.0.
+- **The skill's runner references** (agent-runner, runners-config, herdr/prime/pi/claude/codex runners); running an epic is ticfac's documentation.
 
 ### Fixed
 
-- **`tk herd` talks to herdr 0.8.2, and the client now states a protocol RANGE instead of an exact match (`internal/herd/client/protocol.go`, `internal/herd/herdtest/replies.go`)** — a `tk` built against protocol 19 refused an 0.8.2 server outright, and the failure read as a connection problem rather than a version one. The pin itself shipped in **v0.31.1**, cut from the v0.31.0 tag; what remains here is the range policy. Three constants now say three different things, which is the part that was previously one number: `ProtocolVersion` (20) is what this client is written against, `MinProtocolVersion` (20) is the hard floor below which it fails closed and attempts no call, and `ProtocolWarnVersion` (20) is the highest version accepted silently. A server NEWER than the pin is assumed forward-compatible and proceeds with a warning routed to the caller, because an incompatible protocol is expected to arrive as a bumped minimum rather than as a break announced under the same version. **That policy rests on evidence, not optimism:** the 19 -> 20 shape diff was taken on 2026-08-25 against a live 0.8.2 server rather than assumed — `session.snapshot` is identical at the top level, and every difference below it is additive (`panes[]` gained `agent`, `agent_session`, `foreground_cwd`; `agents[]` gained `agent_session`, `cwd`, `foreground_cwd`, `state_change_seq`). Nothing this client decodes disappeared or changed meaning. One dated observation against one version — which is exactly why the floor remains a hard stop rather than a warning.
+- **`tk skills install` can no longer delete a directory full of other skills** — `--dir` pointing at a skills folder rather than the skill's own directory is refused.
+- **`tk close` reports whether the close is a stopping point** rather than leaving a caller to guess whether anything is still actionable.
 
 ## [0.31.1] - 2026-08-27
 

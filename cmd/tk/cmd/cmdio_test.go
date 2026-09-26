@@ -51,3 +51,16 @@ func channelTestHome(t *testing.T) string {
 	t.Setenv("TK_HOME", home)
 	return home
 }
+
+// captureCmdOutput redirects the cobra command output for one test.
+func captureCmdOutput(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	rootCmd.SetOut(&buf)
+	rootCmd.SetErr(&buf)
+	t.Cleanup(func() {
+		rootCmd.SetOut(nil)
+		rootCmd.SetErr(nil)
+	})
+	return &buf
+}

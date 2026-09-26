@@ -61,8 +61,7 @@ codegen-go: $(GO_JSONSCHEMA)
 		tick.schema.json \
 		activity.schema.json \
 		api/requests.schema.json \
-		api/responses.schema.json \
-		websocket/messages.schema.json
+		api/responses.schema.json
 
 	@# Format generated Go files
 	go fmt $(GO_GENERATED_DIR)/...
@@ -80,18 +79,17 @@ clean-generated:
 	rm -rf $(GO_GENERATED_DIR)
 	rm -rf internal/tickboard/ui/src/types/generated
 
-# Cross-language contract bundle.
+# Contract bundle (ticks' own formats: tk-json-manifest, tracker-layout).
 #
 # contracts/ is versioned so a consumer OUTSIDE this repository can pin it by
-# exact value — cloud/factory does today (contracts.pin.json "bundleVersion"),
-# ticfac will from its own repository. The version is only meaningful if it
-# always names the same bytes, so bundle.json records a sha256 per file and
-# both sides re-hash: internal/contracts (Go) and
-# cloud/factory/scripts/contracts.mjs (TypeScript).
+# exact value — ticfac does, in its contracts.pin.json. The version is only
+# meaningful if it always names the same bytes, so bundle.json records a sha256
+# per file; contracts-bundle-check re-hashes them here and ticfac's verifier
+# does the same on its side.
 #
 # This target never bumps the version. Bump it by hand, write the
-# contracts/CHANGELOG.md entry, then run this and move the factory pin — see
-# contracts/CHANGELOG.md for the rule.
+# contracts/CHANGELOG.md entry, then run this — see contracts/CHANGELOG.md for
+# the rule.
 contracts-bundle:
 	node scripts/contracts-bundle.mjs
 

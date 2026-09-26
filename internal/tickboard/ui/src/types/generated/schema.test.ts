@@ -27,7 +27,6 @@ import type {
   Note,
   BlockerDetail,
 } from './api/responses.js';
-import type { RunEventSource } from './websocket/messages.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // Path: src/types/generated -> ../../.. -> src -> ../.. -> internal/tickboard/ui -> ../../../schemas
@@ -179,27 +178,6 @@ describe('Schema Roundtrip Tests', () => {
       expect(blocker.id).toBe('tick-002');
       expect(blocker.title).toBe('Blocking task');
       expect(blocker.status).toBe('open');
-    });
-  });
-
-  describe('WebSocket messages', () => {
-    it('uses substrate-shaped run event sources', () => {
-      const sources = [
-        'cloud:orchestrator',
-        'cloud:worker',
-        'harness',
-        'herdr',
-        'pi',
-      ] satisfies RunEventSource[];
-      const schema = readSchema('websocket/messages.schema.json') as {
-        $defs: {
-          RunEventSource: {
-            enum: string[];
-          };
-        };
-      };
-
-      expect(schema.$defs.RunEventSource.enum).toEqual(sources);
     });
   });
 });

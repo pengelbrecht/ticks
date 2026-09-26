@@ -1,0 +1,17 @@
+{
+  "id": "th7",
+  "title": "Retire the ticks.sh cloud board",
+  "gloss": "retire cloud board",
+  "description": "Delete cloud/worker, cloud/DOMAIN_SETUP.md, internal/tickboard/cloud, tk board --cloud, the board UI's cloud comms and run panels (ui/src/comms/cloud*, live-run-panel, tickflow run store) and rebuild the static UI; drop release.yml's deploy-cloud; close nm8's children (rhn, qr4, s70) as retired.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "chz",
+  "acceptance_criteria": "The local board (tk board) still serves and its UI typecheck/test pass; no cloud code or deploy job remains; nm8's children are closed with reason retired.",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-09-26T14:04:25.945959603Z",
+  "updated_at": "2026-09-26T14:25:18.438878096Z",
+  "closed_at": "2026-09-26T14:25:18.438878096Z",
+  "closed_reason": "cloud/worker, tickboard/cloud, board --cloud, the UI's cloud and run panels, the WebSocket schema and deploy-cloud removed; local board serves; nm8 children closed as retired"
+}

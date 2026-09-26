@@ -5,7 +5,7 @@ import type { Tick, BoardTick } from '../types/tick.js';
 import type { Note, BlockerDetail } from '../api/ticks.js';
 import { parseNotes } from '../api/ticks.js';
 // Note: Action functions (approveTick, rejectTick, etc.) are imported from stores/comms.js
-// which provides unified communication handling for both local and cloud modes.
+// which provides unified communication handling for the board.
 import {
   approveTick,
   rejectTick,
@@ -767,9 +767,9 @@ export class TickDetailDrawer extends LitElement {
     this.savingAfter = true;
     this.afterError = '';
 
-    // Pass the current field values alongside the change: the cloud transport
-    // sends a full tick replacement built field-by-field from these updates,
-    // so omitting them would clobber the tick server-side.
+    // Pass the current field values alongside the change so the update is a
+    // complete tick: a transport that replaces the whole tick must not clobber
+    // fields the form did not touch.
     const updates: TickUpdate = {
       title: tick.title,
       description: tick.description,

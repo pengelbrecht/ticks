@@ -10,16 +10,16 @@
  * WHAT THIS DOES NOT DO: it never invents or bumps `version`, and it never
  * rewrites a `version_digests` entry it has already written. Those are the two
  * things a human has to do, and keeping them out of the generator is the point.
- * The bundle version is what cloud/factory pins by exact value today and what
- * ticfac will pin from another repository tomorrow, so adopting a contract
- * change has to be a visible act with a changelog entry behind it. A generator
+ * The bundle version is what ticfac pins by exact value from another
+ * repository, so adopting a contract change has to be a visible act with a
+ * changelog entry behind it. A generator
  * that helpfully bumped the version would turn every fixture edit into a
  * silent release, which is exactly the drift the version exists to make loud.
  *
  * So the loop is: edit the fixture -> bump `version` by hand -> write the
- * contracts/CHANGELOG.md entry -> run this -> update `bundleVersion` in
- * cloud/factory/contracts.pin.json. `internal/contracts` and
- * `cloud/factory/scripts/contracts.mjs` each fail if you stop halfway.
+ * contracts/CHANGELOG.md entry -> run this -> ticfac moves `bundleVersion` in
+ * its contracts.pin.json when it adopts the change. `--check` here (CI) and
+ * ticfac's own verifier each fail if you stop halfway.
  */
 
 import { createHash } from "node:crypto";
@@ -79,7 +79,7 @@ for (const name of files) {
 // exact value has no way to detect. So every version records a digest OVER its
 // digests, written the first time that version is cut and NEVER rewritten.
 // Re-cutting different bytes under a version already in the ledger is refused
-// here and by both verifiers.
+// here and by the consumer's verifier.
 function contentDigest(version, digestMap) {
   const canonical = [
     `${version}\n`,
@@ -101,7 +101,7 @@ if (recorded !== undefined && recorded !== digest) {
       `  version_digests[${bundle.version}]  ${recorded}\n\n` +
       "A fixture changed. Re-cutting under the same version would make the manifest\n" +
       "internally consistent again while the version silently came to mean something\n" +
-      "else — the one drift cloud/factory's exact-value pin cannot see. Bump `version`,\n" +
+      "else — the one drift ticfac's exact-value pin cannot see. Bump `version`,\n" +
       "add the contracts/CHANGELOG.md entry, and run this again. If the fixture edit was\n" +
       "a mistake, revert it instead.",
   );
@@ -132,6 +132,6 @@ console.log(
   `contracts-bundle: wrote ${files.length} contract(s) into contracts/bundle.json at version ${bundle.version}`,
 );
 console.log(
-  "contracts-bundle: now set \"bundleVersion\" in cloud/factory/contracts.pin.json to " +
-    `${bundle.version} and commit both.`,
+  `contracts-bundle: commit bundle.json with the CHANGELOG entry; ticfac adopts ${bundle.version} ` +
+    "by moving \"bundleVersion\" in its contracts.pin.json.",
 );

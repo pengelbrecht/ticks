@@ -1,7 +1,8 @@
 # Goal Design (project-level goals, 2026-08-14)
 
 Decision: goals became a **skill-layer-only** concept — `skills/ticks/references/goal-design.md`
-plus wiring in SKILL.md / big-picture.md / agent-runner.md. No new tick fields, no CLI commands.
+plus wiring in SKILL.md / big-picture.md (and, until 2026-09-26, the runner reference that
+moved to ticfac). No new tick fields, no CLI commands.
 Rationale: `acceptance_criteria` was carrying two loads (task gates vs. epic/project goals), and
 the Acceptance Evidence machinery already assumed enumerable `A<n>` items that were never
 structurally items. The fix structures the convention, not the schema: fact sheets as

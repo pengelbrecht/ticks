@@ -1,9 +1,8 @@
 #!/bin/bash
-# Build UI for both local embedding and Cloudflare deployment
+# Build the board UI for embedding in the tk binary
 #
-# Outputs:
-#   - internal/tickboard/server/static/    → For go:embed in tk binary (vite outputs here)
-#   - internal/tickboard/ui/dist/          → For Cloudflare deployment (copied)
+# Output:
+#   - internal/tickboard/server/static/    → go:embed in tk binary (vite outputs here)
 
 set -e
 
@@ -31,12 +30,5 @@ echo "Building UI version $VERSION..."
 # Build (vite.config.ts outputs to ../server/static/)
 pnpm run build
 
-# Copy to dist/ for Cloudflare deployment
-echo "Copying to $UI_DIR/dist/ for Cloudflare deployment..."
-rm -rf "$UI_DIR/dist"
-cp -r "$STATIC_DIR" "$UI_DIR/dist"
-
 echo ""
-echo "UI built successfully:"
-echo "  - $STATIC_DIR/    → go:embed in tk binary"
-echo "  - $UI_DIR/dist/   → Cloudflare deployment"
+echo "UI built successfully: $STATIC_DIR/ (go:embed in tk binary)"

@@ -10,12 +10,9 @@
 // internal/tkcontract, which wrap the bundles with a small API and document
 // the freshness guarantees.
 //
-// The deployable cloud factory worker (cloud/factory) and the sandbox image's
-// build context (cloud/sandbox) used to be embedded here too, for `tk factory
-// deploy`. That command left with the rest of the factory command surface
-// (tick 3r2, to ticfac); cloud/sandbox stays in this repo (internal/sandbox
-// still uses it to warm local worktrees) but is no longer embedded, since
-// nothing left in this binary needs to ship it.
+// The cloud factory worker and the sandbox image's build context used to be
+// embedded here too. Both belong to ticfac now (epic chz), so nothing else
+// ships inside this binary.
 package ticks
 
 import "embed"

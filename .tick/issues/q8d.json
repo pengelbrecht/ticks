@@ -1,0 +1,17 @@
+{
+  "id": "q8d",
+  "title": "Remove execution trees, scripts, docs and CI jobs",
+  "gloss": "remove execution trees and CI",
+  "description": "cloud/sandbox, extensions/ticks-runner, plugins/herdr-ticks; scripts for factory/herd/sandbox/pi (keep tracker, bundle, codegen, install, public-repo, build-ui, bench_tick/beads); execution docs and repo-wiki pages (keep factory-ticks-boundary, cross-language-contracts only if still true); root clutter (RESULT-*.md, hello/goodbye.txt, stray tk binaries). CI: drop changes/sandbox, worker, ticks-runner jobs and prune the go job's contract step.",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "parent": "chz",
+  "acceptance_criteria": "[A3] and [A6] of the epic; CI on the PR is green; the public-repo guard passes.",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-09-26T14:04:26.049196046Z",
+  "updated_at": "2026-09-26T14:25:18.765848454Z",
+  "closed_at": "2026-09-26T14:25:18.765848454Z",
+  "closed_reason": "cloud/sandbox, extensions/ticks-runner, plugins/herdr-ticks, benchmarks, execution scripts/docs/wiki, root clutter and the sandbox/worker/ticks-runner CI jobs removed; README says ticfac runs epics"
+}

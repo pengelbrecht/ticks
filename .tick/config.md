@@ -19,7 +19,7 @@
 ## Standing orders
 
 Decision classes pre-delegated to autonomous runs, with their defaults. Rung 2 of
-the decide-and-log ladder (`references/agent-runner.md` → *Decide and log*).
+the decide-and-log ladder (SKILL.md → *Decide and log*).
 
 The general test: **does the PR review see it?** Epic integration here goes through
 a PR + CI gate (see Rules), so a human reads every reversible decision with the diff
@@ -44,7 +44,7 @@ asking for sign-off the PR already provides.
 - **Anything one follow-up commit reverts.** The list above is what this has meant in
   practice, not a closed set.
 
-**Always ask** — `tk ask` when the frontier is empty, park-and-`tk tell` when it is
+**Always ask** — `tk ask`, whether the frontier is empty or
 still moving. Never a bare question in session output:
 
 - **Spending money, or consuming a paid quota.** Live example (2026-08-20): the

@@ -1,6 +1,6 @@
 /**
  * Tick state store.
- * Central state for all tick data synced between tk run <-> DO <-> Cloud UI.
+ * Central state for all tick data shown by the board.
  */
 import { atom, map, computed } from 'nanostores';
 import type { Tick, BoardTick, TickColumn } from '../types/tick.js';
@@ -184,7 +184,7 @@ export function setTicks(ticks: Tick[]) {
   $error.set(null);
 }
 
-/** Set all ticks from a Map (e.g., from CloudCommsClient) */
+/** Set all ticks from a Map (e.g., from a tick:bulk event) */
 export function setTicksFromMap(ticksMap: Map<string, Tick>) {
   // First pass: build raw tick map for blocker lookups
   const rawTickMap: Record<string, Tick> = {};
