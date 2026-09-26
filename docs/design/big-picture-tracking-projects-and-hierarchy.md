@@ -140,7 +140,7 @@ So project-boundary checkpoints and recursive frontier ascent are reachable only
 The skill's **super-epic material is recent enough that its documentation can be restructured**, not just appended to. Rather than bolting "Projects" on as a sibling of "Roadmaps," the two are merged into **one consistent big-picture narrative** so every super-epic feature — roadmaps, projects, buckets, and dates — is described together.
 
 - **`SKILL.md`** — the current "Roadmaps (multi-epic work)" section is rewritten into a unified **big-picture / super-epic** section covering the `tick → epic → project` ladder, the grouping-vs-orchestration principle (§1), roadmap edges (`--blocked-by`/`--after`), project checkpoints, and `target_date` as one story. Shown by **example, not mandate** (see below). The single-epic planning/execution guidance (Steps 0–5) is untouched.
-- **`references/agent-runner.md`** — the continuation/stopping-rule section gains the recursive-frontier rule (§5): epic→epic auto-continues; the last epic in a project hits the project close-out → checkpoint by default. Epic-level retro and learnings are unchanged.
+- **`references/agent-runner.md` (moved to ticfac on 2026-09-26)** — the continuation/stopping-rule section gains the recursive-frontier rule (§5): epic→epic auto-continues; the last epic in a project hits the project close-out → checkpoint by default. Epic-level retro and learnings are unchanged.
 - **`references/tick-patterns.md`** (or a new `references/big-picture.md`) — the convention ladder (§7) and a Definition-of-Ready note for containers (when to mark `epic` vs leave a passive bucket).
 
 ### Non-prescriptive stance
@@ -203,7 +203,7 @@ What is genuinely new (small), versus what is convention (free):
 
 **Skill (docs, additive at runtime — §8)**
 - `SKILL.md`: rewrite "Roadmaps" into one unified big-picture/super-epic section (roadmaps + projects + buckets + dates), with the worked examples; single-epic Steps 0–5 untouched.
-- `references/agent-runner.md`: recursive-frontier / project-checkpoint rule added to the stopping-rule section; epic flow unchanged.
+- `references/agent-runner.md` (moved to ticfac on 2026-09-26): recursive-frontier / project-checkpoint rule added to the stopping-rule section; epic flow unchanged.
 - `references/tick-patterns.md` (or new `big-picture.md`): convention ladder + container Definition-of-Ready.
 
 **Convention (skill docs, no code)**

@@ -7,12 +7,7 @@ import type { BoardTick, TickColumn, Epic } from '../types/tick.js';
 import { type Note, type BlockerDetail } from '../api/ticks.js';
 import {
   // Connection stores
-  $isCloudMode,
-  $localClientConnected,
-  $isReadOnly,
-  $effectiveConnectionStatus,
-  setCloudMode,
-  setLocalMode,
+  $connectionStatus,
   // Tick stores
   $ticksList,
   $epics,
@@ -32,9 +27,6 @@ import {
   setTicks,
   // Comms
   initCommsAutoConnect,
-  initLocalComms,
-  initCloudComms,
-  disconnectComms,
   // Read operations (comms wrappers)
   fetchTicks,
   fetchInfo,
@@ -54,7 +46,6 @@ initCommsAutoConnect();
 import './ticks-button.js';
 import './ticks-alert.js';
 import './roadmap-view.js';
-import './live-run-panel.js';
 
 // Column definitions for the kanban board
 const COLUMNS = [
@@ -382,10 +373,7 @@ export class TickBoard extends LitElement {
   private selectedTickParentTitleController = new StoreController(this, $selectedTickParentTitle);
   private loadingController = new StoreController(this, $loading);
   private errorController = new StoreController(this, $error);
-  private isCloudModeController = new StoreController(this, $isCloudMode);
-  private localClientConnectedController = new StoreController(this, $localClientConnected);
-  private isReadOnlyController = new StoreController(this, $isReadOnly);
-  private connectionStatusController = new StoreController(this, $effectiveConnectionStatus);
+  private connectionStatusController = new StoreController(this, $connectionStatus);
   private roadmapController = new StoreController(this, $roadmap);
   private roadmapLoadingController = new StoreController(this, $roadmapLoading);
   private roadmapErrorController = new StoreController(this, $roadmapError);
@@ -400,9 +388,6 @@ export class TickBoard extends LitElement {
   private get selectedTickParentTitle() { return this.selectedTickParentTitleController.value; }
   private get loading() { return this.loadingController.value; }
   private get error() { return this.errorController.value; }
-  private get isCloudMode() { return this.isCloudModeController.value; }
-  private get localClientConnected() { return this.localClientConnectedController.value; }
-  private get isReadOnly() { return this.isReadOnlyController.value; }
   private get connectionStatus() { return this.connectionStatusController.value; }
   private get roadmapData() { return this.roadmapController.value; }
   private get roadmapLoading() { return this.roadmapLoadingController.value; }
@@ -435,60 +420,11 @@ export class TickBoard extends LitElement {
     this.mediaQuery.addEventListener('change', this.handleMediaChange);
     document.addEventListener('keydown', this.handleKeyDown);
 
-    // Detect cloud mode from URL or config (sets store, auto-triggers comms connection)
-    this.detectCloudMode();
-
-    // Load data (comms handles SSE/WebSocket connection automatically)
-    if (!this.isCloudMode) {
-      this.loadData();
-    }
-  }
-
-  /**
-   * Detect if running in cloud mode.
-   * Sets cloud mode in store which auto-triggers sync connection.
-   */
-  private detectCloudMode() {
-    // Check URL path for cloud pattern: /p/<project-id>
-    const pathMatch = window.location.pathname.match(/^\/p\/(.+?)(?:\/|$)/);
-    if (pathMatch) {
-      const projectId = decodeURIComponent(pathMatch[1]);
-      console.log('[TickBoard] Cloud mode detected, project:', projectId);
-      setCloudMode(projectId);
-      return;
-    }
-
-    // Check localStorage for project config
-    const storedProject = localStorage.getItem('ticks_project');
-    if (storedProject) {
-      console.log('[TickBoard] Cloud mode from localStorage, project:', storedProject);
-      setCloudMode(storedProject);
-      return;
-    }
-
-    // Check if served from ticks.sh (not localhost)
-    if (window.location.hostname === 'ticks.sh' || window.location.hostname.endsWith('.ticks.sh')) {
-      const projectFromUrl = new URLSearchParams(window.location.search).get('project');
-      if (projectFromUrl) {
-        console.log('[TickBoard] Cloud mode from query param, project:', projectFromUrl);
-        setCloudMode(projectFromUrl);
-        return;
-      }
-    }
-
-    console.log('[TickBoard] Local mode');
-    setLocalMode();
+    // Load data (comms handles the SSE connection automatically)
+    this.loadData();
   }
 
   private async loadData() {
-    // In cloud mode, data comes from CloudCommsClient WebSocket, not local API
-    if (this.isCloudMode) {
-      console.log('[TickBoard] Cloud mode: waiting for data from CloudCommsClient');
-      setLoading(true);
-      // Loading state will be cleared when CloudCommsClient receives state
-      return;
-    }
-
     setLoading(true);
     setError(null);
 
@@ -1001,16 +937,13 @@ export class TickBoard extends LitElement {
     // Select tick in store - computed stores will derive notes, blockers, parent title
     selectTick(tick.id);
 
-    // In local mode, fetch detailed tick info to ensure notes are up-to-date
-    // (The computed store parseNotes works for both modes, but local API may have more detail)
-    if (!this.isCloudMode) {
-      try {
-        const details = await fetchTickDetails(tick.id);
-        // Update the tick in store with full details
-        updateTick(details);
-      } catch (err) {
-        console.error('Failed to fetch tick details:', err);
-      }
+    // Fetch detailed tick info to ensure notes are up-to-date
+    try {
+      const details = await fetchTickDetails(tick.id);
+      // Update the tick in store with full details
+      updateTick(details);
+    } catch (err) {
+      console.error('Failed to fetch tick details:', err);
     }
   }
 
@@ -1095,7 +1028,6 @@ export class TickBoard extends LitElement {
         selected-epic=${this.selectedEpic}
         search-term=${this.searchTerm}
         connection-status=${this.connectionStatus}
-        ?readonly-mode=${this.isCloudMode && !this.localClientConnected}
         @search-change=${this.handleSearchChange}
         @epic-filter-change=${this.handleEpicFilterChange}
         @create-click=${this.handleCreateClick}
@@ -1104,11 +1036,6 @@ export class TickBoard extends LitElement {
         @dashboard-toggle=${this.toggleDashboard}
         @roadmap-toggle=${this.toggleRoadmap}
       ></tick-header>
-
-      <!-- Live run, when one is streaming (tick bne). Its own surface, never
-           the columns: the stream is observability, and a tick still only
-           moves when the tracker says so. -->
-      <live-run-panel></live-run-panel>
 
       <!-- Toast notification stack -->
       <tick-toast-stack></tick-toast-stack>
@@ -1120,7 +1047,6 @@ export class TickBoard extends LitElement {
         .notesList=${this.selectedTickNotes}
         .blockerDetails=${this.selectedTickBlockers}
         parent-title=${this.selectedTickParentTitle}
-        ?readonly-mode=${this.isCloudMode && !this.localClientConnected}
         @drawer-close=${this.handleDrawerClose}
         @tick-updated=${this.handleTickUpdated}
       ></tick-detail-drawer>

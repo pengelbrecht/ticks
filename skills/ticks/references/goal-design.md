@@ -48,7 +48,7 @@ Nothing new is invented; the protocol's outputs land in existing homes:
 |---|---|
 | Goal statement (2–3 sentences: outcome + why) | The project's `description` |
 | Fact sheet (discrete, testable outcome statements) | The project's `acceptance_criteria`, as `[A<n>]`-marked lines |
-| Auto-verifiable facts | Proposed `[evidence.acceptance]` mappings in `.tick/runners.toml` (human approves the edit) |
+| Auto-verifiable facts | Each line names the command that proves it; the runner's evidence mapping (ticfac's `[evidence.acceptance]` in `.tick/runners.toml`) is a human-approved edit |
 | Human-judgment facts | Lines tagged `(human judgment)` in the same list — they become the checkpoint's review agenda |
 
 An epic's definition of done uses the same shape — `[A<n>]` lines, each runnable (names the
@@ -145,8 +145,8 @@ Then:
 
 - **Propose** an `[evidence.acceptance]` mapping in `.tick/runners.toml` for each
   auto-verifiable fact (`A<n> = "<command-id>"`, the id naming a command defined in
-  `[testing.commands]` or `[evidence.commands]`). The human reviews and approves the edit —
-  the file is controller-owned and tracker/model prose never authorizes shell; the human
+  `[testing.commands]` or `[evidence.commands]`; the file's format is ticfac's). The human
+  reviews and approves the edit — the file is controller-owned and tracker/model prose never authorizes shell; the human
   committing the mapping *is* the authorization.
 - Only then plan the project's child epics. Each epic's own definition of done should serve
   identifiable facts; a fact no epic serves is a coverage gap, and an epic serving no fact is
@@ -156,7 +156,7 @@ Then:
 
 The project checkpoint stops being "pause for a look" and becomes "here is the goal, here is
 the evidence." When the run reaches the project boundary (the close-out carrying
-`--awaiting checkpoint` — see `agent-runner.md` → Continuation semantics):
+`--awaiting checkpoint` — see SKILL.md → *Continuation and stopping*):
 
 1. Walk the project's `[A<n>]` facts item by item, exactly as epic close-out walks its
    acceptance: behavior exists, evidence command (where mapped) runs in its authorized phase
@@ -166,9 +166,9 @@ the evidence." When the run reaches the project boundary (the close-out carrying
    the checkpoint report.
 3. Present human-judgment facts as the explicit review agenda for the sign-off.
 
-**In autonomous mode**, verify *before* flowing through the checkpoint: every auto-verifiable
-fact passes and no human-judgment facts exist → continue; anything else → stop and escalate
-despite autonomous mode. **Verification failure outranks autonomous flow-through.** The epics
+**When a runner flows through checkpoints unattended**, it verifies *before* flowing through:
+every auto-verifiable fact passes and no human-judgment facts exist → continue; anything else →
+stop and escalate. **Verification failure outranks unattended flow-through.** The epics
 all closing is not the goal being met.
 
 **When verification fails** (epics closed, benchmark shows 12% not 30%): surface the gap to the
@@ -180,9 +180,9 @@ relabel an unmet fact as "follow-up."
 
 The *Goal-ready handoff* decision in SKILL.md extends naturally to projects: a project whose
 facts are all auto-verifiable with approved evidence mappings is safe to hand off end-to-end —
-`tk next --autonomous` can run every epic, verify the goal at the boundary, and stop only on a
-real gap. A project with human-judgment facts always stops at its checkpoint, autonomous mode
-or not. Make this an explicit decision with the human before launching, not something the run
+a runner (ticfac) can run every epic, verify the goal at the boundary, and stop only on a real
+gap. A project with human-judgment facts always stops at its checkpoint, however the run is
+configured. Make this an explicit decision with the human before launching, not something the run
 slides into.
 
 ---

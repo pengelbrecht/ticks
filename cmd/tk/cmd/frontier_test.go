@@ -7,13 +7,12 @@ import (
 	"strings"
 	"testing"
 
-	herdstate "github.com/pengelbrecht/ticks/internal/herd/state"
 	"github.com/pengelbrecht/ticks/internal/tick"
 )
 
-// tk frontier is the continuation predicate: exit 0 must mean "an orchestrator
-// should be dispatching", exit 1 must mean "legitimately at rest", and the
-// classification must never read a live worker as actionable.
+// tk frontier is the continuation predicate: exit 0 must mean "someone should
+// be picking up work", exit 1 must mean "legitimately at rest", and a claimed
+// tick is never read as actionable.
 
 func frontierTestSetup(t *testing.T) (string, *tick.Store) {
 	t.Helper()
@@ -100,7 +99,10 @@ func TestFrontierAtRestOnAwaiting(t *testing.T) {
 	}
 }
 
-func TestFrontierCollectVsInFlight(t *testing.T) {
+// A claimed tick is in flight, never actionable: tk has no worker evidence to
+// judge it by, and a claim is the claimant's to finish. A RESULT file lying in
+// the repository changes nothing — the tracker no longer reads runner output.
+func TestFrontierInProgressIsInFlight(t *testing.T) {
 	repo, store := frontierTestSetup(t)
 
 	epic := makeTestEpic("e01")
@@ -115,58 +117,22 @@ func TestFrontierCollectVsInFlight(t *testing.T) {
 			t.Fatalf("write: %v", err)
 		}
 	}
-
-	// Three workers: t01 has written a complete result (collectable), t02 has
-	// none, t03's result exists but carries no STATUS: line (mid-write or a
-	// crashed worker) — both of the latter are in flight, never actionable:
-	// pointing "collect" at a file tk herd collect will refuse is noise.
-	third := makeTestTask("t03")
-	third.Parent = "e01"
-	third.Status = tick.StatusInProgress
-	if err := store.Write(third); err != nil {
-		t.Fatalf("write: %v", err)
-	}
-	for _, id := range []string{"t01", "t02", "t03"} {
-		worktree := filepath.Join(repo, "worktrees", id)
-		if err := os.MkdirAll(worktree, 0o755); err != nil {
-			t.Fatalf("mkdir worktree: %v", err)
-		}
-		if _, err := herdstate.Write(repo, herdstate.Manifest{
-			Tick:     id,
-			Epic:     "e01",
-			Branch:   "tick/" + id,
-			Worktree: worktree,
-			Agent:    "tick-" + id,
-		}); err != nil {
-			t.Fatalf("write manifest: %v", err)
-		}
-	}
-	result := filepath.Join(repo, "worktrees", "t01", "RESULT-t01.md")
-	if err := os.WriteFile(result, []byte("STATUS: DONE\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, "RESULT-t01.md"), []byte("STATUS: DONE\n"), 0o644); err != nil {
 		t.Fatalf("write result: %v", err)
-	}
-	partial := filepath.Join(repo, "worktrees", "t03", "RESULT-t03.md")
-	if err := os.WriteFile(partial, []byte("half a report, no status yet"), 0o644); err != nil {
-		t.Fatalf("write partial result: %v", err)
 	}
 
 	r := frontierJSONReport(t)
-	if !r.Actionable {
-		t.Fatalf("a collectable worker is actionable: %+v", r)
+	if r.Actionable {
+		t.Fatalf("claimed ticks are in flight, not actionable: %+v", r)
 	}
-	if len(r.Items) != 1 || r.Items[0].Action != "collect" || r.Items[0].TickID != "t01" {
-		t.Errorf("items = %+v, want exactly [collect t01]", r.Items)
-	}
-	inFlight := map[string]string{}
-	for _, f := range r.InFlight {
-		inFlight[f.TickID] = f.Worker
-	}
-	if len(inFlight) != 2 || inFlight["t02"] != "tick-t02" || inFlight["t03"] != "tick-t03" {
-		t.Errorf("in_flight = %+v, want t02 and t03 (a statusless result is not collectable)", r.InFlight)
+	if len(r.InFlight) != 2 {
+		t.Errorf("in_flight = %+v, want t01 and t02", r.InFlight)
 	}
 }
 
-func TestFrontierRolesAndAutonomousCheckpoint(t *testing.T) {
+// Roles pick the action; a checkpoint waits on a human like every other
+// awaiting type, and there is no flag that flows through it.
+func TestFrontierRolesAndCheckpoint(t *testing.T) {
 	_, store := frontierTestSetup(t)
 
 	review := makeTestTask("rev")
@@ -181,7 +147,6 @@ func TestFrontierRolesAndAutonomousCheckpoint(t *testing.T) {
 		t.Fatalf("write: %v", err)
 	}
 
-	// Without autonomous: the review tick is actionable, the checkpoint waits.
 	r := frontierJSONReport(t)
 	if len(r.Items) != 1 || r.Items[0].Action != "review" {
 		t.Errorf("items = %+v, want [review rev]", r.Items)
@@ -190,17 +155,9 @@ func TestFrontierRolesAndAutonomousCheckpoint(t *testing.T) {
 		t.Errorf("waiting = %+v, want [chk]", r.Waiting)
 	}
 
-	// With autonomous: the checkpoint flows through.
-	r = frontierJSONReport(t, "--autonomous")
-	ids := map[string]bool{}
-	for _, it := range r.Items {
-		ids[it.TickID] = true
-	}
-	if !ids["chk"] {
-		t.Errorf("autonomous mode should surface the checkpoint tick: %+v", r.Items)
-	}
-	if len(r.Waiting) != 0 {
-		t.Errorf("autonomous mode should not report the checkpoint as waiting: %+v", r.Waiting)
+	ResetFlags()
+	if err := ExecuteArgs([]string{"frontier", "--autonomous", "--json"}); GetExitCode(err) != ExitUsage {
+		t.Errorf("--autonomous is gone and must be a usage error, got %v", err)
 	}
 }
 

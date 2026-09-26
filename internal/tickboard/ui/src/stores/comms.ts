@@ -5,23 +5,15 @@
  * Provides a single entry point for initializing communication.
  */
 
-import { atom, computed, onMount } from 'nanostores';
+import { atom } from 'nanostores';
 import type { Tick } from '../types/tick.js';
-import type { CommsClient, TickEvent, ConnectionEvent, RunEvent } from '../comms/index.js';
-import { LocalCommsClient, CloudCommsClient } from '../comms/index.js';
-import {
-  $isCloudMode,
-  $projectId,
-  $localClientConnected,
-  setLocalClientConnected,
-  setSyncConnected,
-} from './connection.js';
-import { applyRunEvent, clearLiveRun } from './run.js';
+import type { CommsClient, TickEvent, ConnectionEvent } from '../comms/index.js';
+import { LocalCommsClient } from '../comms/index.js';
+import { setSyncConnected } from './connection.js';
 import {
   setTicksFromMap,
   updateTick,
   removeTick,
-  setRepoName,
   setLoading,
   setError,
 } from './ticks.js';
@@ -32,10 +24,6 @@ import {
 
 export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected';
 
-export interface CloudConfig {
-  projectId: string;
-}
-
 // =============================================================================
 // Atoms
 // =============================================================================
@@ -43,27 +31,8 @@ export interface CloudConfig {
 /** The active CommsClient instance */
 export const $commsClient = atom<CommsClient | null>(null);
 
-/** Current WebSocket connection status */
+/** Current event-stream connection status */
 export const $connectionStatus = atom<ConnectionStatus>('disconnected');
-
-/**
- * Effective connection status for the UI.
- * In cloud mode, shows disconnected if local agent is not connected.
- */
-export const $effectiveConnectionStatus = computed(
-  [$connectionStatus, $isCloudMode, $localClientConnected],
-  (wsStatus, isCloud, localConnected) => {
-    if (!isCloud) {
-      // Local mode: just use WebSocket status
-      return wsStatus;
-    }
-    // Cloud mode: connected only if both WS and local agent are connected
-    if (wsStatus !== 'connected') {
-      return wsStatus;
-    }
-    return localConnected ? 'connected' : 'disconnected';
-  }
-);
 
 // =============================================================================
 // Event Handlers
@@ -103,19 +72,6 @@ function handleTickEvent(event: TickEvent): void {
 }
 
 /**
- * Handle live run events (tick bne).
- *
- * Deliberately routed to the run store and NOWHERE else. A run event never
- * touches tick state: the board is observability, and a tick is done when
- * collect says the branch carries the work, not when a badge says so.
- */
-function handleRunEvent(event: RunEvent): void {
-  if (event.type === 'run:event') {
-    applyRunEvent(event.message);
-  }
-}
-
-/**
  * Handle connection events and update stores accordingly.
  */
 function handleConnectionEvent(event: ConnectionEvent): void {
@@ -130,11 +86,6 @@ function handleConnectionEvent(event: ConnectionEvent): void {
       console.log('[CommsStore] Disconnected');
       $connectionStatus.set('disconnected');
       setSyncConnected(false);
-      break;
-
-    case 'connection:local-status':
-      console.log('[CommsStore] Local agent status:', event.connected ? 'online' : 'offline');
-      setLocalClientConnected(event.connected);
       break;
 
     case 'connection:error':
@@ -171,8 +122,6 @@ export async function initLocalComms(): Promise<void> {
   // Subscribe to events
   unsubscribers.push(client.onTick(handleTickEvent));
   unsubscribers.push(client.onConnection(handleConnectionEvent));
-  // No run subscription in local mode: the local transport is SSE and carries
-  // no `run_event` today. A board with no live run is a board, not a bug.
 
   $commsClient.set(client);
 
@@ -186,52 +135,10 @@ export async function initLocalComms(): Promise<void> {
 }
 
 /**
- * Initialize communication in cloud mode.
- * Connects to cloud WebSocket for events.
- */
-export async function initCloudComms(projectId: string): Promise<void> {
-  // Cleanup any existing client
-  cleanup();
-
-  console.log('[CommsStore] Initializing cloud mode for project:', projectId);
-  $connectionStatus.set('connecting');
-  setLoading(true);
-
-  const client = new CloudCommsClient(projectId);
-
-  // Subscribe to events
-  unsubscribers.push(client.onTick(handleTickEvent));
-  unsubscribers.push(client.onConnection(handleConnectionEvent));
-  // Optional on the interface: a transport that carries no run_event simply
-  // never shows a live run, which costs nothing (tick bne).
-  const onRun = client.onRun?.bind(client);
-  if (onRun) unsubscribers.push(onRun(handleRunEvent));
-
-  $commsClient.set(client);
-  setRepoName(projectId);
-
-  try {
-    await client.connect();
-    console.log('[CommsStore] Cloud mode connected');
-  } catch (err) {
-    console.error('[CommsStore] Failed to connect:', err);
-    setError(`Connection failed: ${err}`);
-  }
-}
-
-/**
- * Initialize communication based on current mode.
- * Auto-detects mode from stores.
+ * Initialize communication (the board only has the local transport).
  */
 export async function initComms(): Promise<void> {
-  const isCloud = $isCloudMode.get();
-  const projectId = $projectId.get();
-
-  if (isCloud && projectId) {
-    await initCloudComms(projectId);
-  } else {
-    await initLocalComms();
-  }
+  await initLocalComms();
 }
 
 /**
@@ -251,10 +158,6 @@ function cleanup(): void {
     unsub();
   }
   unsubscribers = [];
-
-  // A live run belongs to the connection that was streaming it: leaving it on
-  // screen across a reconnect would show a run that nothing is reporting on.
-  clearLiveRun();
 
   // Disconnect client
   const client = $commsClient.get();
@@ -387,8 +290,7 @@ export async function fetchActivity(limit?: number): Promise<Activity[]> {
 // =============================================================================
 
 /**
- * Initialize auto-connection based on mode changes.
- * Call this once at app startup if you want automatic mode switching.
+ * Connect once at app startup. Idempotent.
  */
 export function initCommsAutoConnect(): void {
   if (initialized) {
@@ -396,28 +298,5 @@ export function initCommsAutoConnect(): void {
     return;
   }
   initialized = true;
-
-  console.log('[CommsStore] Setting up auto-connect');
-
-  // Watch for cloud mode changes
-  $isCloudMode.subscribe((isCloud) => {
-    const projectId = $projectId.get();
-    console.log('[CommsStore] Cloud mode changed:', isCloud, 'projectId:', projectId);
-
-    if (isCloud && projectId) {
-      initCloudComms(projectId);
-    } else if (!isCloud) {
-      initLocalComms();
-    }
-  });
-
-  // Watch for project ID changes (in case it's set after cloud mode)
-  $projectId.subscribe((projectId) => {
-    const isCloud = $isCloudMode.get();
-    console.log('[CommsStore] Project ID changed:', projectId, 'isCloudMode:', isCloud);
-
-    if (isCloud && projectId && !$commsClient.get()) {
-      initCloudComms(projectId);
-    }
-  });
+  initLocalComms();
 }

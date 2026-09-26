@@ -2,7 +2,7 @@
   "id": "c44",
   "title": "Implement GET /ticks - list all ticks",
   "description": "Add endpoint to list all ticks in a project.\n\n## Endpoint\n\n```\nGET /api/projects/:project/ticks\n```\n\n## Response\n\n```json\n{\n  \"ticks\": [\n    {\n      \"id\": \"abc\",\n      \"title\": \"Fix bug\",\n      \"status\": \"open\",\n      \"priority\": 2,\n      ...\n    }\n  ],\n  \"count\": 42\n}\n```\n\n## Query parameters (optional, future)\n\n- `status` - filter by status (open, in_progress, closed, etc.)\n- `type` - filter by type (task, bug, epic, etc.)\n- `parent` - filter by parent tick ID\n\n## Implementation in ProjectRoom.fetch()\n\n```typescript\n// GET /api/projects/:project/ticks\nif (url.pathname.match(/\\/ticks\\/?$/) \u0026\u0026 request.method === \"GET\") {\n  const ticksArray = Array.from(this.ticks.values());\n  return Response.json({\n    ticks: ticksArray,\n    count: ticksArray.length,\n  });\n}\n```\n\n## Files to modify\n\n- `cloud/worker/src/project-room.ts`",
-  "status": "open",
+  "status": "closed",
   "priority": 1,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -13,5 +13,7 @@
   "parent": "qr4",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-22T07:32:45.963591Z",
-  "updated_at": "2026-01-22T07:32:45.963591Z"
+  "updated_at": "2026-09-26T14:25:23.777984251Z",
+  "closed_at": "2026-09-26T14:25:23.777984251Z",
+  "closed_reason": "closed with parent epic (--force)"
 }

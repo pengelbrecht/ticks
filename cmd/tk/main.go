@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	cobracmd "github.com/pengelbrecht/ticks/cmd/tk/cmd"
 	"github.com/pengelbrecht/ticks/internal/update"
@@ -38,7 +39,7 @@ func run(args []string) int {
 	// Check for updates periodically (skip for certain commands)
 	cmd := args[1]
 	if cmd != "version" && cmd != "--version" && cmd != "-v" &&
-		cmd != "upgrade" && cmd != "--help" && cmd != "-h" &&
+		cmd != "upgrade" && cmd != "--help" && cmd != "-h" && cmd != "help" &&
 		cmd != "merge-file" && cmd != "merge-activity" && cmd != "snippet" &&
 		cmd != "skills" {
 		if notice := update.CheckPeriodically(Version); notice != "" {
@@ -47,24 +48,19 @@ func run(args []string) int {
 		}
 	}
 
-	switch args[1] {
-	case "init", "whoami", "show", "create", "new", "update", "close", "reopen", "delete", "block", "unblock", "note", "notes", "decide", "decisions", "list", "ls", "ready", "next", "frontier", "blocked", "label", "labels", "deps", "graph", "roadmap", "status", "rebuild", "merge-file", "merge-activity", "stats", "tui", "snippet", "import", "approve", "reject", "version", "upgrade", "migrate", "config", "gc", "merge", "board", "herd", "skills", "channel", "tell", "ask", "answer", "factory", "cloud", "sandbox":
-		// Route to Cobra command (pass args[1:] to include the subcommand)
-		// Handle aliases
-		cmdArgs := args[1:]
-		if args[1] == "new" {
-			cmdArgs[0] = "create"
-		}
-		if args[1] == "ls" {
-			cmdArgs[0] = "list"
-		}
-		if err := cobracmd.ExecuteArgs(cmdArgs); err != nil {
+	if cobracmd.IsCommand(args[1]) {
+		// Route to Cobra (args[1:] includes the subcommand; cobra resolves
+		// aliases such as new and ls itself).
+		if err := cobracmd.ExecuteArgs(args[1:]); err != nil {
 			return cobracmd.GetExitCode(err)
 		}
 		return exitSuccess
+	}
+
+	switch args[1] {
 	case "--version", "-v":
 		return runVersion()
-	case "--help", "-h":
+	case "--help", "-h", "help":
 		printUsage()
 		return exitSuccess
 	default:
@@ -100,34 +96,12 @@ func runVersion() int {
 func printUsage() {
 	fmt.Printf("tk %s - multiplayer issue tracker for AI agents\n\n", Version)
 	fmt.Println("Usage: tk <command> [--help]")
-	fmt.Println("Commands: init, whoami, show, create (new), block, unblock, update, close, reopen, note, notes, decide, decisions, list (ls), ready, next, frontier, blocked, rebuild, delete, label, labels, deps, graph, roadmap, status, merge-file, merge-activity, stats, tui, snippet, import, approve, reject, board, herd, config, channel, tell, ask, answer, skills, factory, cloud, sandbox, version, upgrade, migrate, gc, merge")
+	fmt.Println("Commands: " + strings.Join(cobracmd.CommandUsageNames(), ", "))
 	fmt.Println()
-	fmt.Println("Operator Channel:")
-	fmt.Println("  tk channel setup telegram     Pair your Telegram bot with this machine (token stays out of the repo)")
-	fmt.Println("  tk channel status             Show what is configured, who it is paired with, and whether the token works")
-	fmt.Println("  tk tell <text...>             Send a one-way announcement (reads stdin when text is omitted)")
-	fmt.Println("  tk ask <id> --question <q>    Ask the operator and block until answered (exit 5 on timeout)")
+	fmt.Println("Operator Questions:")
+	fmt.Println("  tk ask <id> --question <q>    Ask the operator and block until answered")
 	fmt.Println("  tk ask --collect [--wait]     Drain answers to questions asked with --async, as JSON lines")
 	fmt.Println("  tk answer <id> <answer...>    Answer a parked question from the terminal")
-	fmt.Println()
-	fmt.Println("Cloud Factory:")
-	fmt.Println("  tk factory deploy             Deploy the factory into your own Cloudflare account")
-	fmt.Println("  tk factory setup              Walk the credential ladder: deployment, GitHub (device flow), AI Gateway")
-	fmt.Println("  tk factory status             Show what is configured and whether each credential works")
-	fmt.Println("  tk factory dashboard          Live read-only board: runs, phase, harness output, gates, refusals")
-	fmt.Println()
-	fmt.Println("Cloud Runs:")
-	fmt.Println("  tk cloud run <epic>           Push the current branch and start a cloud run")
-	fmt.Println("  tk cloud stop <run>           Request a clean stop (--now to revoke the gateway credential immediately)")
-	fmt.Println("  tk cloud status               Show cloud runs, leases and queued submissions")
-	fmt.Println("  tk cloud logs <run>           Print what the run's container printed (--tail N)")
-	fmt.Println("  tk cloud trace <run>          Read the run's model conversation, tool calls and cache stats")
-	fmt.Println()
-	fmt.Println("Cloud Substrate (drive worker containers from here):")
-	fmt.Println("  tk cloud spawn <epic> --ticks Dispatch a wave as one worker container per tick")
-	fmt.Println("  tk cloud wait --epic <id>     Block until every worker of the wave pushed its report")
-	fmt.Println("  tk cloud collect --epic <id>  Verify each worker's pushed branch and print a verdict")
-	fmt.Println("  tk cloud reconcile            Rebuild wave state after an orchestrator dies (read-only)")
 	fmt.Println()
 	fmt.Println("Skill Bundle:")
 	fmt.Println("  tk skills list                List embedded skills and the tk version they ship with")
@@ -135,15 +109,7 @@ func printUsage() {
 	fmt.Println("  tk skills install <name>      Install a skill (default: detect .claude/skills/, .agents/skills/ at repo root)")
 	fmt.Println("  tk skills diff <name>         Compare installed skill(s) against the embedded bundle")
 	fmt.Println()
-	fmt.Println("Agent Orchestration (herdr):")
-	fmt.Println("  tk herd spawn <id>            Spawn a gated herdr worker: worktree + agent + first prompt")
-	fmt.Println("  tk herd wait --agents a,b     Block until named herdr workers settle (event-driven)")
-	fmt.Println("  tk herd reconcile             Rebuild run state after an orchestrator crash (read-only plan)")
-	fmt.Println("  tk herd collect <id>          Verify a worker's durable result: commits, RESULT, boundary")
-	fmt.Println("  tk herd cleanup <id>          Preview (or --apply) teardown: workspace, branch, manifest")
-	fmt.Println("  tk herd dashboard             Live read-only board of a run: waves, ticks, worker states")
-	fmt.Println("  tk herd paint --epic <id>     Badge the run's herdr workspaces with tick id, role and status")
-	fmt.Println("  tk herd notify                Chime when a worker blocks (request) or a wave finishes (done)")
+	fmt.Println("Running epics with agents is ticfac's job; tk is the tracker it reads and writes.")
 	fmt.Println()
 	fmt.Println("Agent-Human Workflow:")
 	fmt.Println("  tk approve <id>              Set verdict=approved on awaiting tick")

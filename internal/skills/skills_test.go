@@ -83,25 +83,18 @@ func TestFilesEnumeratesFullTree(t *testing.T) {
 			strings.Join(embedded, "\n"), strings.Join(onDisk, "\n"))
 	}
 
-	// The bundle must carry SKILL.md, every references/*.md and the runners schema.
-	hasSchema := false
+	// The bundle must carry SKILL.md and every references/*.md.
 	mdCount := 0
 	for _, p := range embedded {
-		switch {
-		case p == "references/runners-config.schema.json":
-			hasSchema = true
-		case strings.HasPrefix(p, "references/") && strings.HasSuffix(p, ".md"):
+		if strings.HasPrefix(p, "references/") && strings.HasSuffix(p, ".md") {
 			mdCount++
 		}
 	}
 	if !contains(embedded, "SKILL.md") {
 		t.Errorf("bundle missing SKILL.md")
 	}
-	if !hasSchema {
-		t.Errorf("bundle missing references/runners-config.schema.json")
-	}
-	if mdCount < 10 {
-		t.Errorf("bundle has %d references/*.md files, want >= 10", mdCount)
+	if mdCount < 5 {
+		t.Errorf("bundle has %d references/*.md files, want >= 5", mdCount)
 	}
 }
 
@@ -112,20 +105,12 @@ func TestLoadBearingFilesPresent(t *testing.T) {
 	// path -> minimum plausible size in bytes (well below current sizes, so
 	// ordinary edits don't churn this table; a stub or empty file trips it).
 	floors := map[string]int{
-		"SKILL.md":                              8000,
-		"references/agent-runner.md":            8000,
-		"references/claude-runner.md":           2000,
-		"references/codex-runner.md":            1000,
-		"references/herdr-runner.md":            8000,
-		"references/herdr-kinds.md":             4000,
-		"references/pi-runner.md":               2000,
-		"references/prime-runner.md":            4000,
-		"references/runners-config.md":          4000,
-		"references/runners-config.schema.json": 2000,
-		"references/tick-patterns.md":           2000,
-		"references/tk-commands.md":             2000,
-		"references/big-picture.md":             1000,
-		"references/code-smells.md":             1000,
+		"SKILL.md":                    8000,
+		"references/goal-design.md":   2000,
+		"references/tick-patterns.md": 2000,
+		"references/tk-commands.md":   2000,
+		"references/big-picture.md":   1000,
+		"references/code-smells.md":   1000,
 	}
 	for path, floor := range floors {
 		data, err := Read("ticks", path)
@@ -147,8 +132,8 @@ func TestPaths(t *testing.T) {
 	if !sort.StringsAreSorted(paths) {
 		t.Errorf("Paths not sorted: %v", paths)
 	}
-	if !contains(paths, "SKILL.md") || !contains(paths, "references/runners-config.schema.json") {
-		t.Errorf("Paths = %v, want SKILL.md and the runners schema", paths)
+	if !contains(paths, "SKILL.md") || !contains(paths, "references/tick-patterns.md") {
+		t.Errorf("Paths = %v, want SKILL.md and the references", paths)
 	}
 	if _, err := Paths("nope"); err == nil {
 		t.Errorf("Paths(nope) = nil error, want error")

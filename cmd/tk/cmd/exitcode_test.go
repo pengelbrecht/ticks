@@ -3,7 +3,6 @@ package cmd
 import (
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -57,22 +56,6 @@ func TestGetExitCodeDialFailureIsGeneric(t *testing.T) {
 		if got := GetExitCode(errors.New(msg)); got != ExitGeneric {
 			t.Errorf("GetExitCode(%q) = %d, want %d — message text must not classify", msg, got, ExitGeneric)
 		}
-	}
-}
-
-// TestUnreachableHerdrSocketExitsGeneric is the end-to-end half: a socket path
-// too long for sockaddr_un makes the kernel return EINVAL ("invalid
-// argument"), the exact real-world case the heuristic misread.
-func TestUnreachableHerdrSocketExitsGeneric(t *testing.T) {
-	captureCmdOutput(t)
-	socket := filepath.Join(t.TempDir(), strings.Repeat("d", 200)+".sock")
-
-	err := ExecuteArgs([]string{"herd", "dashboard", "--socket", socket})
-	if err == nil {
-		t.Fatal("herd dashboard against an unusable socket returned nil error")
-	}
-	if code := GetExitCode(err); code != ExitGeneric {
-		t.Errorf("exit code = %d, want %d: %v", code, ExitGeneric, err)
 	}
 }
 

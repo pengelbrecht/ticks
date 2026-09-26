@@ -2,7 +2,7 @@
 
 Decision: the human-interaction refinement landed as **skill-layer planning guidance only** —
 `skills/ticks/references/tick-patterns.md` → *Human-in-the-loop ticks*, plus retro wiring in
-`agent-runner.md`. No new tick fields, no CLI commands, no notification channel.
+the runner reference (moved to ticfac on 2026-09-26). No new tick fields, no CLI commands, no notification channel.
 
 Governing principle, stated in the docs verbatim: **planning is interactive, execution is
 autonomous.** Human attention is spent during planning, where the human is present and latency

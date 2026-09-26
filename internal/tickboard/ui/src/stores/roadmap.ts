@@ -3,20 +3,13 @@
  *
  * Holds the latest roadmap data.
  *
- * In local mode: fetches from GET /api/roadmap (served by the Go local server).
- * In cloud mode: computes the roadmap client-side from the synced $ticks store,
- *   because the cloud Durable Object does not serve /api/roadmap.
- *
- * Refetches/recomputes whenever a tick-update event fires (any epic change
+ * Fetches from GET /api/roadmap (served by the Go local server) and refetches whenever a tick-update event fires (any epic change
  * may affect wave computation).
  */
 
 import { atom } from 'nanostores';
 import type { RoadmapResponse } from '../api/ticks.js';
 import { fetchRoadmap } from '../api/ticks.js';
-import { $isCloudMode } from './connection.js';
-import { $ticks } from './ticks.js';
-import { computeRoadmapFromTicks } from './roadmap-compute.js';
 
 // =============================================================================
 // State
@@ -36,10 +29,7 @@ export const $roadmapError = atom<string | null>(null);
 // =============================================================================
 
 /**
- * Load the roadmap and update the store.
- *
- * - In local mode: fetches from GET /api/roadmap.
- * - In cloud mode: computes the roadmap client-side from synced tick state.
+ * Load the roadmap from GET /api/roadmap and update the store.
  *
  * Idempotent — safe to call repeatedly.
  */
@@ -47,15 +37,7 @@ export async function loadRoadmap(): Promise<void> {
   $roadmapLoading.set(true);
   $roadmapError.set(null);
   try {
-    let data: RoadmapResponse;
-    if ($isCloudMode.get()) {
-      // Cloud mode: compute from synced tick state (no /api/roadmap endpoint available)
-      const ticksMap = $ticks.get();
-      data = computeRoadmapFromTicks(Object.values(ticksMap));
-    } else {
-      // Local mode: fetch from the Go server
-      data = await fetchRoadmap();
-    }
+    const data: RoadmapResponse = await fetchRoadmap();
     $roadmap.set(data);
   } catch (err) {
     $roadmapError.set(err instanceof Error ? err.message : String(err));

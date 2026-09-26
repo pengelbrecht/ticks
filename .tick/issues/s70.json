@@ -2,12 +2,14 @@
   "id": "s70",
   "title": "Configure Cloudflare release secrets for deploy-cloud workflow",
   "notes": "2026-03-21 20:57 - Release run 23387439182 skipped deploy-cloud because CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID were not configured in GitHub Actions. Add those secrets so tag releases deploy the worker automatically.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
   "parent": "nm8",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-03-21T19:56:46.825184Z",
-  "updated_at": "2026-06-26T07:16:40.904140731Z"
+  "updated_at": "2026-09-26T14:25:18.104023517Z",
+  "closed_at": "2026-09-26T14:25:18.104023517Z",
+  "closed_reason": "Retired: the ticks.sh cloud board and its deploy were removed in chz (ticks becomes tracker-only), 2026-09-26"
 }

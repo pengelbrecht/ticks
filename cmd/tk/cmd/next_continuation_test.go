@@ -136,18 +136,16 @@ func TestContinuation_ProjectlessRegression_SoftDeferSorting(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Scenario 2 (CLI) — Project completion + checkpoint halt via tk next
 //
-// With autonomous-mode OFF (no flag, no config), a checkpoint-awaiting closeout
-// epic gates planning past the boundary.
+// A checkpoint-awaiting closeout epic gates planning past the boundary.
 // ---------------------------------------------------------------------------
 
 // TestContinuation_CheckpointHalts_TkNext verifies that `tk next --epic`
-// returns null when the only plannable epic is awaiting: checkpoint with
-// autonomous mode OFF (default), and surfaces it with --autonomous.
+// returns null when the only plannable epic is awaiting: checkpoint.
 //
 // Fixture:
 //
 //	eProject (epic, closed — satisfies blocked_by for closeout)
-//	closeoutEpic (epic, open, awaiting:checkpoint) ← gates without --autonomous
+//	closeoutEpic (epic, open, awaiting:checkpoint) ← gates
 func TestContinuation_CheckpointHalts_TkNext(t *testing.T) {
 	_, store := setupTestRepo(t)
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -166,38 +164,24 @@ func TestContinuation_CheckpointHalts_TkNext(t *testing.T) {
 		}
 	}
 
-	// Autonomous OFF (default): checkpoint gates.
 	off := runNextJSON(t, "next", "--epic", "--owner", "petere", "--json")
 	if off != nil {
-		t.Fatalf("autonomous OFF: checkpoint must halt planning; got %v", off)
-	}
-
-	// Autonomous ON via flag: checkpoint bypassed → closeout surfaces.
-	on := runNextJSON(t, "next", "--epic", "--owner", "petere", "--json", "--autonomous")
-	if on == nil {
-		t.Fatal("autonomous ON: expected closeoutEpic to surface, got null")
-	}
-	if on["id"] != "closeoutEpic" {
-		t.Errorf("autonomous ON: id got %v, want closeoutEpic", on["id"])
-	}
-	if on["action"] != "plan" {
-		t.Errorf("autonomous ON: action got %v, want plan", on["action"])
+		t.Fatalf("checkpoint must halt planning; got %v", off)
 	}
 }
 
 // ---------------------------------------------------------------------------
-// Scenario 3 (CLI) — Autonomous mode: non-checkpoint await still gates
+// Scenario 3 (CLI) — an approval await gates
 // ---------------------------------------------------------------------------
 
-// TestContinuation_AutonomousMode_NonCheckpointGates verifies via `tk next
-// --epic --autonomous` that awaiting: approval still gates even when the
-// autonomous flag is set. A co-present no-await epic must be returned instead.
+// TestContinuation_ApprovalGates verifies via `tk next --epic` that awaiting:
+// approval gates. A co-present no-await epic must be returned instead.
 //
 // Fixture:
 //
-//	eApproval (epic, open, awaiting:approval) ← must NOT surface with --autonomous
+//	eApproval (epic, open, awaiting:approval) ← must NOT surface
 //	eFree (epic, open, no constraints)         ← must surface
-func TestContinuation_AutonomousMode_NonCheckpointGates(t *testing.T) {
+func TestContinuation_ApprovalGates(t *testing.T) {
 	_, store := setupTestRepo(t)
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
@@ -213,22 +197,21 @@ func TestContinuation_AutonomousMode_NonCheckpointGates(t *testing.T) {
 		}
 	}
 
-	got := runNextJSON(t, "next", "--epic", "--owner", "petere", "--json", "--autonomous")
+	got := runNextJSON(t, "next", "--epic", "--owner", "petere", "--json")
 	if got == nil {
-		t.Fatal("expected eFree to surface with autonomous ON, got null")
+		t.Fatal("expected eFree to surface, got null")
 	}
 	if got["id"] != "eFree" {
-		t.Errorf("autonomous ON: got id=%v, want eFree (approval epic must still gate)", got["id"])
+		t.Errorf("got id=%v, want eFree (approval epic must still gate)", got["id"])
 	}
 	if got["action"] != "plan" {
-		t.Errorf("autonomous ON: action got %v, want plan", got["action"])
+		t.Errorf("action got %v, want plan", got["action"])
 	}
 }
 
-// TestContinuation_AutonomousMode_OnlyApprovalEpic verifies that when the
-// only candidate is an approval-awaiting epic, `tk next --epic --autonomous`
-// returns null (nothing bypassed).
-func TestContinuation_AutonomousMode_OnlyApprovalEpic(t *testing.T) {
+// TestContinuation_OnlyApprovalEpic verifies that when the only candidate is
+// an approval-awaiting epic, `tk next --epic` returns null.
+func TestContinuation_OnlyApprovalEpic(t *testing.T) {
 	_, store := setupTestRepo(t)
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
 
@@ -240,25 +223,25 @@ func TestContinuation_AutonomousMode_OnlyApprovalEpic(t *testing.T) {
 		t.Fatalf("write eApproval: %v", err)
 	}
 
-	got := runNextJSON(t, "next", "--epic", "--owner", "petere", "--json", "--autonomous")
+	got := runNextJSON(t, "next", "--epic", "--owner", "petere", "--json")
 	if got != nil {
-		t.Errorf("autonomous ON with approval-only: must return null; got %v", got)
+		t.Errorf("approval-only: must return null; got %v", got)
 	}
 }
 
 // ---------------------------------------------------------------------------
-// Scenario 4 (CLI) — No-checkpoint close-out flows through with mode OFF
+// Scenario 4 (CLI) — No-checkpoint close-out flows through
 // ---------------------------------------------------------------------------
 
 // TestContinuation_NoCheckpointFlowsThrough_TkNext verifies that a project
 // close-out epic with NO awaiting state is returned as plannable by
-// `tk next --epic` even with autonomous mode OFF (default). A plain open
+// `tk next --epic`. A plain open
 // childless epic is no different from the pre-project path.
 //
 // Fixture:
 //
 //	eDone (epic, closed — represents completed project work)
-//	closeoutFree (epic, open, childless, no awaiting) ← must surface in OFF mode
+//	closeoutFree (epic, open, childless, no awaiting) ← must surface
 func TestContinuation_NoCheckpointFlowsThrough_TkNext(t *testing.T) {
 	_, store := setupTestRepo(t)
 	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -275,10 +258,10 @@ func TestContinuation_NoCheckpointFlowsThrough_TkNext(t *testing.T) {
 		}
 	}
 
-	// autonomous OFF (default — no flag, no config): must surface.
+	// Must surface.
 	got := runNextJSON(t, "next", "--epic", "--owner", "petere", "--json")
 	if got == nil {
-		t.Fatal("no-checkpoint close-out: must surface in OFF mode, got null")
+		t.Fatal("no-checkpoint close-out: must surface, got null")
 	}
 	if got["id"] != "closeoutFree" {
 		t.Errorf("no-checkpoint: id got %v, want closeoutFree", got["id"])

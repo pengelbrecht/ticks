@@ -87,10 +87,11 @@ func New(tickDir string, port int, opts ...ServerOption) (*Server, error) {
 	return s, nil
 }
 
-// uiDir returns the path to the UI dist directory for dev mode.
+// uiDir returns the path to the built UI on disk for dev mode (the vite build
+// output that is also embedded; rebuild with scripts/build-ui.sh).
 func (s *Server) uiDir() string {
 	repoRoot := filepath.Dir(s.tickDir)
-	return filepath.Join(repoRoot, "internal", "tickboard", "ui", "dist")
+	return filepath.Join(repoRoot, "internal", "tickboard", "server", "static")
 }
 
 // readUIFile reads a file from the UI, either from disk (dev) or embedded (release).
@@ -437,7 +438,7 @@ func (s *Server) watchFiles(ctx context.Context) {
 				// Extract tick ID from filename
 				tickID := strings.TrimSuffix(filepath.Base(lastTickEvent.Name), ".json")
 
-				// Broadcast the change locally (cloud sync is handled by cloud client's file watcher)
+				// Broadcast the change to connected browsers
 				msg := fmt.Sprintf(`{"type":"%s","tickId":"%s"}`, eventType, tickID)
 				s.debugf("watchFiles: broadcasting tick change: %s", msg)
 				s.broadcast(msg)

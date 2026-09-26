@@ -1,9 +1,14 @@
 # ticks
 
-A multiplayer-first issue tracker for AI coding agents.
+A multiplayer-first, terminal-first issue tracker for AI coding agents.
+
+Ticks is the tracker: issues, epics, dependencies, gates and the planning skill
+that authors them. It does not run agents. To run an epic, use
+[ticfac](https://github.com/pengelbrecht/ticfac), which reads the tracker
+through `tk --json`.
 
 ```bash
-curl -fsSL https://ticks.sh/install | sh
+curl -fsSL https://raw.githubusercontent.com/pengelbrecht/ticks/main/install.sh | sh
 tk init
 tk ready
 ```
@@ -77,7 +82,7 @@ With 1000 issues, median times (ms):
 ### Shell script (macOS/Linux)
 
 ```bash
-curl -fsSL https://ticks.sh/install | sh
+curl -fsSL https://raw.githubusercontent.com/pengelbrecht/ticks/main/install.sh | sh
 ```
 
 ### PowerShell (Windows)
@@ -105,7 +110,7 @@ machine-wide binary.
 
 ### Skill (Claude Code / Codex)
 
-The `tk` binary tracks issues; the **ticks skill** is what lets your agent plan and orchestrate epics.
+The `tk` binary tracks issues; the **ticks skill** teaches your agent to use the tracker and to plan work as well-formed ticks and epics.
 
 If `tk` is already installed, install the skill straight from the binary — this is the
 canonical path, since the installed skill is then guaranteed to match your `tk` version:
@@ -125,20 +130,13 @@ Before `tk` is installed, or to install the skill on its own from the marketplac
 npx skills add pengelbrecht/ticks
 ```
 
-### Pi skill and orchestrator
+### Pi skill
 
-The repository is also a Pi package containing the ticks skill and the executable Ticks runner extension. Install from git or a local checkout:
+The repository is also a Pi package containing the ticks skill:
 
 ```bash
 pi install git:github.com/pengelbrecht/ticks
-pi install -l git:github.com/pengelbrecht/ticks   # project-local
-pi install /absolute/path/to/ticks                # local development
-pi -e /absolute/path/to/ticks                     # try without installing
 ```
-
-Use `/ticks-plan <childless-epic-id>` or `/ticks-plan --requirements "..."` for automated **model-running** planning with zero tracker writes; add `--apply` only after reviewing the validated waves. Use `/ticks-run <epic-id>` for a no-model execution preview, `/ticks-run <epic-id> --execute` to opt in to child execution, `/ticks-status [epic-id]` for recovery, and `/ticks-dashboard --demo` or `--dump` for the control tower. Both apply and execution require a clean non-default branch. See [`extensions/ticks-runner/README.md`](extensions/ticks-runner/README.md) for strict schemas, confirmation behavior, configuration, safety boundaries, artifacts, and recovery.
-
-A generic skill install does not activate Pi extension code; use `pi install` (or `pi -e`) when the slash commands are needed.
 
 ## Quick Start
 
@@ -168,9 +166,9 @@ tk snippet >> AGENTS.md   # Codex and other AGENTS.md-aware tools
 tk snippet >> CLAUDE.md   # Claude Code
 ```
 
-For epic execution, the distributable skill includes a shared orchestration protocol plus Claude Code, Codex, Pi, and Prime Agent adapters. Tick files, notes, branches, and worktrees are the handoff format, so one runner can plan an epic and the other can execute or resume it.
-
 This tells agents to use ticks for persistent tracking instead of TodoWrite.
+
+Running an epic end to end is [ticfac](https://github.com/pengelbrecht/ticfac)'s job (`ticfac run-epic <epic>`); ticks provides the graph it works from.
 
 The `tk next` command is particularly useful for agents:
 
@@ -242,59 +240,14 @@ tk note <id> "Use Stripe for payments" --from human
 | `tk list` | List issues with filters |
 | `tk view` | Interactive TUI |
 | `tk board` | Start web board UI |
-| `tk board --cloud` | Board with cloud sync |
 | `tk approve <id>` | Approve awaiting tick |
 | `tk reject <id>` | Reject with feedback |
 | `tk snippet` | Output runner-neutral agent instructions |
 | `tk skills …` | Inspect/install the version-matched skill bundle embedded in this binary (see below) |
-| `tk herd …` | Orchestrate epic waves as herdr-managed agents (see below) |
-| `tk channel …` | Pair a Telegram bot and check its status so runs can reach you (see below) |
-| `tk factory deploy` | Deploy the cloud factory into your own Cloudflare account (see below) |
-| `tk factory setup` | Walk the factory's credential ladder — deployment, GitHub PAT, AI Gateway — verifying each rung live (see below) |
-| `tk factory status` | Report what the factory has configured and whether each credential still works (see below) |
-| `tk factory dashboard` | Watch the factory from a local terminal: runs, phase, harness output, gates and refusals — read-only, and stale-labelled when the factory is unreachable (see below) |
-| `tk tell [text...]` | Send a one-way announcement to the operator channel (see below) |
-| `tk tell --format` | Send the announcement as MarkdownLite, rendered on channels that support it (see below) |
-| `tk tell --file <path>` | Upload a file (or photo) to the operator channel instead of sending text (see below) |
-| `tk ask <id> --question "..."` | Ask the operator a question and block until it's answered, on either surface (see below) |
-| `tk ask <id> --photo <path> --gate approve` | Ask as a photo approval gate — the image itself carries the approve/reject buttons (see below) |
-| `tk answer <id> <answer...>` | Answer a question `tk ask` parked on a tick, from the terminal (see below) |
+| `tk ask <id> --question "..."` | Park a question on a tick for a human (see [docs/questions.md](docs/questions.md)) |
+| `tk answer <id> <answer...>` | Answer a question `tk ask` parked on a tick |
 
 All commands support `--help` for options and `--json` for machine-readable output.
-
-### Herd: agent orchestration on herdr
-
-When an epic runs inside a [herdr](https://herdr.dev) session, the `tk herd` command
-group dispatches implementers as independent, visible herdr agents — any herdr kind,
-cross-vendor (e.g. codex implementers under a claude orchestrator) — instead of the
-orchestrating harness's own subagents. Configure routing in `.tick/runners.toml`
-(`substrate = "herdr" | "harness" | "auto" | "cloud"`, plus per-role kind × model/effort;
-`cloud` dispatches containers instead — see [Cloud substrate](#cloud-substrate-drive-worker-containers-from-your-terminal)).
-
-| Command | Description |
-|---------|-------------|
-| `tk herd spawn <id>` | Worktree + agent + content-gated first prompt + run manifest |
-| `tk herd wait --agents a,b` | Event-driven wave fan-in (no polling) |
-| `tk herd collect <id>` | Verify durable results: commits, RESULT file, boundary |
-| `tk herd cleanup [<id>]` | Preview-first teardown; refuses live/blocked/unmerged |
-| `tk herd reconcile` | Read-only crash-recovery plan after orchestrator death |
-| `tk herd dashboard` | Live event-driven board TUI of the run |
-| `tk herd paint` | Badge worker workspaces with tick id, role, status |
-| `tk herd notify` | Blocked/wave-complete notifications with once-semantics |
-
-A repo can also declare the sandbox its runs get, in the `[sandbox]` table of
-`.tick/runners.toml`: an optional custom `image`, extra `toolchain` pins, and
-idempotent `setup` commands that warm its caches. `tk sandbox image | toolchain
-| setup` reads it, `tk herd spawn` applies it to each new worker worktree, and a
-cloud sandbox applies the same table after its clone — so a local worker and a
-cloud one warm identically. Setup commands run arbitrary shell in a credentialed
-sandbox, so they come only from that tracked, PR-reviewed file at the commit a
-run was submitted with: never a tick note, an API parameter or the environment.
-
-The optional **mission-control herdr plugin** ([`plugins/herdr-ticks`](plugins/herdr-ticks))
-adds a board pane, workspace badges via event hooks, notification chimes, and
-context-menu actions. Full conventions live in the ticks skill:
-[`skills/ticks/references/herdr-runner.md`](skills/ticks/references/herdr-runner.md).
 
 ### Skills: version-matched skill distribution
 
@@ -323,311 +276,10 @@ above for the bootstrap path when `tk` isn't installed yet.
 This is a different thing from `tk snippet` (above): `tk snippet` prints a short,
 runner-neutral instruction block meant to be pasted straight into an agent config file
 like `AGENTS.md` or `CLAUDE.md`, while `tk skills` serves the full skill tree — the
-complete workflow, references, and adapters that a skill-aware harness loads on its
+complete workflow and references that a skill-aware harness loads on its
 own. They're complementary, not interchangeable: use `tk snippet` for harnesses without
 skill support, and the skill (via `tk skills install` or a skill marketplace) for
 harnesses that have it.
-
-### Factory: your own cloud control plane
-
-`tk factory deploy` installs the factory worker bundled with your `tk` build into
-**your own Cloudflare account**. Ticks never operates a factory for anyone: it is a
-deployable, not a service, so the compute, the model keys, the spend, and the blast
-radius are yours (decision D16 in `docs/design/cloud-factory.md`). Cloudflare's floor
-for Durable Objects, Workflows and Containers is the paid Workers plan (~$5/mo);
-container compute is billed on top of it, per second a sandbox is running.
-
-```bash
-pnpm add -g wrangler          # or npm install -g wrangler, or just use npx wrangler
-wrangler login                # connect your Cloudflare account
-# Docker (Docker Desktop, OrbStack, colima, …) must be running: a run boots an
-# orchestrator container, and the deploy builds and pushes that image.
-tk factory deploy
-```
-
-One command creates or reuses the D1 database and the R2 bucket, applies the bundle's
-D1 migrations, builds and pushes the orchestrator container image into your own
-Cloudflare registry, mints a factory token, pushes only its salted hash as the Worker
-secret `FACTORY_TOKEN_HASH`, deploys the worker, and records the endpoint and token in
-`~/.ticksrc` next to the board-sync `token=` you may already have there:
-
-```
-factory_url=https://ticks-factory.<your-subdomain>.workers.dev
-factory_token=tkf_…
-factory_version=0.31.0
-```
-
-The plaintext token exists only in that file — the worker holds nothing but its hash
-and therefore cannot leak it. `~/.ticksrc` is written 0600.
-
-The last thing the deploy does is wait for the **container rollout**. `wrangler deploy`
-builds and pushes the orchestrator image, asks Cloudflare to roll it out, and returns
-without waiting for it — so the Worker and its bindings go live while the container
-application is still serving the *previous* image, and a run started in that window
-executes the old code. That is not merely slow: it makes a correct fix look like it did
-not work. So `tk factory deploy` polls the container application until it reports the
-digest this deploy pushed, prints that digest, and exits nonzero with an explanation if
-it cannot confirm it (`--skip-rollout-wait` accepts the unconfirmed state deliberately).
-The confirmed image is recorded server-side and stamped onto every run, so
-`tk cloud status <run>` names the image that run actually booted.
-
-### Reading a cloud run
-
-Two different records answer "what happened", so there are two commands:
-
-| Command | Reads | Answers |
-|---|---|---|
-| `tk cloud logs <run>` | the harness stream in R2 | what the container printed — a crash, a git failure, a command that never returned. `--tail N` for the last N lines. Readable mid-run. Names the per-tick worker streams the run has; `--tick <id>` prints one worker container's own output. |
-| `tk cloud trace <run>` | AI Gateway logs for that run | what the model said and decided — message roles, tool calls and their arguments, tokens in/out and cached per call, cost per call |
-
-`trace` has flags for the four questions people actually arrive with:
-`--call N` dumps one exchange in full, `--tools` lists just the tool calls,
-`--cache` is the per-call prefix-cache table, and `--json` gives the raw
-gateway rows.
-
-Two things worth knowing about `trace`. Model responses are **streamed**, so
-the logged response body carries no content at all — what the model said is
-reconstructed from the assistant messages inside each *request* body, since a
-harness replays the whole conversation on every call. And the prefix cache is
-only measurable from each row's `usage_metadata.input_cached_tokens`, which is
-what `--cache` reports per call: one changed token near the head of a prompt
-invalidates the prefix, so an average hides exactly the swing you are looking
-for. It reads your own gateway directly, so it needs the Cloudflare API token
-`tk factory setup --cloudflare-api-token <token>` installs.
-
-All three run-scoped reads — `logs`, `trace` and `status <run>` — take a
-**truncated run id**. A run id is `run_` plus 32 hex characters, so anything
-shorter is unambiguously the head of one: it is resolved against the runs the
-factory knows about (the resolution is reported on stderr, so `--json` stays
-parseable), or refused for being a prefix. None of them answers a prefix with
-a negative, because "no calls are stamped with `run_62c289d1`" is true of the
-prefix, false of the run, and reads as "this run has no telemetry".
-
-Both are read-only. They observe a run and cannot steer one, which is why they
-do not widen the closed `run`/`stop`/`status`/`answer` command vocabulary the
-cloud surface is built on.
-
-#### Watching the factory: `tk factory dashboard`
-
-Reading one run after the fact is not the same as watching the factory work.
-`tk factory dashboard` is the cloud counterpart to `tk herd dashboard`, in a
-local terminal, with the same keys and the same fold behaviour:
-
-```
-tk factory dashboard                     # every project with runs
-tk factory dashboard --project owner/repo
-tk factory dashboard --interval 5000 --no-cost
-```
-
-It shows the **runs** (id, project, epic, state, elapsed, cost so far, and who
-holds the project lease), the **phase** each is on — the Workflow state, the
-boot attempt, and the image digest it actually booted — the **harness output**
-tailed live from R2 and following the selection, the **gates** waiting for an
-answer with their tick and, once settled, whether the phone or the terminal
-answered, and the **refusals** from `dispatch_log` with their policy reason, so
-a factory that is declining work explains itself.
-
-Two things about it are deliberate. It is **read-only**: every request it makes
-is a GET, no key commands a run, and the board is not the completion authority
-— closeout is. And it **works when the factory does not**: a failed read keeps
-the last known state, labels it `STALE` with its age and says what went wrong,
-and a board opened while the factory is already down reads back the frame the
-previous session left on disk, labelled the same way. Cost comes from AI
-Gateway telemetry (the record `trace` reads, so it needs the same Cloudflare
-API token); a telemetry read that failed shows no cost rather than `$0.00`.
-
-| Flag | Effect |
-|---|---|
-| `--rotate-token` | Mint a new token; the previous one stops working immediately |
-| `--url <url>` | Record and verify a custom endpoint, when the deploy output names none |
-| `--bundle-dir <path>` | Stage the worker bundle somewhere other than `~/.tick/factory/bundle` |
-| `--skip-rollout-wait` | Do not wait for the container application to serve the pushed image; the deploy then reports the rollout as unconfirmed |
-
-Re-running is the upgrade path: resources are reused, never duplicated, and the token is
-preserved unless you rotate it. The deployed bundle is pinned to the `tk` version that
-deployed it, so after `tk upgrade` the CLI reminds you to re-run `tk factory deploy`.
-
-Missing prerequisites stop the command with the reason — no wrangler, or a wrangler that
-is not logged in — and nothing is created or written until they pass. There is no live
-Cloudflare account in CI, so the end-to-end proof runs against a documented harness:
-`bash scripts/verify-factory-deploy.sh`.
-
-#### Credentials: `tk factory setup`
-
-A deployed factory still needs credentials to do anything: a GitHub token so runs can
-clone and push, and model access so agents can think. `tk factory setup` walks that
-ladder the way `tk channel setup telegram` walks BotFather — one rung at a time,
-verified live before it is stored:
-
-```bash
-tk factory setup
-```
-
-1. **wrangler**, logged in — the precondition.
-2. **A deployment** — if `~/.ticksrc` names none, setup offers to run the deploy above
-   right there.
-3. **A GitHub credential** — a fine-grained PAT scoped to the repository, checked with a
-   real GitHub API call *and* against that repository, because a PAT that authenticates
-   but was never granted the repo is the classic silent misconfiguration. A personal
-   GitHub App (per-run installation tokens) is the documented upgrade path.
-4. **Model access** — your own AI Gateway base URL and the provider behind it, proven
-   with a model-list call through the gateway. `workers-ai` needs no key at all:
-   inference bills to the same Cloudflare account.
-
-Each answer can be passed as a flag (`--repo`, `--github-token`, `--gateway-url`,
-`--provider`, `--provider-key`) instead of typed, so the same walk is scriptable.
-
-`--cloudflare-api-token` adds the optional half of rung 4, and it buys two things.
-It is what a run's cost budget acts on — your gateway's own per-request logs rather
-than anything the agent claims — and it is what reads the gateway's **Workers AI
-billing mode**. That mode decides which pot the spend comes out of: `postpaid` puts
-Workers AI on your normal Cloudflare invoice, where an account credit can absorb it;
-`unified` drains a separately purchased prepaid AI Gateway wallet, bought at a 5%
-premium. It is one toggle in the dashboard, it appears in no config file, and a run's
-telemetry reports the identical cost either way — so setup and status read the
-gateway itself and refuse a mode you did not settle on. Postpaid is the default;
-`--workers-ai-billing-mode unified` records the other choice.
-
-Everything it stores goes to exactly two places: **Worker secrets** in your own
-Cloudflare account, and `~/.ticksrc` at 0600 as the mirror `tk factory status` re-checks.
-Never the repository — a test runs the whole walk inside a checkout and fails if any
-secret appears anywhere under it.
-
-```bash
-tk factory status              # live: does each credential still work?
-tk factory status --offline    # what is configured, without touching the network
-tk factory status --check      # exit nonzero when a configured credential is rejected
-```
-
-The full ladder, including the GitHub App upgrade path and how to rotate a key, is in
-[`docs/factory-credentials.md`](docs/factory-credentials.md).
-
-### Cloud substrate: drive worker containers from your terminal
-
-A repository that declares `[orchestration].substrate = "cloud"` in
-`.tick/runners.toml` runs its implementers as **one container per tick** instead of
-local worktrees. Nothing about that requires the orchestrator to be in the cloud too:
-a Claude Code, omp or Pi session on your laptop dispatches the containers and drives
-the wave from here — local judgment, cloud hands. Five parallel implementers stop
-costing local worktrees, CPU and battery, and a lid closed mid-wave loses only the
-orchestrator, which is the failure every runner already recovers from.
-
-The verbs mirror `tk herd`'s one for one, so an orchestrator swapping substrates keeps
-the loop it already runs:
-
-| Command | Description |
-|---------|-------------|
-| `tk cloud spawn <epic> --ticks a,b,c` | Dispatch the wave as one container per tick; writes a manifest per tick |
-| `tk cloud wait --epic <id>` | Fan in: a worker settles when its `RESULT-<tick>.md` reaches the remote |
-| `tk cloud collect [<id>] --epic <id>` | Verify each pushed branch and print a verdict — never merges |
-| `tk cloud reconcile [--epic <id>]` | Read-only recovery plan after the orchestrator dies |
-
-Because a container is destroyed when it exits, the durable layer is all there is:
-`collect` reads the branch `tick/<epic>/<tick>` off the remote — commits beyond the
-submitted base, the **committed** report, an empty `.tick/` boundary diff — and adds a
-fifth verdict, `unknown`, for evidence it could not read at all. An unreachable remote
-is not a worker that failed, and is never reported as one.
-
-**One lease, wherever the orchestrator sits.** On an enrolled project a local dispatch
-takes the *same* per-project lease a cloud run takes, recorded as `origin: local`, so a
-laptop session and a scheduled run cannot both be inside `.tick/`; a second dispatch is
-refused and names the holder's run id. A project that is not enrolled keeps the local
-file lease and is told so — enrolment upgrades the arbiter, it never installs a second
-one. And a checkout with no factory configured makes no network call to find that out:
-a fully local orchestrator on the `harness` or `herdr` substrate keeps working offline,
-forever.
-
-`tk cloud spawn` refuses a run whose workers are herdr panes (exit 9), exactly as
-`tk herd spawn` refuses a run whose workers are containers. Two dispatch verbs, each
-refusing the other's substrate, is what keeps two workers off one tick.
-
-**Every wave fans out, wherever the orchestrator sits.** A cloud-orchestrated run
-(`tk cloud run <epic> --tick-ids a,b,c`) does not stop at the wave it was submitted
-with: it alternates between container waves and a short orchestrator pass that merges
-what the last wave pushed, runs the integrated gate, and computes the next wave with
-`tk graph` — in Go, inside the container, against the tracker state it has just
-updated, because nothing outside the container knows what the gate actually accepted.
-That pass dispatches with the same `tk cloud spawn` you would type yourself, and the
-run ends when a pass finds nothing left to dispatch and closes the epic out.
-
-The one thing that differs inside a run: `tk cloud spawn` there takes **no second
-lease**. The run already holds the project's, so the factory verifies it is still the
-holder rather than granting another — one arbiter per project, and an orchestrator
-that has lost the lease is refused exactly as a competitor would be. It also does not
-boot the containers itself (only the control plane can), so the wave starts once the
-pass exits and the next pass fans it in.
-
-### Merging a cloud run: `tk cloud pr-body`
-
-A run is submitted from whatever branch you were standing on, and its run branch
-descends from that SHA. If that branch was already ahead of the default branch,
-the run's closeout PR carries those commits too: merging it lands a second epic
-on `main` on *this* PR's CI gate, with no approval of its own. That has happened
-— a PR nobody merged was recorded merged, because all of its commits arrived
-inside someone else's.
-
-`tk cloud pr-body` writes the closeout PR body and names that cargo:
-
-```bash
-tk cloud pr-body | gh pr create --base main --head "$TICKS_RUN_BRANCH" \
-    --title "epic <id>: cloud run" --body-file -
-```
-
-Commits in the diff the run did not create are listed first, under a heading
-saying what merging them does; the run's own commits follow. A PR that carries
-nothing says so positively — silence would be indistinguishable from not having
-looked, which is also why a checkout that cannot resolve the merge target (a
-sandbox's shallow clone, before it fetches) is an error rather than a clean
-report. Inside a run the defaults come from the container's environment
-(`TICKS_RUN_BRANCH`, `TICKS_BASE_SHA`, `TICKS_EPIC`); elsewhere `--head`,
-`--run-base`, `--base` and `--epic` name them.
-
-### Operator channel: reach a human from an autonomous run
-
-`tk channel` pairs a personal Telegram bot with this machine so an autonomous run can
-send approvals, escalations, and completion reports to your phone instead of a
-terminal you have to keep watching. Full setup, the pairing flow, and where secrets
-are (and aren't) stored live in [`docs/operator-channel.md`](docs/operator-channel.md).
-
-Once a channel is configured, three commands drive the actual interaction:
-`tk tell` sends a one-way announcement — no question, no wait. `tk ask <id>`
-asks a question, parks it on the tick, and blocks until it's answered on
-either surface: a reply on the phone, or `tk answer` / `tk approve` / `tk
-reject` in a terminal. `tk answer <id> <answer...>` is that terminal half —
-the local twin of replying on the phone, settling the oldest question still
-open on the tick. See [Asking from a run](docs/operator-channel.md#asking-from-a-run)
-for question shapes (multiple choice, multi-select, free text), `--gate
-approve` for an approval gate, `--async`/`--collect` for asking without
-blocking, `--escalate-after` to give a terminal answer first crack before
-paging the phone, and the exit-code table (`tk ask` exits `7` when the wait
-times out — the question stays open and answerable, so a later `tk answer` or
-a later run still settles it).
-
-Both commands carry rich message support. `tk tell --format` sends the text as
-MarkdownLite (bold, italic, inline code, code block, link) instead of plain
-text, and `tk tell --file <path>` uploads a local file or photo (`--caption`,
-`--as photo|document`) instead of a message. `tk ask <id> --photo <path>
---gate approve` delivers the image itself as the approval gate, with the
-approve/reject buttons under it. Every rich send degrades automatically on a
-channel that can't render it: unsupported markup falls back to plain text with
-the markup stripped, and a file a channel can't upload falls back to a message
-naming its path — never a hard failure. See
-[Rich messages](docs/operator-channel.md#rich-messages) for the MarkdownLite
-subset, attachment kinds, the upload size limit, and the fallback rules in
-full.
-
-| Command | Description |
-|---------|-------------|
-| `tk channel setup telegram` | Pair your Telegram bot with this machine (token stays out of the repo) |
-| `tk channel status` | Show what is configured, who it is paired with, and whether the token works |
-| `tk tell [text...]` | Send a one-way announcement to the operator channel (reads stdin with no args) |
-| `tk tell --format` | Send the announcement as MarkdownLite, rendered where the channel supports it |
-| `tk tell --file <path> [--caption "..."] [--as photo\|document]` | Upload a file or photo instead of a message |
-| `tk ask <id> --question "..."` | Ask a question and block until it's answered, on either surface |
-| `tk ask <id> --question "..." --gate approve` | Ask as an approval gate — approve/reject buttons, verdict answer |
-| `tk ask <id> --photo <path> --gate approve [--caption "..."]` | Ask as a photo approval gate — the image carries the buttons |
-| `tk ask --collect --wait` | Drain settled questions from earlier `--async` asks, optionally blocking on the rest |
-| `tk answer <id> <answer...>` | Answer a question `tk ask` parked, from the terminal |
 
 ## TUI
 
@@ -671,36 +323,6 @@ Opens a web kanban board at `http://localhost:3000` with real-time updates. Buil
 - PWA support for offline use
 
 The board binds `127.0.0.1` (loopback) by default so it is only accessible from the local machine. Use `--host 0.0.0.0` to expose it on all network interfaces. Without `-p/--port`, the board starts at port 3000 and takes the first free port. See `internal/tickboard/ui/README.md` for development docs.
-
-## Cloud Sync
-
-Access your ticks from anywhere at [ticks.sh](https://ticks.sh).
-
-### Setup
-
-1. Get a token from https://ticks.sh/settings
-2. Add to `~/.ticksrc`:
-   ```
-   token=your-token-here
-   ```
-3. Start the board with the `--cloud` flag:
-   ```bash
-   tk board --cloud
-   ```
-
-### How It Works
-
-- `tk board --cloud` connects to a Cloudflare Durable Object
-- File changes sync to cloud in real-time (~50ms)
-- Cloud UI edits sync back to local
-- Works offline—changes queue and sync on reconnect
-
-### Privacy
-
-- Ticks stored in Cloudflare Durable Objects
-- Only accessible with your token
-- Project isolation enforced
-- No telemetry or analytics
 
 ## Dependency Graph
 

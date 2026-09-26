@@ -3,7 +3,6 @@ module github.com/pengelbrecht/ticks
 go 1.24.11
 
 require (
-	github.com/BurntSushi/toml v1.6.0
 	github.com/charmbracelet/bubbles v0.21.0
 	github.com/charmbracelet/bubbletea v1.3.5
 	github.com/charmbracelet/lipgloss v1.1.0
@@ -16,7 +15,6 @@ require (
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.9
 	golang.org/x/sys v0.40.0
-	golang.org/x/term v0.39.0
 )
 
 require (

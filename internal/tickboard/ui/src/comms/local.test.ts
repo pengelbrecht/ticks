@@ -25,10 +25,9 @@ const TEST_RIG_URL = process.env.TICKS_TEST_RIG_URL || 'http://localhost:18787';
 // =============================================================================
 //
 // This suite exercises the real Go test rig (`go run ./cmd/testrig -port 18787`)
-// over real SSE / REST. It is meant to run inside the dedicated cloud/e2e
-// harness (see e2e/run-cloud-tests.sh), NOT the default `pnpm test`. Hermetic,
-// server-free coverage of the same client API lives in mock.test.ts and
-// cloud-unit.test.ts, so when no rig is reachable this suite is SKIPPED
+// over real SSE / REST. It is meant to run against a live rig, NOT the default
+// `pnpm test`. Hermetic, server-free coverage of the same client API lives in
+// mock.test.ts, so when no rig is reachable this suite is SKIPPED
 // (reported as skipped, not failed) rather than re-mocking the entire server
 // surface in JS.
 //
@@ -57,7 +56,7 @@ async function probeTestRig(rigUrl: string): Promise<boolean> {
   }
   console.warn(
     `\nℹ️  Skipping LocalCommsClient integration tests: test rig at ${rigUrl} not running.` +
-      `\n   Run with: pnpm test:cloud  (or: go run ./cmd/testrig -port 18787 && TICKS_LIVE_TESTS=1 pnpm test)\n`
+      `\n   Run with: go run ./cmd/testrig -port 18787 && TICKS_LIVE_TESTS=1 pnpm test\n`
   );
   return false;
 }

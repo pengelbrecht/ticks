@@ -258,9 +258,6 @@ type BlockerDetail struct {
 	Title string `json:"title" yaml:"title" mapstructure:"title"`
 }
 
-// Union of all messages sent from clients to server/DO
-type ClientMessage interface{}
-
 // Request body for POST /api/ticks/:id/close
 type CloseTickRequest struct {
 	// Reason for closing
@@ -365,15 +362,6 @@ type CloseTickResponse struct {
 
 	// Human response to an awaiting state
 	Verdict *TickVerdict `json:"verdict,omitempty,omitzero" yaml:"verdict,omitempty" mapstructure:"verdict,omitempty"`
-}
-
-// Server confirms WebSocket connection
-type ConnectedMessage struct {
-	// ConnectionId corresponds to the JSON schema field "connectionId".
-	ConnectionId string `json:"connectionId" yaml:"connectionId" mapstructure:"connectionId"`
-
-	// Type corresponds to the JSON schema field "type".
-	Type interface{} `json:"type" yaml:"type" mapstructure:"type"`
 }
 
 // Request body for POST /api/ticks
@@ -506,15 +494,6 @@ type EpicInfo struct {
 	Title string `json:"title" yaml:"title" mapstructure:"title"`
 }
 
-// Error notification
-type ErrorMessage struct {
-	// Message corresponds to the JSON schema field "message".
-	Message string `json:"message" yaml:"message" mapstructure:"message"`
-
-	// Type corresponds to the JSON schema field "type".
-	Type interface{} `json:"type" yaml:"type" mapstructure:"type"`
-}
-
 // Detailed tick response with parsed notes and blocker details
 type GetTickResponse struct {
 	// Criteria that must be met for completion
@@ -621,24 +600,6 @@ type GetTickResponse struct {
 	Verdict *TickVerdict `json:"verdict,omitempty,omitzero" yaml:"verdict,omitempty" mapstructure:"verdict,omitempty"`
 }
 
-// Heartbeat ping
-type HeartbeatMessage struct {
-	// Token corresponds to the JSON schema field "token".
-	Token *string `json:"token,omitempty,omitzero" yaml:"token,omitempty" mapstructure:"token,omitempty"`
-
-	// Type corresponds to the JSON schema field "type".
-	Type interface{} `json:"type" yaml:"type" mapstructure:"type"`
-}
-
-// Heartbeat pong
-type HeartbeatResponseMessage struct {
-	// Unix timestamp when session expires
-	ExpiresAt int `json:"expiresAt" yaml:"expiresAt" mapstructure:"expiresAt"`
-
-	// Type corresponds to the JSON schema field "type".
-	Type interface{} `json:"type" yaml:"type" mapstructure:"type"`
-}
-
 // Response from GET /api/info
 type InfoResponse struct {
 	// List of epics for dropdown
@@ -652,15 +613,6 @@ type InfoResponse struct {
 type ListTicksResponse struct {
 	// List of ticks matching the query
 	Ticks []TickResponse `json:"ticks" yaml:"ticks" mapstructure:"ticks"`
-}
-
-// Local agent online/offline status
-type LocalStatusMessage struct {
-	// Connected corresponds to the JSON schema field "connected".
-	Connected bool `json:"connected" yaml:"connected" mapstructure:"connected"`
-
-	// Type corresponds to the JSON schema field "type".
-	Type interface{} `json:"type" yaml:"type" mapstructure:"type"`
 }
 
 // Parsed note entry from tick.notes
@@ -784,148 +736,6 @@ type RejectTickResponse struct {
 	Verdict *TickVerdict `json:"verdict,omitempty,omitzero" yaml:"verdict,omitempty" mapstructure:"verdict,omitempty"`
 }
 
-// Run event payload data
-type RunEventData struct {
-	// ActiveTool corresponds to the JSON schema field "activeTool".
-	ActiveTool *RunEventTool `json:"activeTool,omitempty,omitzero" yaml:"activeTool,omitempty" mapstructure:"activeTool,omitempty"`
-
-	// Iteration corresponds to the JSON schema field "iteration".
-	Iteration *int `json:"iteration,omitempty,omitzero" yaml:"iteration,omitempty" mapstructure:"iteration,omitempty"`
-
-	// Human-readable message
-	Message *string `json:"message,omitempty,omitzero" yaml:"message,omitempty" mapstructure:"message,omitempty"`
-
-	// Metrics corresponds to the JSON schema field "metrics".
-	Metrics *RunEventMetrics `json:"metrics,omitempty,omitzero" yaml:"metrics,omitempty" mapstructure:"metrics,omitempty"`
-
-	// Number of API turns
-	NumTurns *int `json:"numTurns,omitempty,omitzero" yaml:"numTurns,omitempty" mapstructure:"numTurns,omitempty"`
-
-	// Current output text
-	Output *string `json:"output,omitempty,omitzero" yaml:"output,omitempty" mapstructure:"output,omitempty"`
-
-	// Status text
-	Status *string `json:"status,omitempty,omitzero" yaml:"status,omitempty" mapstructure:"status,omitempty"`
-
-	// Success corresponds to the JSON schema field "success".
-	Success *bool `json:"success,omitempty,omitzero" yaml:"success,omitempty" mapstructure:"success,omitempty"`
-
-	// Number of tasks (context events)
-	TaskCount *int `json:"taskCount,omitempty,omitzero" yaml:"taskCount,omitempty" mapstructure:"taskCount,omitempty"`
-
-	// Timestamp corresponds to the JSON schema field "timestamp".
-	Timestamp time.Time `json:"timestamp" yaml:"timestamp" mapstructure:"timestamp"`
-
-	// Token count (context events)
-	TokenCount *int `json:"tokenCount,omitempty,omitzero" yaml:"tokenCount,omitempty" mapstructure:"tokenCount,omitempty"`
-
-	// Type corresponds to the JSON schema field "type".
-	Type RunEventType `json:"type" yaml:"type" mapstructure:"type"`
-}
-
-// Live run output event from local agent
-type RunEventMessage struct {
-	// Epic being worked on
-	EpicId string `json:"epicId" yaml:"epicId" mapstructure:"epicId"`
-
-	// Event corresponds to the JSON schema field "event".
-	Event RunEventData `json:"event" yaml:"event" mapstructure:"event"`
-
-	// Source corresponds to the JSON schema field "source".
-	Source RunEventSource `json:"source" yaml:"source" mapstructure:"source"`
-
-	// Task ID (if task-level event)
-	TaskId *string `json:"taskId,omitempty,omitzero" yaml:"taskId,omitempty" mapstructure:"taskId,omitempty"`
-
-	// Trace id joining this event to the message that caused the run and to the
-	// containers working on it (D20). Absent for a run that belongs to no traced
-	// chain.
-	TraceId *string `json:"traceId,omitempty,omitzero" yaml:"traceId,omitempty" mapstructure:"traceId,omitempty"`
-
-	// Type corresponds to the JSON schema field "type".
-	Type interface{} `json:"type" yaml:"type" mapstructure:"type"`
-}
-
-// Token and cost metrics during run
-type RunEventMetrics struct {
-	// CacheCreationTokens corresponds to the JSON schema field "cacheCreationTokens".
-	CacheCreationTokens *int `json:"cacheCreationTokens,omitempty,omitzero" yaml:"cacheCreationTokens,omitempty" mapstructure:"cacheCreationTokens,omitempty"`
-
-	// CacheReadTokens corresponds to the JSON schema field "cacheReadTokens".
-	CacheReadTokens *int `json:"cacheReadTokens,omitempty,omitzero" yaml:"cacheReadTokens,omitempty" mapstructure:"cacheReadTokens,omitempty"`
-
-	// CostUsd corresponds to the JSON schema field "costUsd".
-	CostUsd *float64 `json:"costUsd,omitempty,omitzero" yaml:"costUsd,omitempty" mapstructure:"costUsd,omitempty"`
-
-	// DurationMs corresponds to the JSON schema field "durationMs".
-	DurationMs *int `json:"durationMs,omitempty,omitzero" yaml:"durationMs,omitempty" mapstructure:"durationMs,omitempty"`
-
-	// InputTokens corresponds to the JSON schema field "inputTokens".
-	InputTokens *int `json:"inputTokens,omitempty,omitzero" yaml:"inputTokens,omitempty" mapstructure:"inputTokens,omitempty"`
-
-	// OutputTokens corresponds to the JSON schema field "outputTokens".
-	OutputTokens *int `json:"outputTokens,omitempty,omitzero" yaml:"outputTokens,omitempty" mapstructure:"outputTokens,omitempty"`
-}
-
-type RunEventSource string
-
-const RunEventSourceCloudOrchestrator RunEventSource = "cloud:orchestrator"
-const RunEventSourceCloudWorker RunEventSource = "cloud:worker"
-const RunEventSourceHarness RunEventSource = "harness"
-const RunEventSourceHerdr RunEventSource = "herdr"
-const RunEventSourcePi RunEventSource = "pi"
-
-// Active tool information
-type RunEventTool struct {
-	// Duration corresponds to the JSON schema field "duration".
-	Duration *int `json:"duration,omitempty,omitzero" yaml:"duration,omitempty" mapstructure:"duration,omitempty"`
-
-	// Input corresponds to the JSON schema field "input".
-	Input *string `json:"input,omitempty,omitzero" yaml:"input,omitempty" mapstructure:"input,omitempty"`
-
-	// Name corresponds to the JSON schema field "name".
-	Name string `json:"name" yaml:"name" mapstructure:"name"`
-}
-
-type RunEventType string
-
-const RunEventTypeContextFailed RunEventType = "context-failed"
-const RunEventTypeContextGenerated RunEventType = "context-generated"
-const RunEventTypeContextGenerating RunEventType = "context-generating"
-const RunEventTypeContextLoaded RunEventType = "context-loaded"
-const RunEventTypeContextSkipped RunEventType = "context-skipped"
-const RunEventTypeEpicCompleted RunEventType = "epic-completed"
-const RunEventTypeEpicStarted RunEventType = "epic-started"
-const RunEventTypeTaskCompleted RunEventType = "task-completed"
-const RunEventTypeTaskStarted RunEventType = "task-started"
-const RunEventTypeTaskUpdate RunEventType = "task-update"
-const RunEventTypeToolActivity RunEventType = "tool-activity"
-
-// Union of all messages sent from server/DO to clients
-type ServerMessage interface{}
-
-// Full tick state on connection
-type StateFullMessage struct {
-	// Ticks corresponds to the JSON schema field "ticks".
-	Ticks StateFullMessageTicks `json:"ticks" yaml:"ticks" mapstructure:"ticks"`
-
-	// Type corresponds to the JSON schema field "type".
-	Type interface{} `json:"type" yaml:"type" mapstructure:"type"`
-}
-
-type StateFullMessageTicks map[string]TickSchema_1
-
-// Local agent sends full tick state to DO
-type SyncFullMessage struct {
-	// Ticks corresponds to the JSON schema field "ticks".
-	Ticks SyncFullMessageTicks `json:"ticks" yaml:"ticks" mapstructure:"ticks"`
-
-	// Type corresponds to the JSON schema field "type".
-	Type interface{} `json:"type" yaml:"type" mapstructure:"type"`
-}
-
-type SyncFullMessageTicks map[string]TickSchema_1
-
 type TickAwaiting string
 
 const TickAwaitingApproval TickAwaiting = "approval"
@@ -943,99 +753,6 @@ const TickColumnBlocked TickColumn = "blocked"
 const TickColumnDone TickColumn = "done"
 const TickColumnHuman TickColumn = "human"
 const TickColumnReady TickColumn = "ready"
-
-// Client request to create tick
-type TickCreateRequest struct {
-	// Tick corresponds to the JSON schema field "tick".
-	Tick TickSchema_1 `json:"tick" yaml:"tick" mapstructure:"tick"`
-
-	// Type corresponds to the JSON schema field "type".
-	Type interface{} `json:"type" yaml:"type" mapstructure:"type"`
-}
-
-// Single tick created. Broadcast by the DO when a previously-unknown tick is
-// synced; clients apply it identically to tick_updated.
-type TickCreatedMessage struct {
-	// Tick corresponds to the JSON schema field "tick".
-	Tick TickSchema_1 `json:"tick" yaml:"tick" mapstructure:"tick"`
-
-	// Type corresponds to the JSON schema field "type".
-	Type interface{} `json:"type" yaml:"type" mapstructure:"type"`
-}
-
-// Client request to delete tick
-type TickDeleteRequest struct {
-	// Id corresponds to the JSON schema field "id".
-	Id string `json:"id" yaml:"id" mapstructure:"id"`
-
-	// Type corresponds to the JSON schema field "type".
-	Type interface{} `json:"type" yaml:"type" mapstructure:"type"`
-}
-
-// Tick deleted
-type TickDeletedMessage struct {
-	// Id corresponds to the JSON schema field "id".
-	Id string `json:"id" yaml:"id" mapstructure:"id"`
-
-	// Type corresponds to the JSON schema field "type".
-	Type interface{} `json:"type" yaml:"type" mapstructure:"type"`
-}
-
-// RPC request for tick operation
-type TickOperationRequest struct {
-	// Authenticated session user id (opaque, not an email) of the cloud user who
-	// initiated the operation. Used to attribute activity log entries.
-	Actor *string `json:"actor,omitempty,omitzero" yaml:"actor,omitempty" mapstructure:"actor,omitempty"`
-
-	// Operation corresponds to the JSON schema field "operation".
-	Operation TickOperationType `json:"operation" yaml:"operation" mapstructure:"operation"`
-
-	// Payload corresponds to the JSON schema field "payload".
-	Payload *TickOperationRequestPayload `json:"payload,omitempty,omitzero" yaml:"payload,omitempty" mapstructure:"payload,omitempty"`
-
-	// RequestId corresponds to the JSON schema field "requestId".
-	RequestId string `json:"requestId" yaml:"requestId" mapstructure:"requestId"`
-
-	// TickId corresponds to the JSON schema field "tickId".
-	TickId string `json:"tickId" yaml:"tickId" mapstructure:"tickId"`
-
-	// Type corresponds to the JSON schema field "type".
-	Type interface{} `json:"type" yaml:"type" mapstructure:"type"`
-}
-
-type TickOperationRequestPayload struct {
-	// Message corresponds to the JSON schema field "message".
-	Message *string `json:"message,omitempty,omitzero" yaml:"message,omitempty" mapstructure:"message,omitempty"`
-
-	// Reason corresponds to the JSON schema field "reason".
-	Reason *string `json:"reason,omitempty,omitzero" yaml:"reason,omitempty" mapstructure:"reason,omitempty"`
-}
-
-// RPC response for tick operation
-type TickOperationResponse struct {
-	// Error corresponds to the JSON schema field "error".
-	Error *string `json:"error,omitempty,omitzero" yaml:"error,omitempty" mapstructure:"error,omitempty"`
-
-	// RequestId corresponds to the JSON schema field "requestId".
-	RequestId string `json:"requestId" yaml:"requestId" mapstructure:"requestId"`
-
-	// Success corresponds to the JSON schema field "success".
-	Success bool `json:"success" yaml:"success" mapstructure:"success"`
-
-	// Tick corresponds to the JSON schema field "tick".
-	Tick *TickSchema_1 `json:"tick,omitempty,omitzero" yaml:"tick,omitempty" mapstructure:"tick,omitempty"`
-
-	// Type corresponds to the JSON schema field "type".
-	Type interface{} `json:"type" yaml:"type" mapstructure:"type"`
-}
-
-type TickOperationType string
-
-const TickOperationTypeAddNote TickOperationType = "add_note"
-const TickOperationTypeApprove TickOperationType = "approve"
-const TickOperationTypeClose TickOperationType = "close"
-const TickOperationTypeReject TickOperationType = "reject"
-const TickOperationTypeReopen TickOperationType = "reopen"
 
 type TickRequires string
 
@@ -1242,100 +959,6 @@ type TickSchema struct {
 	Verdict *TickVerdict `json:"verdict,omitempty,omitzero" yaml:"verdict,omitempty" mapstructure:"verdict,omitempty"`
 }
 
-// A single work item (task, bug, feature, epic, or chore)
-type TickSchema_1 struct {
-	// Criteria that must be met for completion
-	AcceptanceCriteria *string `json:"acceptance_criteria,omitempty,omitzero" yaml:"acceptance_criteria,omitempty" mapstructure:"acceptance_criteria,omitempty"`
-
-	// Tick IDs to preferably work first if feasible; soft ordering only, never gates
-	// readiness (use blocked_by for that). Missing or closed targets are ignored
-	After []string `json:"after,omitempty,omitzero" yaml:"after,omitempty" mapstructure:"after,omitempty"`
-
-	// Current wait state - what the tick is waiting for
-	Awaiting *TickAwaiting `json:"awaiting,omitempty,omitzero" yaml:"awaiting,omitempty" mapstructure:"awaiting,omitempty"`
-
-	// IDs of ticks that block this one
-	BlockedBy []string `json:"blocked_by,omitempty,omitzero" yaml:"blocked_by,omitempty" mapstructure:"blocked_by,omitempty"`
-
-	// ISO timestamp when the tick was closed
-	ClosedAt *time.Time `json:"closed_at,omitempty,omitzero" yaml:"closed_at,omitempty" mapstructure:"closed_at,omitempty"`
-
-	// Reason for closing (e.g., completed, wont-fix, duplicate)
-	ClosedReason *string `json:"closed_reason,omitempty,omitzero" yaml:"closed_reason,omitempty" mapstructure:"closed_reason,omitempty"`
-
-	// ISO timestamp when the tick was created
-	CreatedAt time.Time `json:"created_at" yaml:"created_at" mapstructure:"created_at"`
-
-	// Who created this tick
-	CreatedBy string `json:"created_by" yaml:"created_by" mapstructure:"created_by"`
-
-	// ISO timestamp - tick is deferred until this time
-	DeferUntil *time.Time `json:"defer_until,omitempty,omitzero" yaml:"defer_until,omitempty" mapstructure:"defer_until,omitempty"`
-
-	// Detailed description of the work to be done
-	Description *string `json:"description,omitempty,omitzero" yaml:"description,omitempty" mapstructure:"description,omitempty"`
-
-	// ID of tick during which this tick was discovered
-	DiscoveredFrom *string `json:"discovered_from,omitempty,omitzero" yaml:"discovered_from,omitempty" mapstructure:"discovered_from,omitempty"`
-
-	// Reference to external issue tracker (e.g., GitHub issue URL)
-	ExternalRef *string `json:"external_ref,omitempty,omitzero" yaml:"external_ref,omitempty" mapstructure:"external_ref,omitempty"`
-
-	// Optional short human label shown beside the id as `id (gloss)`
-	Gloss *string `json:"gloss,omitempty,omitzero" yaml:"gloss,omitempty" mapstructure:"gloss,omitempty"`
-
-	// Unique identifier for the tick
-	Id string `json:"id" yaml:"id" mapstructure:"id"`
-
-	// Optional labels for categorization
-	Labels []string `json:"labels,omitempty,omitzero" yaml:"labels,omitempty" mapstructure:"labels,omitempty"`
-
-	// Legacy field - use awaiting instead. True means awaiting=work
-	Manual *bool `json:"manual,omitempty,omitzero" yaml:"manual,omitempty" mapstructure:"manual,omitempty"`
-
-	// Timestamped notes appended during work
-	Notes *string `json:"notes,omitempty,omitzero" yaml:"notes,omitempty" mapstructure:"notes,omitempty"`
-
-	// Who is responsible for this tick (agent or human)
-	Owner string `json:"owner" yaml:"owner" mapstructure:"owner"`
-
-	// Parent epic ID if this tick belongs to an epic
-	Parent *string `json:"parent,omitempty,omitzero" yaml:"parent,omitempty" mapstructure:"parent,omitempty"`
-
-	// Priority level (0=highest, 4=lowest)
-	Priority int `json:"priority" yaml:"priority" mapstructure:"priority"`
-
-	// Pre-declared gate that must be satisfied before closing
-	Requires *TickRequires `json:"requires,omitempty,omitzero" yaml:"requires,omitempty" mapstructure:"requires,omitempty"`
-
-	// Process-tick role in an epic's skeleton: review (final review) or closeout
-	// (retro + plan next). Absent means a normal work tick
-	Role *TickRole `json:"role,omitempty,omitzero" yaml:"role,omitempty" mapstructure:"role,omitempty"`
-
-	// ISO timestamp when the tick entered in_progress status
-	StartedAt *time.Time `json:"started_at,omitempty,omitzero" yaml:"started_at,omitempty" mapstructure:"started_at,omitempty"`
-
-	// Status corresponds to the JSON schema field "status".
-	Status TickStatus `json:"status" yaml:"status" mapstructure:"status"`
-
-	// Optional precise ISO calendar day (YYYY-MM-DD) the tick targets; no
-	// time-of-day, no fuzziness. Absent is the common case. Feeds the derived
-	// overdue/on-track signal and never gates execution
-	TargetDate *string `json:"target_date,omitempty,omitzero" yaml:"target_date,omitempty" mapstructure:"target_date,omitempty"`
-
-	// Short title describing the work item
-	Title string `json:"title" yaml:"title" mapstructure:"title"`
-
-	// Type corresponds to the JSON schema field "type".
-	Type TickType `json:"type" yaml:"type" mapstructure:"type"`
-
-	// ISO timestamp when the tick was last updated
-	UpdatedAt time.Time `json:"updated_at" yaml:"updated_at" mapstructure:"updated_at"`
-
-	// Human response to an awaiting state
-	Verdict *TickVerdict `json:"verdict,omitempty,omitzero" yaml:"verdict,omitempty" mapstructure:"verdict,omitempty"`
-}
-
 type TickStatus string
 
 const TickStatusClosed TickStatus = "closed"
@@ -1349,24 +972,6 @@ const TickTypeChore TickType = "chore"
 const TickTypeEpic TickType = "epic"
 const TickTypeFeature TickType = "feature"
 const TickTypeTask TickType = "task"
-
-// Client request to update tick
-type TickUpdateRequest struct {
-	// Tick corresponds to the JSON schema field "tick".
-	Tick TickSchema_1 `json:"tick" yaml:"tick" mapstructure:"tick"`
-
-	// Type corresponds to the JSON schema field "type".
-	Type interface{} `json:"type" yaml:"type" mapstructure:"type"`
-}
-
-// Single tick updated
-type TickUpdatedMessage struct {
-	// Tick corresponds to the JSON schema field "tick".
-	Tick TickSchema_1 `json:"tick" yaml:"tick" mapstructure:"tick"`
-
-	// Type corresponds to the JSON schema field "type".
-	Type interface{} `json:"type" yaml:"type" mapstructure:"type"`
-}
 
 type TickVerdict string
 

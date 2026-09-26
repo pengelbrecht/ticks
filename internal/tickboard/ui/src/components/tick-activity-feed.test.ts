@@ -8,15 +8,11 @@ import { LitElement } from 'lit';
 import { styleText } from '../test-utils/styles.js';
 import './tick-activity-feed.js';
 import type { TickActivityFeed } from './tick-activity-feed.js';
-import { $isCloudMode } from '../stores/connection.js';
 
 describe('tick-activity-feed mobile view', () => {
   let element: TickActivityFeed;
 
   beforeEach(async () => {
-    // Reset cloud mode to ensure consistent test behavior
-    $isCloudMode.set(false);
-
     // Mock fetch for activity loading
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify([]), { status: 200 })

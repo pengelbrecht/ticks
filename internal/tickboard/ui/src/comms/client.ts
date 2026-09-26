@@ -1,13 +1,12 @@
 /**
  * CommsClient interface - unified communication abstraction.
- * Implementations handle local (SSE) and cloud (WebSocket) transports.
+ * The board's transport is local (SSE + REST); a mock exists for tests.
  */
 
 import type { Tick } from '../types/tick.js';
 import type {
   TickEvent,
   ConnectionEvent,
-  RunEvent,
   TickCreate,
   TickUpdate,
   ConnectionInfo,
@@ -22,7 +21,6 @@ import type {
 
 export type TickEventHandler = (event: TickEvent) => void;
 export type ConnectionEventHandler = (event: ConnectionEvent) => void;
-export type RunEventHandler = (event: RunEvent) => void;
 
 /** Unsubscribe function returned by event subscriptions */
 export type Unsubscribe = () => void;
@@ -35,7 +33,7 @@ export type Unsubscribe = () => void;
  * Unified communication client interface.
  *
  * Handles both reading (events from server) and writing (operations to server).
- * Implementations exist for local mode (SSE + REST) and cloud mode (WebSocket + REST).
+ * Implemented by LocalCommsClient (SSE + REST) and MockCommsClient (tests).
  */
 export interface CommsClient {
   // ===========================================================================
@@ -44,8 +42,7 @@ export interface CommsClient {
 
   /**
    * Connect to the server.
-   * For local mode: Opens SSE connection to /api/events
-   * For cloud mode: Opens WebSocket to sync endpoint
+   * Opens the SSE connection to /api/events.
    */
   connect(): Promise<void>;
 
@@ -71,22 +68,13 @@ export interface CommsClient {
    */
   onConnection(handler: ConnectionEventHandler): Unsubscribe;
 
-  /**
-   * Subscribe to live run events (tick bne). Optional: only transports that
-   * carry the `run_event` protocol implement it, and a board whose transport
-   * does not simply never shows a live run — the stream is observability, so
-   * its absence costs nothing.
-   * @returns Unsubscribe function
-   */
-  onRun?(handler: RunEventHandler): Unsubscribe;
-
   // ===========================================================================
   // Write Operations (Client → Server)
   // ===========================================================================
 
   /**
    * Create a new tick.
-   * @throws Error if in read-only mode (cloud mode with local agent offline)
+   * @throws Error if in read-only mode
    */
   createTick(tick: TickCreate): Promise<Tick>;
 
@@ -170,7 +158,7 @@ export interface CommsClient {
 
   /**
    * Check if in read-only mode.
-   * True in cloud mode when local agent is offline.
+   * The local board is never read-only; the mock can simulate it.
    * Writes will fail when read-only.
    */
   isReadOnly(): boolean;

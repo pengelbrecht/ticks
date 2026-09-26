@@ -2,7 +2,7 @@
   "id": "ok1",
   "title": "Add input validation and error handling",
   "description": "Add robust input validation for all API endpoints. Validate status (open/in_progress/closed/blocked/awaiting), priority (0-4), type (task/bug/feature/epic/chore), labels (array). Return consistent error JSON with error message and code. Handle JSON parse errors gracefully. Use proper HTTP status codes: 200 OK, 201 Created, 204 No Content, 400 Bad Request, 401 Unauthorized, 403 Forbidden, 404 Not Found, 422 Unprocessable Entity.",
-  "status": "open",
+  "status": "closed",
   "priority": 1,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -13,5 +13,7 @@
   "parent": "qr4",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-22T07:34:29.356603Z",
-  "updated_at": "2026-01-22T07:34:29.356603Z"
+  "updated_at": "2026-09-26T14:25:23.777984251Z",
+  "closed_at": "2026-09-26T14:25:23.777984251Z",
+  "closed_reason": "closed with parent epic (--force)"
 }

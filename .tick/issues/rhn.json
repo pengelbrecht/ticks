@@ -2,12 +2,14 @@
   "id": "rhn",
   "title": "Tickboard token revoke bug",
   "description": "When attempting to revoke a token i get an error message, i got the impression it might attempt to go through the wss connection, but token revokation should happen strictly on worker/d1?",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
   "parent": "nm8",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-17T08:01:24.088913Z",
-  "updated_at": "2026-06-26T07:16:40.897113615Z"
+  "updated_at": "2026-09-26T14:25:17.891435971Z",
+  "closed_at": "2026-09-26T14:25:17.891435971Z",
+  "closed_reason": "Retired: the ticks.sh cloud board and its deploy were removed in chz (ticks becomes tracker-only), 2026-09-26"
 }

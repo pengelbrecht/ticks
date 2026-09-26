@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/spf13/cobra"
@@ -51,37 +52,16 @@ const (
 	// to tell the two apart.
 	ExitTimeout = 7
 
-	// ExitWaveFull reports that a dispatch was refused because the wave is at
-	// its configured width (`[orchestration].max_parallel`). It has its own
-	// slot for the same reason ExitTimeout does: "wait for a slot" and "that
-	// tick does not exist" are different next actions, and an orchestrator
-	// must be able to tell them apart without parsing stderr. Refused work is
-	// not failed work — the claim is retried when a slot frees.
-	ExitWaveFull = 8
-
-	// ExitWrongSubstrate reports that a dispatch verb refused because the run
-	// dispatches through a different substrate than the verb serves: `tk herd
-	// spawn` on a repository that declares `[orchestration].substrate =
-	// "cloud"`. It has its own slot for the reason ExitWaveFull does — the next
-	// action is neither "retry" nor "fix the config", it is "use the other
-	// verb", and an orchestrator must be able to tell that apart from a routing
-	// refusal (1) without parsing stderr.
-	ExitWrongSubstrate = 9
-
-	// ExitPluginUnhealthy reports that `tk herd plugin --check` found the
-	// herdr-ticks plugin unable to fire the orchestrator guard: absent,
-	// disabled, or — the case that actually happened — installed, enabled, and
-	// pinned to a commit older than the guard hook. Its own slot because the
-	// next action is "run tk herd plugin --install", which is neither a retry
-	// nor a config fix, and because a run must be able to tell "the watchdog
-	// cannot fire" apart from an ordinary failure without parsing stderr.
-	ExitPluginUnhealthy = 10
+	// 8, 9 and 10 are retired: they were the dispatch-width, wrong-substrate
+	// and herdr-plugin refusals of the execution verbs that left for ticfac
+	// (epic chz). Do not reuse them — a consumer pinned to an older tk still
+	// reads them with their old meaning.
 
 	// ExitContractUnsupported reports that tk refused to run because the
 	// caller pinned a tk --json contract version this build cannot serve
 	// (--json-contract / TK_JSON_CONTRACT; see contracts/tk-json-manifest.json).
-	// Its own slot for the reason ExitWaveFull and ExitPluginUnhealthy have
-	// theirs: the next action is "install a tk that serves this contract",
+	// Its own slot for the reason ExitTimeout has
+	// its: the next action is "install a tk that serves this contract",
 	// which is neither a retry nor a fix to the command line, and a consumer
 	// must be able to tell it from a routing refusal (1) or a usage error (2)
 	// without parsing stderr. The refusal happens BEFORE the command runs —
@@ -351,6 +331,43 @@ func CommandNames() []string {
 	return names
 }
 
+// IsCommand reports whether name is a visible registered subcommand or one of
+// its aliases. main.go's dispatch uses it instead of a hand-kept list, so a
+// deleted command stops being dispatched (and advertised) with its file.
+func IsCommand(name string) bool {
+	for _, c := range rootCmd.Commands() {
+		if c.Hidden || c.Name() == "help" || c.Name() == "completion" {
+			continue
+		}
+		if c.Name() == name {
+			return true
+		}
+		for _, alias := range c.Aliases {
+			if alias == name {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// CommandUsageNames returns the visible subcommands for the top-level usage
+// line, each followed by its aliases in parentheses ("create (new)").
+func CommandUsageNames() []string {
+	var names []string
+	for _, c := range rootCmd.Commands() {
+		if c.Hidden || c.Name() == "help" || c.Name() == "completion" {
+			continue
+		}
+		name := c.Name()
+		if len(c.Aliases) > 0 {
+			name += " (" + strings.Join(c.Aliases, ", ") + ")"
+		}
+		names = append(names, name)
+	}
+	return names
+}
+
 // resetCobraFlags resets the Cobra flag tracking for a command and all its subcommands.
 // This is necessary because Cobra's Changed() tracking persists across multiple
 // Execute() calls in the same process.
@@ -483,7 +500,6 @@ func ResetFlags() {
 	nextEpic = false
 	nextIncludeManual = false
 	nextJSON = false
-	nextAutonomous = false
 
 	// Reset blocked flags
 	blockedAll = false
@@ -494,7 +510,6 @@ func ResetFlags() {
 	frontierCheck = false
 	frontierJSON = false
 	frontierOwner = ""
-	frontierAutonomous = false
 
 	// Reset note flags
 	noteEdit = false
@@ -578,34 +593,8 @@ func ResetFlags() {
 	gcDryRun = false
 	gcMaxAge = "30d"
 
-	// Reset merge flags
-	mergeForce = false
-	mergeDeleteBranch = true
-	mergeDryRun = false
-	mergeYes = false
-
-	// Reset sandbox flags
-	sandboxRoot = ""
-	sandboxForce = false
-	sandboxStamp = ""
-	sandboxTkVerRaw = ""
-	sandboxDeclaredOnly = false
-	sandboxModelRole = ""
-	sandboxModelTier = ""
-	sandboxPromptTick = ""
-	sandboxPromptBranch = ""
-	sandboxPromptBase = ""
-
-	// Reset herd dashboard flags
-	herdDashboardEpic, herdDashboardSocket, herdDashboardInterval = "", "", defaultHerdDashboardIntervalMs
-
-	// Reset herd relay flags
-	herdRelayAgent, herdRelayPane, herdRelaySocket = "", "", ""
-	herdRelayGrace, herdRelayTimeout = 0, defaultHerdRelayTimeout
-
 	// Reset board flags
 	boardPort = 3000
-	boardCloud = false
 	boardDev = false
 	boardHost = "127.0.0.1"
 
@@ -630,28 +619,6 @@ func ResetFlags() {
 	skillsInstallForce = false
 	skillsDiffDir = ""
 
-	// Reset cloud flags
-	cloudPRBodyHead = ""
-	cloudPRBodyBase = ""
-	cloudPRBodyRunBase = ""
-	cloudPRBodyEpic = ""
-	cloudBranchDetail = ""
-
-	// Reset cloud wave (spawn/wait/collect/reconcile) flags
-	cloudSpawnTicks = nil
-	cloudSpawnConfig = ""
-	cloudSpawnNotify = ""
-	cloudSpawnMaxCost = 0
-	cloudSpawnMaxClock = 0
-	cloudSpawnJSON = false
-	cloudWaitEpic = ""
-	cloudWaitTicks = nil
-	cloudWaitTimeout = defaultCloudWaitTimeoutMs
-	cloudWaitPoll = defaultCloudWaitPollMs
-	cloudWaitJSON = false
-	cloudCollectEpic, cloudCollectJSON = "", false
-	cloudReconcileEpic, cloudReconcileJSON = "", false
-
 	// Reset the contract request
 	jsonContract = ""
 
@@ -662,11 +629,6 @@ func ResetFlags() {
 	noteEdit = false
 	noteFrom = "agent"
 	noteJSON = false
-
-	// Reset config migration flags
-	configMigrateApply = false
-	configMigrateWrite = false
-	configMigrateDryRun = false
 }
 
 // SetVersion allows main.go to set the version at initialization

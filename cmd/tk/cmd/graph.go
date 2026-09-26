@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -13,7 +14,6 @@ import (
 
 	"github.com/pengelbrecht/ticks/internal/github"
 	"github.com/pengelbrecht/ticks/internal/query"
-	herdconfig "github.com/pengelbrecht/ticks/internal/runnersconfig"
 	"github.com/pengelbrecht/ticks/internal/styles"
 	"github.com/pengelbrecht/ticks/internal/tick"
 	"github.com/pengelbrecht/ticks/internal/wave"
@@ -78,34 +78,45 @@ type graphOutput struct {
 	// a planned epic should graph clean. See graph_readiness.go.
 	Readiness []readinessFinding `json:"readiness"`
 	Stats     graphStats         `json:"stats"`
-	// Dispatch is how many implementers may be launched RIGHT NOW, which is
-	// not what Stats.MaxParallel answers. Stats.MaxParallel is graph shape —
-	// the widest wave, "how parallel could this epic ever be". Dispatch is
-	// operator policy, `[orchestration].max_parallel`, enforced on the claim.
-	// Conflating the two cost run_62c289d1 its budget: the graph reported a
-	// widest wave of 7 under the same key name as a configured width of 3,
-	// and the orchestrator launched 7.
+	// Dispatch is the ready-now answer from tracker state alone: which ticks
+	// hold a claim and which wave-1 ticks are free to claim. It is not a
+	// width. tk no longer reads a dispatch width (`[orchestration].max_parallel`
+	// left with the runner, epic chz); the orchestrator that owns the width
+	// caps Now itself. Stats.MaxParallel is graph shape — the widest wave —
+	// and never a dispatch limit.
 	Dispatch     graphDispatch `json:"dispatch"`
 	Waves        []graphWave   `json:"waves"`
 	CriticalPath int           `json:"critical_path"`
 }
 
-// graphDispatch is the dispatch-now answer: the configured wave width, who is
-// holding a slot, and exactly which ticks may be launched.
+// graphDispatch is the dispatch-now answer, derived from tracker state only.
+// Its shape is part of the published tk --json contract (graph entry), so the
+// width fields stay with their no-width values: tk does not cap a dispatch.
 type graphDispatch struct {
-	// MaxParallel is `[orchestration].max_parallel`, 0 when unset (the
-	// adapter's own default applies and nothing is capped).
+	// MaxParallel is always 0: tk configures no dispatch width.
 	MaxParallel int `json:"max_parallel"`
-	// Source names the file MaxParallel came from, empty when unset.
+	// Source is always empty (omitted): no file names a width.
 	Source      string   `json:"source,omitempty"`
 	InFlight    int      `json:"in_flight"`
 	InFlightIDs []string `json:"in_flight_ids"`
-	// Free is the number of slots left, or -1 for "no configured width".
+	// Free is always -1, "no width".
 	Free int `json:"free"`
-	// Now is the ready wave capped to the free slots: launch these, and no
-	// more. A claim beyond the width is refused (tk exits ExitWaveFull), so
-	// this list is what will actually be admitted.
+	// Now is every agent-ready wave-1 tick that nobody has claimed yet.
 	Now []string `json:"now"`
+}
+
+// inFlight returns the sorted ids of the non-epic children of parent that are
+// claimed (in_progress).
+func inFlight(all []tick.Tick, parent string) []string {
+	ids := []string{}
+	for _, t := range all {
+		if t.Parent != parent || t.Type == tick.TypeEpic || t.Status != tick.StatusInProgress {
+			continue
+		}
+		ids = append(ids, t.ID)
+	}
+	sort.Strings(ids)
+	return ids
 }
 
 type graphEpic struct {
@@ -407,39 +418,16 @@ func runGraph(cmd *cobra.Command, args []string) error {
 	}
 	readinessLint := lintReadiness(tasks, hasChildren)
 
-	// The dispatch answer: what may be launched now, under the configured
-	// wave width. Read from the same file and counted the same way as the
-	// gate that refuses a claim beyond it (cmd/tk/cmd/wave_width.go), so the
-	// advice and the enforcement cannot drift apart.
-	dispatch := graphDispatch{Free: -1, InFlightIDs: []string{}, Now: []string{}}
-	cfg, cfgErr := herdconfig.LoadRepo(root)
-	if cfgErr != nil {
-		// A config tk cannot read is reported once, on stderr, and the
-		// dispatch block stays uncapped rather than silently claiming a width
-		// nobody configured. `tk herd spawn` and the claim gate treat the same
-		// file as a stop; this command is read-only, so it degrades instead.
-		fmt.Fprintf(os.Stderr, "warning: %v — dispatch width not applied\n", cfgErr)
-	} else if width := cfg.MaxParallel(); width > 0 {
-		dispatch.MaxParallel = width
-		dispatch.Source = herdconfig.FileName
-	}
-	dispatch.InFlightIDs = append(dispatch.InFlightIDs, wave.InFlight(allTicks, epicID, "")...)
+	// The dispatch answer: who holds a claim, and which ready wave-1 ticks
+	// are unclaimed. No width is applied (see graphDispatch).
+	dispatch := graphDispatch{Free: -1, Now: []string{}}
+	dispatch.InFlightIDs = inFlight(allTicks, epicID)
 	dispatch.InFlight = len(dispatch.InFlightIDs)
-	if dispatch.MaxParallel > 0 {
-		if free := dispatch.MaxParallel - dispatch.InFlight; free > 0 {
-			dispatch.Free = free
-		} else {
-			dispatch.Free = 0
-		}
-	}
 	for _, w := range waves {
 		if w.level != 1 {
 			continue
 		}
 		for _, t := range w.ticks {
-			if dispatch.Free >= 0 && len(dispatch.Now) >= dispatch.Free {
-				break
-			}
 			isDeferred := t.DeferUntil != nil && t.DeferUntil.After(now)
 			if isDeferred || t.IsAwaitingHuman() || inDegree[t.ID] > 0 {
 				continue
@@ -526,13 +514,6 @@ func runGraph(cmd *cobra.Command, args []string) error {
 	fmt.Printf("%s %d tasks, %d waves, max %d parallel\n",
 		styles.DimStyle.Render("Stats:"),
 		len(tasks), len(waves), maxParallel)
-	// The width that actually governs a dispatch, said next to the graph's
-	// own width so the two are never read as the same number.
-	if dispatch.MaxParallel > 0 {
-		fmt.Printf("%s wave width %d (%s), %d in flight, %d slot(s) free\n",
-			styles.DimStyle.Render("Dispatch:"),
-			dispatch.MaxParallel, dispatch.Source, dispatch.InFlight, dispatch.Free)
-	}
 
 	// Show workflow breakdown if there are awaiting/deferred tasks
 	if awaitingHuman > 0 || deferred > 0 {

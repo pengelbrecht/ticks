@@ -23,7 +23,7 @@ import "strings"
 
 // isAgentActor reports whether an actor string is runner-shaped.
 //
-// `references/agent-runner.md` mandates `TK_ACTOR=<runner>:orchestrator` at run
+// Runners (ticfac, and the agent-runner protocol before it) set `TK_ACTOR=<runner>:orchestrator` at run
 // start, so the colon-scoped form is the documented agent identity; a bare
 // "orchestrator" is caught too because older runs used it. A person's actor
 // ("human-pete", "pete") has neither shape and is unaffected.

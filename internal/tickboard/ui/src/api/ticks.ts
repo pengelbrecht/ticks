@@ -58,7 +58,6 @@ export interface Note {
 /**
  * Parse notes from tick.notes string into Note objects.
  * Format: "YYYY-MM-DD HH:MM - (from: author) text"
- * Used in cloud mode where we don't have server-side parsing.
  */
 export function parseNotes(notes: string | undefined): Note[] {
   if (!notes) return [];
@@ -195,31 +194,6 @@ export interface ListTicksParams {
 }
 
 // ============================================================================
-// Cloud Mode Configuration
-// ============================================================================
-
-/**
- * Global project ID for cloud mode API calls.
- * When set, tick operations will be routed to cloud endpoints.
- */
-let cloudProjectId: string | null = null;
-
-/**
- * Set the project ID for cloud mode.
- * Used by components to detect cloud vs local mode.
- */
-export function setCloudProject(projectId: string | null): void {
-  cloudProjectId = projectId;
-}
-
-/**
- * Get the current cloud project ID.
- */
-export function getCloudProject(): string | null {
-  return cloudProjectId;
-}
-
-// ============================================================================
 // Helper Functions
 // ============================================================================
 
@@ -228,7 +202,7 @@ export function getCloudProject(): string | null {
  * Throws ApiError on non-2xx responses.
  */
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
-  // Convert absolute paths to relative for cloud proxy compatibility
+  // Relative URLs so the board works behind a path-prefixing proxy
   const relativeUrl = url.startsWith('/') ? './' + url.slice(1) : url;
   const response = await fetch(relativeUrl, options);
 

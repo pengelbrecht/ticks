@@ -2,7 +2,7 @@
   "id": "rz8",
   "title": "Implement POST /ticks/:id/notes - add note",
   "description": "Add endpoint to append a note to a tick.\n\n## Endpoint\n\n```\nPOST /api/projects/:project/ticks/:tickId/notes\nContent-Type: application/json\n```\n\n## Request body\n\n```json\n{\n  \"content\": \"Approved after manual review of logs\"\n}\n```\n\n## Response (201 Created)\n\nReturns the full updated tick with new note:\n\n```json\n{\n  \"id\": \"abc\",\n  \"title\": \"...\",\n  \"notes\": [\n    { \"id\": \"n1\", \"content\": \"Previous note\", ... },\n    { \"id\": \"n2\", \"content\": \"Approved after manual review of logs\", \"author\": \"api:user123\", \"created_at\": \"...\" }\n  ],\n  ...\n}\n```\n\n## Note structure\n\n```typescript\ninterface Note {\n  id: string;        // Generated 3-char ID\n  content: string;   // The note text\n  author: string;    // \"api:\u003cuserId\u003e\" for API-created notes\n  created_at: string; // ISO timestamp\n}\n```\n\n## Implementation\n\n```typescript\n// POST /api/projects/:project/ticks/:tickId/notes\nconst notesMatch = url.pathname.match(/\\/ticks\\/([^\\/]+)\\/notes\\/?$/);\nif (notesMatch \u0026\u0026 request.method === \"POST\") {\n  const tickId = notesMatch[1];\n  const tick = this.ticks.get(tickId);\n  \n  if (!tick) {\n    return Response.json({ error: \"Tick not found\" }, { status: 404 });\n  }\n  \n  const body = await request.json() as { content?: string };\n  if (!body.content || typeof body.content !== \"string\") {\n    return Response.json({ error: \"content is required\" }, { status: 400 });\n  }\n  \n  const userId = request.headers.get(\"X-User-Id\") || \"unknown\";\n  const now = new Date().toISOString();\n  \n  const note = {\n    id: generateNoteId(), // 3-char random\n    content: body.content,\n    author: `api:${userId}`,\n    created_at: now,\n  };\n  \n  const updated: Tick = {\n    ...tick,\n    notes: [...(tick.notes || []), note],\n    updated_at: now,\n  };\n  \n  this.ticks.set(tickId, updated);\n  await this.persistState();\n  this.broadcast({ type: \"tick_updated\", tick: updated });\n  \n  return Response.json(updated, { status: 201 });\n}\n```\n\n## Files to modify\n\n- `cloud/worker/src/project-room.ts`\n\n## Helper function\n\n```typescript\nfunction generateNoteId(): string {\n  const chars = \"0123456789abcdefghijklmnopqrstuvwxyz\";\n  let id = \"\";\n  for (let i = 0; i \u003c 3; i++) {\n    id += chars[Math.floor(Math.random() * chars.length)];\n  }\n  return id;\n}\n```",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -13,5 +13,7 @@
   "parent": "qr4",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-22T07:33:34.519648Z",
-  "updated_at": "2026-01-22T07:33:34.519648Z"
+  "updated_at": "2026-09-26T14:25:23.777984251Z",
+  "closed_at": "2026-09-26T14:25:23.777984251Z",
+  "closed_reason": "closed with parent epic (--force)"
 }

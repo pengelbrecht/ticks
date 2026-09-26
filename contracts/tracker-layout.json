@@ -1,12 +1,11 @@
 {
   "why": [
-    "The tracker's on-disk layout has two readers since tick kya: internal/tick's",
-    "Store (Go, which owns the format and writes every record) and",
-    "cloud/factory/src/tick-membership.ts (the control plane, which reads one",
-    "record at a commit through GitHub's contents API to prove a requested wave's",
-    "ticks belong to the run's epic). This file is what both suites pin themselves",
-    "to, the same way worker-boot-contract.json pins the three readers of the",
-    "worker boot contract.",
+    "The tracker's on-disk layout has readers outside Go since tick kya:",
+    "internal/tick's Store (Go, which owns the format and writes every record) and",
+    "a control plane that cannot run tk and reads one record at a commit through",
+    "GitHub's contents API to prove a requested wave's ticks belong to the run's",
+    "epic — cloud/factory when this was written, ticfac since epic chz (bundle",
+    "7.0.0). This file is what every such reader pins itself to.",
     "",
     "It matters more here than a parity fixture usually does, because of which way",
     "the Worker's check fails: a tracker it cannot read ALLOWS the wave. So a",
@@ -35,7 +34,7 @@
   "parent_omitted_when_empty": true,
   "written_by_the_control_plane": {
     "why": [
-      "cloud/factory/src/tracker-write.ts mints an id and encodes a record that",
+      "ticfac's cloudflare/src/tracker-write.ts (cloud/factory/src before chz) mints an id and encodes a record that",
       "Go's Store must accept unchanged, because the two write the same file in",
       "the same repository — `tk create` on a laptop and a signal arriving at the",
       "factory are the same act by different doors. Everything here is something",
@@ -73,9 +72,10 @@
       "",
       "It crosses the Go/TS boundary in both directions, which is why it is pinned",
       "here rather than declared twice. The control plane MINTS it and writes it",
-      "into the record (cloud/factory/src/trace.ts, tracker-write.ts); Go owns the",
+      "into the record (ticfac cloudflare/src/trace.ts, tracker-write.ts); Go owns the",
       "record format it lands in (internal/tick.Tick.TraceID), refuses a malformed",
-      "one in Validate, and reads it back in `tk cloud logs` and `tk cloud trace`.",
+      "one in Validate. (The `tk cloud logs`/`tk cloud trace` readers left tk with",
+      "the rest of the execution surface, epic chz.)",
       "A prefix or width that drifted in one language would produce records the",
       "other refuses, with both suites green — the exact failure .tick/learnings.md",
       "records under 'Cross-language parity'.",
@@ -85,8 +85,8 @@
       "it would claim a causal chain that does not exist.",
       "",
       "The container half of the same id — the TICKS_TRACE_ID a worker boots with",
-      "and the banner heading its log stream — is pinned in worker-boot-contract.json",
-      "instead, beside the rest of the boot contract its three readers share."
+      "and the banner heading its log stream — is not a tracker format and is not",
+      "pinned here: since bundle 7.0.0 ticfac authors that contract."
     ],
     "prefix": "tr_",
     "hex_length": 32,
@@ -108,7 +108,7 @@
       "draft-flavoured record is not expressible: a control plane that tried to",
       "write one would produce a file `tk` refuses to read. The TypeScript half",
       "commits 'committed_status' and nothing else, and reaching the writer at all",
-      "requires a draft id a human pressed (cloud/factory/src/signal-inbox.ts).",
+      "requires a draft id a human pressed (ticfac cloudflare/src/signal-inbox.ts).",
       "",
       "If a fourth status is ever added here, this fixture is what makes somebody",
       "look at whether the gate still holds."

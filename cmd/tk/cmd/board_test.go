@@ -30,7 +30,7 @@ func TestBoardHelp(t *testing.T) {
 	if !strings.Contains(out, "board") {
 		t.Errorf("help output missing command name; got:\n%s", out)
 	}
-	if !strings.Contains(out, "--port") || !strings.Contains(out, "--cloud") || !strings.Contains(out, "--host") {
+	if !strings.Contains(out, "--port") || !strings.Contains(out, "--host") {
 		t.Errorf("help output missing expected flags; got:\n%s", out)
 	}
 }
@@ -64,28 +64,6 @@ func TestBoardBadPath(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "/no/such/directory/really") {
 		t.Errorf("error should name the bad path; got: %v", err)
-	}
-}
-
-// TestBoardCloudWithoutToken verifies that --cloud without a configured token
-// returns the authentication error (and does not panic).
-func TestBoardCloudWithoutToken(t *testing.T) {
-	repoDir, _ := setupTestRepo(t)
-	if err := os.MkdirAll(filepath.Join(repoDir, ".tick", "issues"), 0o755); err != nil {
-		t.Fatalf("mkdir .tick/issues: %v", err)
-	}
-
-	// Isolate from any real ~/.ticksrc or env token so LoadConfig deterministically
-	// returns nil (not authenticated).
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("TICKS_TOKEN", "")
-
-	err := ExecuteArgs([]string{"board", repoDir, "--cloud", "-p", "0"})
-	if err == nil {
-		t.Fatal("expected authentication error for --cloud without token, got nil")
-	}
-	if !strings.Contains(err.Error(), "authentication") {
-		t.Errorf("expected authentication error; got: %v", err)
 	}
 }
 

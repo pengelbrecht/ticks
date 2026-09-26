@@ -1,229 +1,52 @@
 ---
 type: architecture
 source: from-chat
-covers: [cloud/factory, cloud/sandbox, internal/factory, internal/operator, embedded.go, cmd/tk/cmd/cloud.go, cmd/tk/cmd/factory.go]
-verified_against: da494c6d
+covers: [contracts, internal/tkcontract, internal/operator, cmd/tk/cmd/ask.go, cmd/tk/cmd/answer.go]
 status: active
 ---
 
 ## Compiled Truth
 
-**The factory is leaving this repo.** It becomes `ticfac`; ticks becomes a
-terminal-first product the factory *consumes*. The full plan is
-`docs/projects/2026-08-27-factory-extraction/2026-08-27-factory-extraction-spec.md`
-and the tracked work is project `a4n`. This page records the boundary facts that
-were expensive to establish, so nobody re-derives them.
+**ticks is the tracker; ticfac (github.com/pengelbrecht/ticfac) runs epics.**
+Decided 2026-09-26 (epic `chz`). Everything that executes work, the sandbox
+image, the factory Worker, and the formats only the executor reads live in
+ticfac. The hosted ticks.sh board is retired, not moved.
 
-### What is factory, what is not — the naming trap
+### What stays in ticks
 
-| Path | Actually is |
-|---|---|
-| `cloud/factory/**` | The factory Worker. ~29.5k lines TS + ~26k test. |
-| `cloud/sandbox/**` | The factory's container image. |
-| `cloud/worker/**` | **The ticks.sh BOARD.** D1 `tickboard`, `ProjectRoom`/`AgentHub` DOs, serves `internal/tickboard/server/static`. NOT the factory. The `deploy-cloud` release job deploys *this*. |
+- The tracker: the `.tick/` store and its merge drivers, query, `tk graph`
+  (waves as a display of the dependency graph, not a dispatch plan), the TUI,
+  the local board (`tk board`), gc, beads import, and the `tk --json` surface.
+- Authoring policy: roles (review/close-out), `--requires` / `--awaiting` gates
+  including checkpoint, the EPIC-SKELETON convention, and the epic definition
+  of done as `[A<n>]` items. These shape the graph; they do not run it.
+- The question store: `tk ask` parks a question on a tick and `tk answer`
+  settles it from the terminal (`internal/operator` minus any transport).
+- The ticks skill (`skills/ticks/`), which covers tracker use and authoring.
 
-Everything under `cloud/` looks like one subsystem and is two. `cloud/factory/wrangler.toml`
-says so explicitly: *"this bundle never imports from or deploys with cloud/worker."*
+### What ticfac owns
 
-### `internal/operator` is two things under one name
+Running epics (`ticfac run-epic`), the container image, remote transports for
+operator questions, `.tick/runners.toml` (ticfac reads it; ticks does not), and
+every contract format that only an executor implements.
 
-- `internal/operator/*.go` (2,636 lines) — a durable **question store**. An agent
-  parks a question; a human resolves it. `cmd/tk/cmd/herd_wait.go:209` parks
-  *"for terminal answer with `tk answer`"* when NO channel is configured, and
-  `cmd/tk/cmd/ask.go:22` says a question resolves on *"EITHER surface — the phone
-  or the terminal"*. **This is core product** — it is what lets a long autonomous
-  run park instead of dying. It stays.
-- `internal/operator/telegram/**` (3,064 lines) — the only `Channel` ever
-  implemented. Pure remote transport. It goes.
+### The interface is the `tk` CLI, not a Go API
 
-The `Channel` interface (`internal/operator/channel.go`) already has optional
-capability interfaces (`Adopter`, `ContextualChannel`, `FormattedSender`,
-`AttachmentSender`) — it was written to be implemented from outside, and it stays
-as the extension point.
+ticfac reaches ticks by running `tk … --json`, never by importing ticks'
+`internal/` packages. Nothing is promoted out of `internal/`: a public Go API is
+a permanent promise, and freezing the tracker's internals for one consumer is
+what the CLI boundary avoids. The `tk --json` surface is pinned by
+`contracts/tk-json-manifest.json` (see [[cross-language-contracts]]).
 
-### The two Telegram implementations are mutually exclusive
+### Safe deletion order
 
-Not merely duplicated. **One bot token has exactly one reader.**
-
-- Go (`internal/operator/telegram/client.go:84`) long-polls `getUpdates` —
-  *"a second one gets 409"*.
-- TypeScript (`cloud/factory/src/telegram.ts`) registers a webhook —
-  *"setWebhook and getUpdates are mutually exclusive and the front door is the
-  choice this deployment makes"*.
-
-They do not collide today only because the Go side has no users. **The webhook
-wins** (it is deployed; a poller needs a laptop that stays awake, which is the
-failure the factory exists to remove). The Go transport is retired, not
-relocated; `tk channel` / `tk tell` become factory-API clients and no bot token
-lives on a laptop.
-
-## The interface is the `tk` CLI, not a Go API
-
-The factory's ~50 `internal/` import edges look like ~50 things needing promotion
-to a public Go API. **They are not** — this was established by reading them, and
-the first draft of the plan got it wrong by counting instead:
-
-- The **tracker** touch was five symbols (`tick.NewStore`, `tick.Tick`,
-  `tick.TypeEpic`, `tick.TypeTask`, `tick.StatusOpen`), in the thin
-  `cmd/tk/cmd/cloud*.go` wrappers — not in the factory packages at all. **Cut by
-  tick `5yk`** (Phase 5a): the three test files that still called the Go store
-  directly to seed fixtures (`cloud_test.go`, `cloud_tk_test.go`,
-  `cloud_wave_test.go`) now write the on-disk tick JSON straight
-  (`writeCloudTickFixture` in `cloud_test.go`), the same move Phase 1 made for
-  reads. `cmd/tk/cmd/{cloud,factory}*.go` imports no `internal/tick` symbol.
-- 11 edges are `internal/ticksrc` (the credentials file), which splits anyway.
-- 3 are `operator.Pending` used as a **JSON wire type** in
-  `internal/factory/dashboard/client.go:121,168` — never a tracker call.
-- The rest are one-offs: 8 colour constants, one GitHub function, a git exec
-  helper, and (the enumeration originally undercounted this) EIGHT collect
-  symbols, not two. **The GitHub function is also cut (tick `5yk`)**:
-  `cloud.go`/`cloud_wave.go`'s `github.DetectOwner`/`DetectProject` calls are
-  now `cloudDetectOwner`/`cloudDetectProject`, copied into
-  `cmd/tk/cmd/cloud_github.go` with a comment explaining why (`internal/github`
-  also carries OAuth device-flow token exchange, and a frozen public API around
-  credential handling has been refused three times for the same reason — it is
-  never partially promoted). The same tick also cut the one `internal/tui` edge
-  in this family, `factory_dashboard.go`'s `tui.PinColorProfile`, copied as
-  `factoryPinColorProfile` — the Phase 2 palette precedent (divergent look is
-  intended, see "The two board copies" below) applied to a third file.
-
-**Two edges survive Phase 1 on purpose, and neither is a borrowing:**
-`internal/ticksrc` is deferred to the credentials split, which needs a migration
-rather than a cut; `internal/gatewaytrace` and `internal/cloud/state` are the
-FACTORY'S OWN packages — the spec's What-moves table sends them to ticfac, so
-those edges are internal-to-ticfac and survive the move by design. An
-acceptance criterion phrased as "imports no ticks internal/ package" is false
-against both and should say "no package that STAYS in ticks".
-
-So ticfac reaches ticks through `tk … --json` (36 commands support it; types are
-generated from `schemas/` via `make codegen-go`/`codegen-ts`).
-
-**The decisive argument is consistency:** `cloud/sandbox/required-tk-commands`
-already declares the `tk` subcommands the container must have, and the image's
-last Dockerfile layer install-checks each one. The container has never imported
-Go — it shells out. Having the laptop import Go while the container shells out
-was two answers to one question.
-
-**Consequence worth defending:** nothing is promoted out of `internal/`. Making a
-package public is a permanent promise; freezing ticks' internals to serve one
-consumer is the thing this approach avoids.
-
-## What factory code costs a `tk` build — measured, then deferred
-
-Phase 1 removed the `cmd/tk/cmd/root.go` edge, but `cmd/tk/cmd/factory_dashboard.go`
-still imports `internal/factory/dashboard`, so a `tk` build still compiles factory
-code. Tick `ffy` asked whether that is worth fixing now with a build tag or a CLI
-boundary. **Measured first** (`go1.26.2`, `darwin/arm64`, `go build ./cmd/tk`,
-cold cache via `go clean -cache`; variants produced by moving command files aside
-and reverted afterwards):
-
-| Build | Binary bytes | Δ |
-|---|---|---|
-| `tk` as it ships | 22,728,802 | — |
-| minus `factory_dashboard.go` (the edge `ffy` names) | 22,565,330 | **−163,472 B, −0.72%** |
-| minus the whole `tk factory` command family | 20,659,010 | −2,069,792 B, −9.1% |
-
-- **Dependency surface: four packages of 337, and no third-party module.** The
-  packages that enter a `tk` build *only* because of the factory are
-  `internal/factory`, `internal/factory/dashboard`, `crypto/pbkdf2` and
-  `crypto/internal/fips140/pbkdf2`. Everything else the factory needs — cobra,
-  bubbletea, `net/http` — `tk` already compiles for its own commands. The factory
-  adds no module to `go.mod`'s effective build closure.
-- **Compile time: no measurable difference.** Cold builds came in at 6.00 s,
-  6.22 s and 6.37 s wall across the three variants — run-to-run noise, not signal.
-
-**Decision: defer to the phase that moves the files.** Recorded so that phase
-inherits the number rather than re-deriving it.
-
-Three things make the fix-now option a bad trade at this price:
-
-1. **The 9% column is not available to a build tag.** It is reached only by
-   dropping `tk factory deploy` / `setup` / `status` / `webhook`, which is
-   shipping a different `tk`, not a cheaper build of the same one. What a tag on
-   `cmd/tk/cmd/factory_*.go` actually buys is the 0.72% row.
-2. **A tag on `factory_*.go` would not even make `internal/factory` stop
-   compiling.** `cmd/tk/cmd/cloud_logs.go` and `cmd/tk/cmd/cloud_supervisor.go`
-   import it for `factory.ReadSupervisor` / `factory.Supervisor` /
-   `factory.SupervisorOptions`, and those are `tk cloud` commands that stay in
-   ticks. Reaching "no `internal/factory` package compiles" means relocating the
-   supervisor read as well — real work, for four packages out of 337 and no
-   dependency reduction.
-3. **The move deletes the cost outright**, and it has to answer the supervisor
-   question anyway. A build tag added now would be scaffolding torn out then, and
-   a tag is not free: it doubles the build configurations every later change has
-   to keep compiling.
-
-The epic's own acceptance never promised a factory-free build closure — it
-promised no promotion out of `internal/` and no `root.go` edge, both of which
-hold. This is the broader reading, and it is a Phase 5 obligation, not a Phase 1
-regression.
-
-## The two board copies: one pinned, one deliberately not (tick `o31`)
-
-Phase 1 turned four compiler-enforced agreements into comment-enforced ones. Two
-of them are the collect vocabulary (its own tick). The other two are both in
-`internal/factory/dashboard`, and `o31` ruled on them **differently on purpose** —
-the split is the useful part of the record.
-
-| Copy | Verdict | Why |
-|---|---|---|
-| The eight Catppuccin colours copied from `internal/styles` | **Uncontracted, deliberately** | Divergence is the intended outcome. Two products, two visual identities; a test pinning the values would fire on every legitimate restyle and re-create by convention the coupling the copy removed. |
-| The herd board's key sequence, frozen as `herdBoardKeys` | **Re-pinned** | Divergence is a defect an operator feels — one binary, two boards, the same key doing different things. |
-
-The key-binding pin is `cmd/tk/cmd/board_keys_test.go`: it renders **both**
-boards and diffs their real footers. It introduces no new dependency edge —
-`cmd/tk/cmd` already imports both boards to wire them into `tk`, and `tk` is the
-only place that ships both, so it is also the only honest place to assert they
-agree. The frozen literal stays in `internal/factory/dashboard/view_test.go` as
-the half that names which side moved and the half that survives if the board
-leaves the repo.
-
-The bar applied, and worth reusing: **a drift detector earns its place when
-divergence is a defect, not when divergence is possible.** An unnecessary
-fixture is a maintenance cost plus a false sense of coverage.
-
-## Gotchas
-
-- **Eight CORE Go tests read fixtures out of `cloud/factory/test/fixtures/`** —
-  `internal/runnersconfig` (×4), `internal/sandbox` (×2), `internal/operator`,
-  `internal/tick`. The dependency runs *backwards*. They are deliberate Go/TS
-  drift detectors for the `.tick/runners.toml` dual parser, sandbox worker boot,
-  and message context. **A naive extraction relocates them and silently disables
-  eight detectors** — the likeliest way this project does real damage.
-- **`embedded.go` at the module root** welds `skills/`, `cloud/factory/` and
-  `cloud/sandbox/` into one `go:embed` unit. It lives at the root precisely
-  because `go:embed` cannot reach above its own package. `tk factory deploy`
-  deploys the bundle baked into that binary — that is the version pin.
-- **`tk` is a runtime dependency INSIDE the factory's container.** Per
-  `cloud/sandbox/required-tk-commands`: `cloud branch`, seven `sandbox …`
-  subcommands, `version`. The image build fails if any is missing. So the arrow
-  does not cleanly reverse — `internal/sandbox` and `tk sandbox` stay in ticks.
-- **`tk` commands self-register** via `init()` + `rootCmd.AddCommand` with no
-  central registry, so deleting a command file removes the command with zero
-  edits to any *other* command. The CLI surface cuts cleanly — with **one
-  exception, found while measuring `ffy`**: `ResetFlags` in `cmd/tk/cmd/root.go`
-  is a hand-maintained list of every command's flag variables, so removing a
-  command file breaks the build there and nowhere else. It is a test helper, and
-  the fix is to delete the corresponding lines. Budget for it in the move; do not
-  read the compile error as a hidden coupling.
-- **`~/.ticksrc` carries 30 `KeyFactory*` constants**, including live GitHub
-  OAuth refresh tokens and a Cloudflare API token. Splitting it is the only step
-  that can break a live deployment; it needs a migration, not a cut.
-- **Three Go/TS pairs stay duplicated on purpose** — the `runners.toml` parser,
-  sandbox worker boot, message context/trace IDs. Two runtimes genuinely force
-  two implementations. The rule: duplicated behaviour is permitted only where
-  runtimes force it, AND only with an executable contract that fails a build on
-  drift. That rule is about duplicated *behaviour*; the factory board's palette
-  is not in its scope, because the two copies are not meant to stay equal (see
-  the section above).
+ticfac builds the `tk` inside its container from a pinned ticks commit and
+verifies vendored contracts against pinned commits, so deleting execution code
+from ticks main breaks nothing in ticfac. Files removed from ticks are recovered
+from history at the commit before the cut.
 
 ## Timeline
-- 2026-08-27 — boundary mapped, extraction scoped as project `a4n`, factory
-  design-doc status header corrected (it claimed nothing was implemented above
-  ~29.5k lines of running code) — @da494c6d
-- 2026-08-27 — the cost of factory code in a `tk` build measured (0.72% of the
-  binary for the edge in question, four packages of 337, no third-party module,
-  no compile-time signal) and the fix deferred to the move, tick `ffy`.
-- 2026-08-27 — the two board copies ruled on, tick `o31`: the key bindings
-  re-pinned by a both-boards comparison in `cmd/tk/cmd/board_keys_test.go`, the
-  palette left uncontracted on purpose and the reasoning written at the copy.
+- 2026-08-27 — boundary mapped and the factory extraction scoped (project `a4n`).
+- 2026-09-26 — ownership decided: ticks becomes tracker-only (epic `chz`); the
+  ticks.sh board is retired; execution, the sandbox image and the executor
+  contracts go to ticfac.

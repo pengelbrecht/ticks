@@ -3,7 +3,6 @@ import { customElement, state, query } from 'lit/decorators.js';
 import type SlDropdown from '@shoelace-style/shoelace/dist/components/dropdown/dropdown.js';
 import type { Activity } from '../api/ticks.js';
 import { fetchActivity } from '../stores/comms.js';
-import { $isCloudMode } from '../stores/connection.js';
 
 /**
  * Activity feed dropdown component.
@@ -245,12 +244,6 @@ export class TickActivityFeed extends LitElement {
   }
 
   private async loadActivities() {
-    // Skip in cloud mode - activity feed is local only
-    if ($isCloudMode.get()) {
-      this.loading = false;
-      return;
-    }
-
     try {
       this.activities = await fetchActivity(20);
       this.updateUnreadCount();

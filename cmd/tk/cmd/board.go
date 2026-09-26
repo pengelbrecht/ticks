@@ -14,7 +14,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/pengelbrecht/ticks/internal/tickboard/cloud"
 	"github.com/pengelbrecht/ticks/internal/tickboard/server"
 )
 
@@ -38,23 +37,20 @@ Examples:
   tk board                        # Serve the current repo on port 3000 (or next free)
   tk board -p 8080                # Serve on port 8080 exactly
   tk board /path/to/repo          # Serve a different repo
-  tk board --host 0.0.0.0         # Expose on all interfaces (LAN / Docker)
-  tk board --cloud                # Also mirror ticks to ticks.sh (requires a token)`,
+  tk board --host 0.0.0.0         # Expose on all interfaces (LAN / Docker)`,
 	Args: cobra.MaximumNArgs(1),
 	RunE: runBoard,
 }
 
 var (
-	boardPort  int
-	boardCloud bool
-	boardDev   bool
-	boardHost  string
+	boardPort int
+	boardDev  bool
+	boardHost string
 )
 
 func init() {
 	boardCmd.Flags().IntVarP(&boardPort, "port", "p", 3000, "port to listen on")
 	boardCmd.Flags().StringVar(&boardHost, "host", "127.0.0.1", "host/IP to bind (default 127.0.0.1; use 0.0.0.0 to expose on all interfaces)")
-	boardCmd.Flags().BoolVar(&boardCloud, "cloud", false, "mirror ticks to ticks.sh in real time (requires a token)")
 	boardCmd.Flags().BoolVar(&boardDev, "dev", false, "serve UI from disk for hot reload (development only)")
 
 	rootCmd.AddCommand(boardCmd)
@@ -136,36 +132,6 @@ func runBoard(cmd *cobra.Command, args []string) error {
 
 	var wg sync.WaitGroup
 
-	// Optional cloud sync. The cloud client is fully self-contained: it runs
-	// its own file watcher and WebSocket sync loop, so the server does not need
-	// to know about it.
-	var cloudClient *cloud.Client
-	var cloudBoardName string
-	if boardCloud {
-		cfg := cloud.LoadConfig(tickDir)
-		if cfg == nil {
-			return NewExitError(ExitGeneric, `cloud sync requires authentication.
-Add token to ~/.ticksrc:
-  token=your-token-here
-
-Get a token at https://ticks.sh/settings`)
-		}
-
-		cloudClient, err = cloud.NewClient(*cfg)
-		if err != nil {
-			return NewExitError(ExitGeneric, "failed to create cloud client: %v", err)
-		}
-		cloudBoardName = cfg.BoardName
-
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			if err := cloudClient.Run(ctx); err != nil && ctx.Err() == nil {
-				fmt.Fprintf(os.Stderr, "Cloud client error: %v\n", err)
-			}
-		}()
-	}
-
 	// Start the board server. If it fails, surface the error as the command's
 	// exit status instead of blocking until Ctrl+C.
 	var serverErr error
@@ -180,16 +146,10 @@ Get a token at https://ticks.sh/settings`)
 
 	// The bind already succeeded, so the banner is truthful.
 	fmt.Printf("Board running at http://%s:%d\n", boardBannerHost(boardHost), port)
-	if cloudClient != nil {
-		fmt.Printf("Cloud sync: %s\n", cloudBoardName)
-	}
 	fmt.Println("Press Ctrl+C to stop")
 
 	<-ctx.Done()
 
-	if cloudClient != nil {
-		cloudClient.Close()
-	}
 	wg.Wait()
 
 	// wg.Wait() above orders this read after the goroutine's write.

@@ -16,7 +16,7 @@ import (
 // human-reviewable decision made mid-run without stopping anything. It writes
 // a structured `decision:` note line on the tick; `tk decisions` parses those
 // lines back out into the Decisions-taken table that retro reports, checkpoint
-// reports and PR bodies carry (see skills/ticks/references/agent-runner.md →
+// reports and PR bodies carry (see skills/ticks/SKILL.md →
 // "Decide and log").
 //
 // A decision is NEVER a gate-clear. A tick that is awaiting a human holds a

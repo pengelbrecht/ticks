@@ -400,22 +400,20 @@ export class TicksPreview extends LitElement {
 
           <h3>Inline</h3>
           <p style="color: var(--text); font-size: 0.875rem;">
-            Run <ticks-code>tk run --cloud</ticks-code> to connect your board.
+            Run <ticks-code>tk board</ticks-code> to open the board.
           </p>
 
           <h3>Block</h3>
           <div style="max-width: 500px;">
-            <ticks-code block>const board = await ticks.connect('my-board');
-board.on('update', (data) => {
-  console.log('Updated:', data);
-});</ticks-code>
+            <ticks-code block>tk create "Fix auth timeout" -t bug -p 1
+tk ready
+tk close abc --reason "Fixed"</ticks-code>
           </div>
 
           <h3>Block with Copy Button</h3>
           <div style="max-width: 500px;">
-            <ticks-code block copyable>npm install @ticks/cli -g
-tk login
-tk run --cloud</ticks-code>
+            <ticks-code block copyable>tk init
+tk board</ticks-code>
           </div>
 
           <div class="code">&lt;ticks-code block copyable&gt;code here&lt;/ticks-code&gt;</div>

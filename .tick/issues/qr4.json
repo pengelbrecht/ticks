@@ -2,7 +2,7 @@
   "id": "qr4",
   "title": "Third-party REST API for tick management",
   "description": "Add REST API endpoints to tickboard.dev that allow third-party applications to read and modify ticks. Primary use case: external systems (CI/CD, approval workflows, chatbots) can update tick status, add notes, or close ticks with reasons.\n\n## Architecture\n\nThe API builds on existing infrastructure:\n- **Authentication**: Existing API tokens (same as `tk run --cloud`)\n- **Storage**: ProjectRoom DO already stores tick state\n- **Sync**: Changes broadcast to connected WebSocket clients instantly\n- **Authorization**: Existing `userOwnsBoard()` check\n\n## API Design\n\nBase URL: `https://tickboard.dev/api/projects/:project`\n\nWhere `:project` is the board name (e.g., `owner--repo` with `--` replacing `/`).\n\n### Endpoints\n\n| Method | Path | Description |\n|--------|------|-------------|\n| GET | /ticks | List all ticks |\n| GET | /ticks/:id | Get single tick |\n| PATCH | /ticks/:id | Update tick fields |\n| POST | /ticks/:id/notes | Add note to tick |\n| POST | /ticks | Create new tick |\n| DELETE | /ticks/:id | Delete tick |\n\n### Authentication\n\nAll endpoints require `Authorization: Bearer \u003ctoken\u003e` header.\nToken must have access to the project (same check as WebSocket sync).\n\n### Example: Approve a human approval request\n\n```bash\ncurl -X PATCH \"https://tickboard.dev/api/projects/myorg--myrepo/ticks/abc\" \\\n  -H \"Authorization: Bearer $TICKBOARD_TOKEN\" \\\n  -H \"Content-Type: application/json\" \\\n  -d '{\"status\": \"closed\", \"closed_reason\": \"Approved by CI pipeline\"}'\n```\n\n### Sync Behavior\n\nWhen a tick is modified via API:\n1. ProjectRoom updates in-memory state\n2. Persists to DO storage\n3. Broadcasts `tick_updated` to all connected WebSocket clients\n4. Local `tk run --cloud` receives update and writes to `.tick/` files\n\nThis means API changes appear instantly in local development.\n\n## Implementation Notes\n\n- Add REST handlers to `ProjectRoom.fetch()` (already handles HTTP)\n- Add route forwarding in `index.ts` for `/api/projects/:project/ticks/*`\n- Reuse existing auth middleware pattern\n- Return proper HTTP status codes (400, 401, 403, 404, 409)\n- Include `updated_at` timestamp on all modifications\n\n## Security Considerations\n\n- Rate limiting (Cloudflare default should suffice initially)\n- Validate all input fields (no arbitrary field injection)\n- Log API modifications for audit trail\n- Consider read-only vs read-write token scopes (future)\n\n## Cost Impact\n\n- Additional DO requests (minimal, $0.15/M)\n- No storage increase (same tick data)\n- D1 queries only for auth (existing pattern)",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "epic",
   "owner": "peter@engelbrecht.dk",
@@ -14,5 +14,7 @@
   "parent": "nm8",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-01-22T07:32:15.359245Z",
-  "updated_at": "2026-06-26T07:16:40.889485113Z"
+  "updated_at": "2026-09-26T14:25:23.864089854Z",
+  "closed_at": "2026-09-26T14:25:23.864089854Z",
+  "closed_reason": "Retired with its children: the ticks.sh cloud board (and the Worker this REST API lived in) was removed in chz, 2026-09-26"
 }

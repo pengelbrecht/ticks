@@ -37,25 +37,15 @@ jobs:
 
       - name: Format
         # gofmt -l prints any file that needs formatting; fail the job on a
-        # non-empty list so gofmt coverage cannot drift. ./... reaches every
-        # package in the module, including scripts/experiments.
+        # non-empty list so gofmt coverage cannot drift.
         run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
       - name: Build
         run: go build ./...
 
-      # The Go half of the cross-language contract bundle, named so that a
-      # contract failure is legible in the CI log instead of being one line in
-      # a full-suite run. This step is the reason a deliberate fixture break
-      # fails a build: internal/contracts re-hashes contracts/ against the
-      # manifest and refuses a version re-cut with different bytes, and every
-      # contract/parity test below executes the behavioural fixtures
-      # themselves. Go never reads a consumer's own contracts pin — the pin is
-      # the CONSUMER's statement and only the consumer checks it, which is the
-      # whole point of there being two halves. That half runs in the
-      # `ticks-runner` job and in ticfac's own CI, against the SAME files
-      # (contracts/README.md). The factory's own pin check ran in this repo's
-      # `factory` job until the factory command surface and its cloud/factory
-      # worker moved to ticfac (tick 3r2); that job moved with them.
+      # The contract bundle (contracts/: tk-json-manifest and tracker-layout,
+      # the formats ticks owns), named so that a contract failure is legible in
+      # the CI log instead of being one line in a full-suite run. Consumers
+      # (ticfac) pin the bundle and check the pin in their own CI.
       #
       # Every Go package with a reader of contracts/ belongs in this list. A
       # reader missing from it still runs in the full `Test` step below, but
@@ -63,18 +53,11 @@ jobs:
       - name: Contract bundle and parity fixtures
         run: |
           go test -short \
-            ./internal/contracts/... \
             ./internal/tkcontract/... \
-            ./internal/runnersconfig/... \
-            ./internal/cloud/collect/... \
-            ./internal/sandbox/... \
-            ./internal/operator/... \
             ./internal/tick/... \
             ./cmd/tk/cmd/...
 
       - name: Test
-        # -short skips live-API/CLI integration tests (internal/agent), which
-        # also self-skip when the claude CLI is absent.
         run: go test -short ./...
 
   ui:
@@ -109,110 +92,3 @@ jobs:
 
       - name: Test
         run: pnpm test
-
-  # Which parts of the tree changed. Only the sandbox job needs this today: an
-  # image build is minutes and gigabytes, so unrelated PRs must not pay for one.
-  changes:
-    runs-on: ubuntu-latest
-    # The filter reads the pull request's file list through the API.
-    permissions:
-      contents: read
-      pull-requests: read
-    outputs:
-      sandbox: ${{ steps.filter.outputs.sandbox }}
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Filter paths
-        uses: dorny/paths-filter@v3
-        id: filter
-        with:
-          filters: |
-            sandbox:
-              - 'cloud/sandbox/**'
-              - '.github/workflows/ci.yml'
-
-  # The orchestrator sandbox image. Build only, never push: the operator pushes
-  # it into their own registry at `ticfac factory deploy` cadence (D16, moved
-  # from `tk factory deploy` at tick 3r2). This job exists because "the image
-  # builds" is the one thing the Go tests cannot prove — they check pin
-  # discipline and run the scripts, not docker.
-  sandbox:
-    needs: changes
-    if: needs.changes.outputs.sandbox == 'true'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Build the orchestrator sandbox image
-        # The same script the operator runs, so the build path is the one that
-        # is exercised. It tags with the tk version the Dockerfile pins.
-        #
-        # --tk-ref is REQUIRED here. The Dockerfile's default TK_SOURCE_REF is
-        # the last release tag, and its final layer runs every entry in
-        # required-tk-commands against the tk it just built — so any PR that
-        # adds a subcommand the entrypoint needs cannot build against a release
-        # that predates it, and this job would fail until the next release cut.
-        # Pinning the commit under test is also what `ticfac factory deploy` does.
-        # The commit must be PUSHED — `go install` inside the image resolves it
-        # through the module proxy, which fetches public commits on demand.
-        run: cloud/sandbox/build.sh --tk-ref "$TK_REF"
-        env:
-          TK_REF: ${{ github.event.pull_request.head.sha || github.sha }}
-
-      - name: Report the image
-        run: docker image ls ticks-orchestrator
-
-  worker:
-    runs-on: ubuntu-latest
-    env:
-      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-    defaults:
-      run:
-        working-directory: cloud/worker
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          # packageManager lives in the nested UI package.json, not the repo root
-          package_json_file: internal/tickboard/ui/package.json
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
-          cache: pnpm
-          cache-dependency-path: cloud/worker/pnpm-lock.yaml
-
-      - name: Install
-        run: pnpm install --frozen-lockfile
-
-      - name: Typecheck
-        run: pnpm typecheck
-
-      - name: Test
-        run: pnpm test
-
-  ticks-runner:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v6
-        with:
-          node-version: 24
-
-      - name: Test
-        run: node --test --no-warnings extensions/ticks-runner/*.test.ts
-
-  # The `factory` job (cloud/factory's vitest suite, its contracts-pin checks,
-  # typecheck) left with the factory command surface and its Worker (tick
-  # 3r2, to ticfac). That job, and the contracts-pin verification it ran, is
-  # ticfac's own CI to keep now.

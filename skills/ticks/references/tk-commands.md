@@ -136,30 +136,6 @@ tk close <id> --force            # Close epic with all children, or bypass a req
 tk reopen <id>                   # Reopen closed tick
 ```
 
-### Wave width (the dispatch gate)
-
-`tk update <id> --status in_progress` is the claim every substrate makes before it starts a
-worker, so it is where `[orchestration].max_parallel` is enforced — the width is not left to
-the orchestrator's restraint:
-
-- A slot is held by every **in_progress non-epic child of the same epic**; closing or releasing
-  one frees it. Re-claiming a tick that already holds its slot is always admitted.
-- A claim beyond the width is refused with **exit 8**, naming the width, its source and the
-  ticks holding the slots. Refused is not failed — retry the claim when a slot frees.
-- Under the herdr substrate, `ticfac run-epic`'s spawner applies the same gate before it dials
-  herdr, so a refusal costs zero dials. (This was `tk herd spawn`'s job before the wave-execution
-  loop — spawn, wait, collect, cleanup, reconcile, notify, paint, watch, plugin — was deleted from
-  `tk` and moved to ticfac; see [`herdr-runner.md`](herdr-runner.md#the-wave-execution-loop-moved-to-ticfac).)
-- That spawner also refuses with **exit 9** when the run dispatches through a substrate it
-  does not serve — `[orchestration].substrate = "cloud"`, or `$TICKS_SUBSTRATE=cloud`. The
-  workers are containers there, so a herdr pane would be a second worker on a branch one of
-  them is already pushing to. Set `TICKS_SUBSTRATE=herdr` (or `auto`) for the run if a local
-  herdr worker is genuinely what you want; the checkout is read, never rewritten.
-- Nothing else is gated: closing, releasing and every other field edit stay open while a wave
-  is full, and the TUI/board (human surfaces) are not gated at all.
-- No `[orchestration].max_parallel` means no cap. `tk graph --json` → `dispatch` reports the
-  width, the slots in flight and free, and `dispatch.now` — the ids to launch right now.
-
 ## Human Verdicts
 
 Commands for humans responding to agent handoffs:
@@ -209,10 +185,8 @@ tk unblock <id> <blocker-id>      # Remove blocker
 tk deps <id>                      # Show dependency tree
 tk graph <epic-id> [--json]       # Waves + parallelism; JSON carries needs_planning,
                                   # missing_process_ticks (EPIC-SKELETON roles no child has),
-                                  # unjustified_gates, readiness (Definition-of-Ready lint:
-                                  # id + misses, warn-only) and dispatch{max_parallel,
-                                  # in_flight,free,now} — the configured wave width and
-                                  # the ids to launch right now
+                                  # unjustified_gates and readiness (Definition-of-Ready
+                                  # lint: id + misses, warn-only)
 ```
 
 These commands manage **hard** dependencies (`blocked_by` — feasibility: the tick is not ready until its blockers close). **Soft** ordering preferences are managed with `--after` on `tk create` / `tk update` (clear with `--after ""`); they affect `tk next` ordering only and never gate readiness.
@@ -232,7 +206,7 @@ tk notes <id>                         # List notes
 
 ## Decisions (decide and log)
 
-The sanctioned alternative to asking mid-run — see `agent-runner.md` → *Decide and log*.
+The sanctioned alternative to asking mid-run — see SKILL.md → *Decide and log*.
 
 ```bash
 tk decide <id> --question "Which DB driver?" --choice "pgx" \
@@ -249,75 +223,34 @@ line, so hand-written notes in that format parse too.
 ## Frontier (the continuation predicate)
 
 ```bash
-tk frontier [scope-id]         # what is dispatchable, in flight, waiting
+tk frontier [scope-id]         # what is actionable, in progress, waiting
 tk frontier --check            # exit 0: actionable; 1: legitimately at rest; 2+: check failed
 tk frontier --json             # machine-readable
-tk frontier --autonomous       # flow through checkpoint boundaries, like tk next
 ```
 
-Actionable = a ready open tick (implement/review/closeout by role), an epic needing
-planning, or a herd worker whose `RESULT-<tick>.md` exists uncollected. In-flight
-workers without a result are never actionable — the predicate must not nudge a run
-whose fleet is legitimately working.
+Actionable = a ready open tick (implement/review/closeout by role) or an epic needing
+planning. Work already in progress is never actionable — the predicate must not nudge a
+run that is legitimately working.
+
+## Questions (tk ask / tk answer)
+
+```bash
+tk ask <id> --question "Which region?"        # park a plain question on a tick
+tk ask <id> --question "Ship it?" --gate approve   # park an approval gate
+tk ask <id> --question "…" --async            # register, print the question id, return
+tk ask --collect [--wait] [--timeout 10m]     # print settled answers as JSON lines and drain them
+tk answer <id> <answer...>                    # answer a parked question (a [human] note)
+tk answer <id> approve --from human           # answer an approval gate, relaying a human's verdict
+```
+
+`--json` reads the question (with options) from stdin and prints the answer as JSON. A parked
+question shows up in `tk list --awaiting`; `tk approve` / `tk reject` also settle a `--gate approve`
+question.
 
 ## Running an Epic
 
-This skill runs epics through a runner-neutral orchestration protocol — see `agent-runner.md`, then the Claude Code, Codex, or Pi adapter. The standalone `tk run` runner (along with its `tk resume` / `tk checkpoints` companions) has been removed. The `tk merge` command remains available for merging a completed epic's worktree branch.
-
-## Cloud Substrate
-
-The dispatch verbs for `[orchestration].substrate = "cloud"`, mirroring what the herdr
-substrate's own dispatch/wait/collect/recovery loop does (now `ticfac run-epic`'s; `tk`'s
-own `tk herd spawn/wait/collect/cleanup/reconcile` implemented it until tick `nkf`
-deleted them and moved the loop to ticfac) one verb for one so an orchestrator swapping
-substrates keeps its loop (D19 in `docs/design/cloud-factory.md`). They are the
-ORCHESTRATOR's own hands — dispatching,
-fanning in, reading verdicts, recovering — not the operator's `tk cloud run/stop/status`
-vocabulary for commanding a cloud run.
-
-```bash
-tk cloud spawn <epic> --ticks a,b,c   # one worker container per tick
-tk cloud wait --epic <id>             # fan in on the durable layer
-tk cloud collect [<tick>] --epic <id> # verdicts from the pushed branches; never merges
-tk cloud reconcile [--epic <id>]      # read-only recovery plan; mutates nothing
-```
-
-| Command | Description |
-|---------|-------------|
-| `tk cloud spawn` | Refuses first and cheaply: exit 9 when the run does not dispatch containers, exit 4 for an unknown tick, exit 1 for a tick outside the epic, for a project not enrolled with a factory, and for a lease another run holds (the refusal names the holder). Then pushes, submits the wave, and writes `.tick/logs/cloud/<epic>/<tick>.json` per tick. |
-| `tk cloud wait` | A cloud worker settles when `RESULT-<tick>.md` reaches its branch on the remote — a destroyed container leaves no process to watch. `--timeout`/`--poll` in ms; a run that has ended reports its stragglers as `exited` rather than waiting out the deadline. |
-| `tk cloud collect` | The same three checks (commits, report + `STATUS:` line, empty `.tick/` boundary diff) and the same four verdicts the herdr substrate's own collect check applies (formerly `tk herd collect`, now ticfac's), read off the remote. Adds `unknown`: an unreachable remote is not a worker that failed. Exit 0 only when every worker is `ready-to-merge`. |
-| `tk cloud reconcile` | Classes: `settled`, `live-worker`, `dead-with-work`, `stale-no-work`, `unknown`. A run state that cannot be read counts as ALIVE — never redispatch a live worker; a branch with no commits is one that has not pushed yet. |
-
-**One lease per project, wherever the orchestrator sits.** An enrolled project's dispatch
-takes the same RunRoom lease a cloud run takes (recorded `origin: local`); an un-enrolled
-one keeps the local file lease and cannot dispatch containers. A checkout with no factory
-configured never reaches the network to discover that — offline stays offline.
-
-`--ticks` is required and is never guessed: the wave is what the orchestrator computed
-(`tk graph --json` → `dispatch.now`), and this verb dispatches it.
-
-## Sandbox
-
-```bash
-tk sandbox image [--root DIR] [--declared-only] [--tk-version V]
-tk sandbox model [--root DIR]
-tk sandbox toolchain [--root DIR]
-tk sandbox setup [--root DIR] [--force] [--stamp PATH]
-tk sandbox environment [--root DIR]
-```
-
-Reads the `[sandbox]` table of `.tick/runners.toml` — the per-repo sandbox definition (`runners-config.md` → *The sandbox a run gets*) — and applies it to a checkout.
-
-| Command | Description |
-|---------|-------------|
-| `tk sandbox image` | Print the image the sandbox boots: the declared one, else the base image pinned to this tk version. `--declared-only` prints nothing when the repo declares none. |
-| `tk sandbox model` | Print the model this repo routes the orchestrator to: `[orchestrator].model`, else role `orchestrator` at the `frontier` tier (which falls back to `[roles.implement]`). Prints nothing when nothing is routed — that is a stop for whatever boots a sandbox, not a default to substitute. |
-| `tk sandbox toolchain` | Print the declared `tool@version` pins, one per line. |
-| `tk sandbox setup` | Run the declared setup commands, in order, once per checkout. `--force` ignores the warm record. |
-| `tk sandbox environment` | Run the `[environment.commands]` run-start checks. Verification only — a repo with none is an explicit no-op; a failing check is a stop. |
-
-The setup commands come from the tracked config in the checkout and from nowhere else — no flag supplies one. A repo that declares no `[sandbox]` table gets the base image and a no-op, which is the usual case. Under the herdr substrate, `ticfac run-epic`'s spawner runs the same setup on a new worker worktree (as `tk herd spawn` did before the wave loop moved to ticfac), and the cloud sandbox entrypoint runs it after its clone, so a local worker and a cloud one warm identically.
+Ticks does not run epics; [ticfac](https://github.com/pengelbrecht/ticfac) does. See SKILL.md →
+*Running an epic*.
 
 ## Web Board
 
@@ -329,10 +262,9 @@ tk board [path] [flags]
 |------|-------------|
 | `-p, --port N` | Port to listen on (default 3000) |
 | `--host ADDR` | Host/IP to bind (default `127.0.0.1`; use `0.0.0.0` to expose on all interfaces / LAN) |
-| `--cloud` | Sync the board to ticks.sh (token in `~/.ticksrc`) |
 | `--dev` | Serve the UI from source instead of embedded assets |
 
-Opens a web interface for viewing and managing ticks. By default the board is only reachable from the local machine (loopback). Pass `--host 0.0.0.0` to make it accessible on the local network.
+Opens a local web interface for viewing and managing ticks. By default the board is only reachable from the local machine (loopback). Pass `--host 0.0.0.0` to make it accessible on the local network.
 
 ## Maintenance
 

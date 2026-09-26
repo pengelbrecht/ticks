@@ -150,13 +150,13 @@ func TestProjectlessRegression_SoftOrderAfterEdge(t *testing.T) {
 // A project grouping epics, where every epic/leaf is closed:
 //   - CompletedProjectsNeedingCloseout returns it.
 //   - A project close-out tick carrying awaiting:checkpoint HALTS planning
-//     past the boundary when autonomous-mode is OFF.
+//     past the boundary.
 // ---------------------------------------------------------------------------
 
 // TestCheckpointHalts_ProjectCompletionAndPlanningGate builds a two-project
 // roadmap where project A is done (all leaves closed) and its close-out tick
 // is awaiting:checkpoint, and project B's epic is queued after project A's
-// close-out. With autonomous-mode OFF, the checkpoint must gate planning so
+// close-out. The checkpoint must gate planning so
 // project B's epic is not returned as plannable.
 //
 // Fixture:
@@ -227,198 +227,38 @@ func TestCheckpointHalts_ProjectCompletionAndPlanningGate(t *testing.T) {
 		t.Errorf("CompletedProjectsNeedingCloseout: got %v, want [projA]", tickIDs(needsCloseout))
 	}
 
-	// Part 2: autonomous-mode OFF — checkpoint gates continuation.
+	// Part 2: the checkpoint gates continuation.
 	//
 	// closeoutA is childless+open but awaiting:checkpoint → excluded.
 	// eB1 is blocked_by closeoutA (open) → also excluded.
 	// Result: nothing plannable.
-	gotOff := EpicsNeedingPlanningWithMode([]tick.Tick{closeoutA, eB1}, false, all)
+	gotOff := EpicsNeedingPlanning([]tick.Tick{closeoutA, eB1}, all)
 	if len(gotOff) != 0 {
-		t.Errorf("autonomous OFF: checkpoint must gate; got plannable %v, want []", tickIDs(gotOff))
+		t.Errorf("checkpoint must gate; got plannable %v, want []", tickIDs(gotOff))
 	}
 
-	// Also verify via NextPlannableEpics (which always runs in OFF mode).
+	// Also verify via NextPlannableEpics.
 	nextOff := NextPlannableEpics(all)
 	for _, tk := range nextOff {
 		if tk.ID == "closeoutA" {
-			t.Errorf("NextPlannableEpics (OFF mode): closeoutA must not surface (checkpoint await gates it)")
+			t.Errorf("NextPlannableEpics: closeoutA must not surface (checkpoint await gates it)")
 		}
 		if tk.ID == "eB1" {
-			t.Errorf("NextPlannableEpics (OFF mode): eB1 must not surface (blocked_by open closeoutA)")
+			t.Errorf("NextPlannableEpics: eB1 must not surface (blocked_by open closeoutA)")
 		}
 	}
 }
 
 // ---------------------------------------------------------------------------
-// Scenario 3 — Autonomous-mode flow-through
+// Scenario 3 — Per-project no-checkpoint flows through
 //
-// Same fixture as scenario 2, but:
-//   - autonomous=true: checkpoint await is bypassed → closeoutA becomes plannable.
-//   - approval await is NOT bypassed even with autonomous=true.
-// ---------------------------------------------------------------------------
-
-// TestAutonomousMode_CheckpointBypassed verifies that EpicsNeedingPlanningWithMode
-// with autonomous=true surfaces a checkpoint-awaiting epic while an
-// approval-awaiting epic still gates.
-func TestAutonomousMode_CheckpointBypassed(t *testing.T) {
-	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-
-	mkAwaitingEpic := func(id, awaiting string) tick.Tick {
-		a := awaiting
-		return tick.Tick{
-			ID: id, Title: "Epic " + id, Status: tick.StatusOpen,
-			Type: tick.TypeEpic, Awaiting: &a,
-			Owner: "test", CreatedBy: "test",
-			CreatedAt: base, UpdatedAt: base,
-		}
-	}
-
-	checkpointEpic := mkAwaitingEpic("eCheckpoint", tick.AwaitingCheckpoint)
-	approvalEpic := mkAwaitingEpic("eApproval", tick.AwaitingApproval)
-	normalEpic := tick.Tick{
-		ID: "eNormal", Title: "Normal epic", Status: tick.StatusOpen,
-		Type: tick.TypeEpic, Owner: "test", CreatedBy: "test",
-		CreatedAt: base.Add(time.Minute), UpdatedAt: base.Add(time.Minute),
-	}
-
-	all := []tick.Tick{checkpointEpic, approvalEpic, normalEpic}
-
-	// OFF: both awaiting epics gated, only normal surfaces.
-	offResult := EpicsNeedingPlanningWithMode(all, false, all)
-	offIDs := make(map[string]bool)
-	for _, tk := range offResult {
-		offIDs[tk.ID] = true
-	}
-	if offIDs["eCheckpoint"] {
-		t.Error("autonomous OFF: checkpoint epic must not surface")
-	}
-	if offIDs["eApproval"] {
-		t.Error("autonomous OFF: approval epic must not surface")
-	}
-	if !offIDs["eNormal"] {
-		t.Error("autonomous OFF: normal epic must surface")
-	}
-
-	// ON: checkpoint bypassed, approval still gated, normal still surfaces.
-	onResult := EpicsNeedingPlanningWithMode(all, true, all)
-	onIDs := make(map[string]bool)
-	for _, tk := range onResult {
-		onIDs[tk.ID] = true
-	}
-	if !onIDs["eCheckpoint"] {
-		t.Error("autonomous ON: checkpoint epic must surface (bypass active)")
-	}
-	if onIDs["eApproval"] {
-		t.Error("autonomous ON: approval epic must still be gated (bypass scoped to checkpoint only)")
-	}
-	if !onIDs["eNormal"] {
-		t.Error("autonomous ON: normal epic must surface")
-	}
-}
-
-// TestAutonomousMode_FullProjectFixture verifies the full two-project scenario:
-// autonomous ON → closeoutA (checkpoint) surfaces as plannable; eB1 remains
-// blocked (it is blocked_by closeoutA which is still open, regardless of mode).
-func TestAutonomousMode_FullProjectFixture(t *testing.T) {
-	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-
-	checkpointAwaiting := tick.AwaitingCheckpoint
-
-	projA := tick.Tick{
-		ID: "projA", Title: "Project A", Status: tick.StatusOpen,
-		Type: tick.TypeTask, Owner: "test", CreatedBy: "test",
-		CreatedAt: base, UpdatedAt: base,
-	}
-	eA1 := tick.Tick{
-		ID: "eA1", Title: "Epic A1", Status: tick.StatusClosed,
-		Type: tick.TypeEpic, Parent: "projA", Owner: "test", CreatedBy: "test",
-		CreatedAt: base, UpdatedAt: base,
-	}
-	tA1 := tick.Tick{
-		ID: "tA1", Title: "Task A1", Status: tick.StatusClosed,
-		Type: tick.TypeTask, Parent: "eA1", Owner: "test", CreatedBy: "test",
-		CreatedAt: base, UpdatedAt: base,
-	}
-	closeoutA := tick.Tick{
-		ID: "closeoutA", Title: "Project A close-out", Status: tick.StatusOpen,
-		Type: tick.TypeEpic, Awaiting: &checkpointAwaiting,
-		Owner: "test", CreatedBy: "test",
-		CreatedAt: base.Add(time.Minute), UpdatedAt: base.Add(time.Minute),
-	}
-	projB := tick.Tick{
-		ID: "projB", Title: "Project B", Status: tick.StatusOpen,
-		Type: tick.TypeTask, Owner: "test", CreatedBy: "test",
-		CreatedAt: base.Add(2 * time.Minute), UpdatedAt: base.Add(2 * time.Minute),
-	}
-	eB1 := tick.Tick{
-		ID: "eB1", Title: "Epic B1", Status: tick.StatusOpen,
-		Type: tick.TypeEpic, Parent: "projB",
-		BlockedBy: []string{"closeoutA"},
-		Owner:     "test", CreatedBy: "test",
-		CreatedAt: base.Add(3 * time.Minute), UpdatedAt: base.Add(3 * time.Minute),
-	}
-
-	all := []tick.Tick{projA, eA1, tA1, closeoutA, projB, eB1}
-
-	epicCandidates := []tick.Tick{closeoutA, eB1}
-
-	// ON: closeoutA should surface (checkpoint bypass), eB1 still blocked.
-	onResult := EpicsNeedingPlanningWithMode(epicCandidates, true, all)
-	onIDs := make(map[string]bool)
-	for _, tk := range onResult {
-		onIDs[tk.ID] = true
-	}
-	if !onIDs["closeoutA"] {
-		t.Error("autonomous ON: closeoutA (checkpoint) must surface as plannable")
-	}
-	if onIDs["eB1"] {
-		t.Error("autonomous ON: eB1 must still be blocked (blocked_by open closeoutA)")
-	}
-}
-
-// TestAutonomousMode_NonCheckpointAwaitStillGates runs through every non-checkpoint
-// awaiting type and confirms none are bypassed under autonomous mode.
-func TestAutonomousMode_NonCheckpointAwaitStillGates(t *testing.T) {
-	base := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-
-	nonCheckpointTypes := []string{
-		tick.AwaitingApproval,
-		tick.AwaitingInput,
-		tick.AwaitingReview,
-		tick.AwaitingContent,
-		tick.AwaitingEscalation,
-		tick.AwaitingWork,
-	}
-
-	for _, awaitType := range nonCheckpointTypes {
-		awaitType := awaitType // capture
-		t.Run(awaitType, func(t *testing.T) {
-			a := awaitType
-			epic := tick.Tick{
-				ID: "e1", Title: "Epic", Status: tick.StatusOpen,
-				Type: tick.TypeEpic, Awaiting: &a,
-				Owner: "test", CreatedBy: "test",
-				CreatedAt: base, UpdatedAt: base,
-			}
-			candidates := []tick.Tick{epic}
-			got := EpicsNeedingPlanningWithMode(candidates, true, candidates)
-			if len(got) != 0 {
-				t.Errorf("autonomous ON: awaiting:%s must still gate planning; got %v", awaitType, tickIDs(got))
-			}
-		})
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Scenario 4 — Per-project no-checkpoint flows through
-//
-// A project whose close-out tick has NO checkpoint await flows through with
-// autonomous-mode OFF (nothing to gate, no checkpoint boundary).
+// A project whose close-out tick has NO checkpoint await flows through
+// (nothing to gate, no checkpoint boundary).
 // ---------------------------------------------------------------------------
 
 // TestNoCheckpointFlowsThrough verifies that a project close-out epic with NO
 // awaiting state (or a non-checkpoint await that has been cleared) is returned
-// as plannable even when autonomous mode is OFF. This is the "no checkpoint"
+// as plannable. This is the "no checkpoint"
 // case: the project boundary exists but imposes no human gate.
 //
 // Fixture:
@@ -446,7 +286,7 @@ func TestNoCheckpointFlowsThrough(t *testing.T) {
 		CreatedAt: base, UpdatedAt: base,
 	}
 
-	// Close-out epic with NO awaiting state: it should flow through in OFF mode.
+	// Close-out epic with NO awaiting state: it should flow through.
 	closeoutA := tick.Tick{
 		ID: "closeoutA", Title: "Project A close-out", Status: tick.StatusOpen,
 		Type:  tick.TypeEpic, // No Awaiting field set
@@ -456,13 +296,13 @@ func TestNoCheckpointFlowsThrough(t *testing.T) {
 
 	all := []tick.Tick{projA, eA1, tA1, closeoutA}
 
-	// autonomous OFF: closeoutA must be plannable (no checkpoint gate).
-	got := EpicsNeedingPlanningWithMode([]tick.Tick{closeoutA}, false, all)
+	// closeoutA must be plannable (no checkpoint gate).
+	got := EpicsNeedingPlanning([]tick.Tick{closeoutA}, all)
 	if len(got) != 1 || got[0].ID != "closeoutA" {
-		t.Errorf("no-checkpoint close-out must flow through in OFF mode; got %v, want [closeoutA]", tickIDs(got))
+		t.Errorf("no-checkpoint close-out must flow through; got %v, want [closeoutA]", tickIDs(got))
 	}
 
-	// NextPlannableEpics (always OFF) must also include it.
+	// NextPlannableEpics must also include it.
 	next := NextPlannableEpics(all)
 	found := false
 	for _, tk := range next {

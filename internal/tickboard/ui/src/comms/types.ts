@@ -1,10 +1,9 @@
 /**
  * Unified communication event types for the ticks board.
- * These types normalize events from both local SSE and cloud WebSocket transports.
+ * These types normalize events from the local SSE transport.
  */
 
 import type { Tick } from '../types/tick.js';
-import type { RunEventMessage } from '../types/generated/websocket/messages.js';
 
 // =============================================================================
 // Tick Events
@@ -49,7 +48,7 @@ export interface ConnectionDisconnectedEvent {
   type: 'connection:disconnected';
 }
 
-/** Local agent connection status changed (cloud mode only) */
+/** Read-only status changed (simulated by the mock client) */
 export interface ConnectionLocalStatusEvent {
   type: 'connection:local-status';
   connected: boolean;
@@ -68,30 +67,11 @@ export type ConnectionEvent =
   | ConnectionErrorEvent;
 
 // =============================================================================
-// Run Events
-// =============================================================================
-
-/**
- * A live `run_event` arrived from the transport (tick bne).
- *
- * Kept a category of its own rather than folded into `TickEvent` on purpose:
- * a run event is OBSERVABILITY and must never reach the tick store. A run
- * dispatching a tick is not the tick changing, and a board that let one become
- * the other would be treating a badge as evidence.
- */
-export interface RunEventReceivedEvent {
-  type: 'run:event';
-  message: RunEventMessage;
-}
-
-export type RunEvent = RunEventReceivedEvent;
-
-// =============================================================================
 // Unified Event Type
 // =============================================================================
 
 /** All possible communication events */
-export type CommsEvent = TickEvent | ConnectionEvent | RunEvent;
+export type CommsEvent = TickEvent | ConnectionEvent;
 
 // =============================================================================
 // Write Operation Types
@@ -130,10 +110,8 @@ export interface TickUpdate {
 
 /** Information about the current connection */
 export interface ConnectionInfo {
-  mode: 'local' | 'cloud';
+  mode: 'local';
   connected: boolean;
-  localAgentConnected?: boolean; // Cloud mode only
-  projectId?: string; // Cloud mode only
   baseUrl: string;
 }
 

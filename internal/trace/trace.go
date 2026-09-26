@@ -9,7 +9,7 @@
 // container's own output knew what actually happened, and nothing carried an
 // identifier from one to the other. Ingestion multiplies the number of doors a
 // request can come in through — a Telegram message, a labelled GitHub issue, a
-// generic webhook, `tk cloud run` from a laptop — so the join has to exist
+// generic webhook, a cloud run started from a laptop — so the join has to exist
 // before the sources do.
 //
 // A trace id is minted ONCE, at whichever edge a signal or a submission first
@@ -21,7 +21,7 @@
 //
 // The minting happens in the control plane (TypeScript). Go owns the tracker
 // format that a minted id is written INTO (internal/tick.Tick.TraceID), reads
-// it back in `tk cloud logs` and `tk cloud trace`, and hands it to a container
+// it back (ticfac does, in its cloud logs and trace views) and hands it to a container
 // as TICKS_TRACE_ID. So both languages have to agree on the spelling and the
 // shape, and `.tick/learnings.md` is unambiguous about what that requires: a
 // constant crossing the Go/TS boundary needs a cross-implementation golden
@@ -41,7 +41,7 @@ import (
 //
 // It is part of the value rather than context around it because a trace id is
 // read in places that carry no schema: a log banner, a shell variable, an
-// operator pasting a string into `tk cloud logs`. A bare 32 hex characters
+// operator pasting a string into a logs query. A bare 32 hex characters
 // beside a commit sha is a value nobody can classify by looking at it.
 const Prefix = "tr_"
 

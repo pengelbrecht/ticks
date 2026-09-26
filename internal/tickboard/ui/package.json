@@ -10,7 +10,6 @@
     "test": "vitest",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "test:cloud": "./e2e/run-cloud-tests.sh",
     "codegen": "node scripts/codegen.mjs",
     "codegen:check": "node scripts/codegen.mjs --check",
     "prebuild": "pnpm run codegen",

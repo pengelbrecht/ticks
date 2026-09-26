@@ -69,7 +69,6 @@ test("clean tracked files and documented legacy exceptions pass", async () => {
   await withFixture(
     {
       ".tick/issues/xps.json": `actor=${legacyEmail}\nfixture=user@example.com\n`,
-      "internal/tickboard/cloud/client_test.go": `actor=${legacyEmail}\n`,
       ".tick/issues/clean.json": "owner=bot@example.com\n",
     },
     (root) => {
@@ -174,21 +173,17 @@ test("legacy tracker metadata does not exempt the same identity in a note", asyn
 test("an exception does not allow a different email in the same file", async () => {
   const legacyEmail = ["pe", "@", "writeflow.com"].join("");
   await withFixture(
-    { "internal/tickboard/cloud/client_test.go": `${legacyEmail}\n${forbidden.email}\n` },
+    { ".tick/issues/xps.json": `${legacyEmail}\n${forbidden.email}\n` },
     (root) => {
       const result = runGuard(root);
       assert.notEqual(result.status, 0, `guard unexpectedly passed:\n${result.output}`);
-      assert.match(result.output, /internal\/tickboard\/cloud\/client_test\.go/);
+      assert.match(result.output, /\.tick\/issues\/xps\.json/);
     }
   );
 });
 
-test("CI runs the guard and tests the factory worker", async () => {
+test("CI runs the guard", async () => {
   const workflow = await readFile(join(REPO_ROOT, ".github", "workflows", "ci.yml"), "utf8");
 
   assert.match(workflow, /check-public-repo\.mjs/);
-  assert.match(
-    workflow,
-    /factory:\s+[\s\S]*?working-directory:\s*cloud\/factory[\s\S]*?cache-dependency-path:\s*cloud\/factory\/pnpm-lock\.yaml/
-  );
 });

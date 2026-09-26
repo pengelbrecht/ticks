@@ -26,7 +26,6 @@ vi.mock('../stores/comms.js', () => ({
 // Import after mock setup
 import { updateTickViaComms } from '../stores/comms.js';
 import { $ticks, setTicks, updateTick as updateTickStore } from '../stores/ticks.js';
-import { computeRoadmapFromTicks } from '../stores/roadmap-compute.js';
 
 const mockUpdateTickViaComms = updateTickViaComms as ReturnType<typeof vi.fn>;
 
@@ -133,7 +132,7 @@ describe('tick-detail-drawer after (soft order) editing', () => {
       );
     });
 
-    it('carries the current field values alongside after (cloud sends a full tick)', async () => {
+    it('carries the current field values alongside after (update is a full tick)', async () => {
       await setAfterAndSave(element, 'a1');
 
       expect(mockUpdateTickViaComms).toHaveBeenCalledWith(
@@ -203,8 +202,8 @@ describe('tick-detail-drawer after (soft order) editing', () => {
     });
   });
 
-  describe('store + roadmap integration', () => {
-    it('edit form set/clear updates the tick store and the roadmap reflects it', async () => {
+  describe('store integration', () => {
+    it('edit form set/clear updates the tick store', async () => {
       // Seed the ticks store with two epics, no after edges yet
       const ep1 = makeTick({ id: 'ep1', title: 'First Epic' });
       const ep2 = makeTick({ id: 'ep2', title: 'Second Epic' });
@@ -219,16 +218,6 @@ describe('tick-detail-drawer after (soft order) editing', () => {
       updateTickStore(handler.mock.calls[0][0].detail.tick);
       expect($ticks.get()['ep2'].after).toEqual(['ep1']);
 
-      // Roadmap computation (cloud-mode roadmap store path) reflects the soft edge:
-      // ep2 is layered after ep1 and carries the after chip data
-      let roadmap = computeRoadmapFromTicks(Object.values($ticks.get()));
-      expect(roadmap.waves).toHaveLength(2);
-      expect(roadmap.waves![0][0].id).toBe('ep1');
-      expect(roadmap.waves![1][0].id).toBe('ep2');
-      expect(roadmap.waves![1][0].after).toEqual(['ep1']);
-      // Soft ordering never blocks readiness — ep2 must not be queued
-      expect(roadmap.waves![1][0].status).not.toBe('queued');
-
       // Clear: drawer now shows the updated tick; clear the field
       element.tick = $ticks.get()['ep2'];
       await element.updateComplete;
@@ -238,12 +227,6 @@ describe('tick-detail-drawer after (soft order) editing', () => {
 
       updateTickStore(handler.mock.calls[0][0].detail.tick);
       expect($ticks.get()['ep2'].after).toBeUndefined();
-
-      // Roadmap collapses back to a single wave with no after chips
-      roadmap = computeRoadmapFromTicks(Object.values($ticks.get()));
-      expect(roadmap.waves).toHaveLength(1);
-      expect(roadmap.waves![0].map(e => e.id).sort()).toEqual(['ep1', 'ep2']);
-      expect(roadmap.waves![0].find(e => e.id === 'ep2')?.after).toBeUndefined();
     });
   });
 });
