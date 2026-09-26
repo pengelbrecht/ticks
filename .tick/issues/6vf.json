@@ -1,0 +1,19 @@
+{
+  "id": "6vf",
+  "title": "Skill: planning rules for vocabularies, deletions, repairs and cross-repo ticks",
+  "description": "Four general planning rules learned in ticfac runs, absent from the skill's pre-run review and tick-patterns.md:\n\n1. A tick that DECLARES a vocabulary (enum, schema, table) and one that CONSUMES it go in different waves — same-wave pairs died on add/add conflicts.\n2. A deletion tick first LISTS every effect the deleted path produced (events, bounds, logs, schedules) and names each one's new owner or records it as dropped; that list is its acceptance, not 'tests still pass'. (One deletion silently dropped four effects, found one finding at a time.)\n3. A repair tick for a defect that is a SHAPE names every implementation of the seam (grep across languages/executors), leaves a guard test, and proves the fix by reproducing on the old code — one-site repairs took three ticks for one defect.\n4. A tick lives where its CODE is: a change to another repository is a tick filed in that repository, never a child in this one (a cross-repo child was undispatchable across seven dispatches).",
+  "status": "closed",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "labels": [
+    "skill",
+    "from-ticfac"
+  ],
+  "acceptance_criteria": "Each of the four rules appears in tick-patterns.md with a one-line why, and the SKILL.md pre-run review checklist references the relevant ones (waves, deletion, repair, cross-repo)",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-09-26T12:51:42.525842023Z",
+  "updated_at": "2026-09-26T13:28:11.042940725Z",
+  "closed_at": "2026-09-26T13:28:11.042940725Z",
+  "closed_reason": "tick-patterns Planning rules (vocabulary waves, deletion effects, shape repairs, cross-repo) + checklist items 4 and 7"
+}

@@ -131,13 +131,13 @@ Once you can answer the questions above, proceed to creating ticks.
 
 The ideal task:
 - Has a clear, single deliverable
-- Can be verified by running tests
+- Is verified by a named command the gate actually runs
 - Results in demoable software that builds on previous work
 - Is completable in 1-3 agent iterations
 
 **Good task:**
 ```bash
-tk create "Add email validation to registration" \
+tk create "Add email validation to the registration form" --gloss "signup email validation" \
   -d "Validate email format on blur, show error below input.
 
 Test cases:
@@ -145,17 +145,21 @@ Test cases:
 - invalid@ -> invalid
 - @nodomain.com -> invalid
 
-Run: go test ./internal/validation/...
+Run: go test ./internal/validation/... -run TestEmail
 Must still pass: go test ./internal/auth/... (the signup flow consumes this validator)" \
-  --acceptance "All validation tests pass; the auth suite still passes" \
+  --acceptance "\`go test ./internal/validation/... -run TestEmail\` passes with the three cases, under the gate's flags; \`go test ./internal/auth/...\` still passes" \
   --parent <epic-id>
 ```
 
 **Bad task:**
 ```bash
-tk create "Add email validation" -d "Make sure emails are valid"
-# No test cases, no verification criteria - agent will guess
+tk create "Add email validation" -d "Make sure emails are valid" --acceptance "Tests pass"
+# No test cases, no command the gate runs - agent will guess, and the gate cannot confirm it
 ```
+
+**Acceptance names the command the gate actually runs, with its flags.** Name the exact `[testing.commands]` entry (or the repo's wrapper for it, e.g. a `make test` target) and the flags the gate runs it with. A test the gate does not run — skipped under `-short`, in a suite the gate never invokes — is not evidence, however green it is locally: add it to the gate, or name the gap in the acceptance. "Tests pass" is never a whole acceptance. Good/bad pair in `references/tick-patterns.md` → *Acceptance names the gate's command*.
+
+**Mention a tick as `id (gloss)`, never a bare id** — in chat, reports, notes and commit messages: `kdn (add google oauth login)`, not `kdn`. The gloss is an optional short label (at most 40 characters) set with `tk create --gloss "<label>"` or `tk update <id> --gloss "<label>"`; when it is empty, write a short paraphrase of the title yourself (programs fall back to the title cut to 40 characters). `tk show` heads a glossed tick with `id (gloss)`, and `tk list` shows the gloss in place of the title. Set `--gloss` whenever a title is longer than a few words.
 
 Run the **Definition of Ready** checklist in `references/tick-patterns.md` against each tick before creating it; see that file for the full patterns.
 
@@ -202,18 +206,30 @@ The core principle: **containment is free and passive; orchestration is opt-in.*
 
 #### Epic definition of done (strongly encouraged)
 
-Give every epic an explicit **definition of done**: the outside-in, user-visible conditions that mean the whole epic is complete — not merely that its child ticks closed. Store it as the epic's `--acceptance`:
+Give every epic an explicit **definition of done**: the outside-in, user-visible conditions that mean the whole epic is complete — not merely that its child ticks closed. Store it as the epic's `--acceptance`, one `[A<n>]`-marked line per item:
 
 ```bash
 tk create "Auth foundation" -t epic -d "<rough scope>" \
-  --acceptance "New user can sign up, log in, and see their profile end-to-end against a real DB. \`go test ./internal/auth/...\` and the e2e signup test pass. No auth route 5xxs on the happy path."
+  --acceptance "[A1] A new user can sign up, log in and see their profile against a real DB — \`make e2e\` (go test ./e2e/... -run TestSignup, no -short).
+[A2] \`go test ./internal/auth/...\` passes, run as the gate runs it.
+[A3] No auth route returns 5xx on the happy path — \`make e2e\` asserts every auth route's status.
+[A4] (not yet runnable — judged at final review) Login error messages name the field that failed."
 ```
 
 Optional, but strongly encouraged — it is the single thing that lets a run know when it is *actually* finished rather than just out of ticks. The Epic-close retro verifies the code against this definition item by item (`references/agent-runner.md` → Outside-in verification); without it, the retro falls back to re-deriving scope from the epic's prose.
 
+**Items, not a sentence.** Acceptance is consumed item by item: `[evidence.acceptance]` maps an `A<n>` id to the command that proves it, and a runner reports *which* item a finding makes unreachable. A prose done cannot be addressed that way. Each item is either:
+
+- **Runnable** — it names the command that proves it (the one `[evidence.acceptance]` will map), or
+- **Not yet runnable** — no command proves it yet, so it is checked by prediction or judgement, and the line says so (`(not yet runnable — …)`, or `(human judgment)` for taste).
+
+Keep `A<n>` ids unique across containers — the epic and its project must not both use `A1`; continue the numbering.
+
+**When the done is a run, the epic contains the run.** If an item is proven only by running the thing for real (a live job, a deploy, an end-to-end run), then (1) the **first** tick wires the thinnest end-to-end path through the **production** entry point, tested through that entry point, and (2) a named tick **inside** the epic performs the run, before the final review. A seam nothing constructs is not delivery: every tick green against fakes, with the production entry point never wiring them, is how an epic closes without its run. If the run genuinely lives in another epic, the acceptance says so in words. Layout in `references/tick-patterns.md` → *Pattern: Epic Whose Done Is a Run*.
+
 **Make it goal-compatible.** A definition of done is *goal-compatible* when an agent can confirm it is met with no human in the loop:
 
-- **Checkable** — each item is a runnable command or an observable behavior, never "works well" or "feels polished".
+- **Checkable** — each item is runnable or observable, never "works well" or "feels polished".
 - **Bounded** — it names what is in scope and stops; "and whatever else users want" is not a done.
 - **Outside-in** — user-visible behavior and the commands that prove it, not internal implementation detail.
 
@@ -251,7 +267,7 @@ tk create "Final review of <epic A> diff" \
 
 # 2. Close-out — blocked by the final review, always the last child
 tk create "Close out <epic A>: run epic retro, then flesh out the next feasible epic into ticks" \
-  --parent <A> --role closeout \
+  --gloss "close out <epic A>" --parent <A> --role closeout \
   --blocked-by <final-review-tick>
 ```
 
@@ -382,8 +398,10 @@ Ticks in the same wave (no blocking relationship between them) run concurrently,
 1. **Coverage** — walk each requirement from the gathered understanding (for this phase) and point to the tick that implements it. Add ticks for any gaps.
 2. **Sizing** — split any tick whose title needs an "and" or whose acceptance won't fit in 3 bullets.
 3. **Naming consistency** — the same interface should be called the same thing across tick descriptions; a contract named `clearLayers` in one tick and `clearFullLayers` in another is a latent bug.
-4. **Wave safety** — run `tk graph <epic>` and confirm no two ticks in the same wave share a file or an un-isolable resource.
-5. **Readiness** — the same `tk graph` run lints every open atomic tick and reports misses under `readiness` (no verification command, unquantified adjective, unresolved placeholder, no files listed). It warns, never refuses; a planned epic should graph clean. Details in `references/tick-patterns.md` → *Definition of Ready*.
+4. **Wave safety** — run `tk graph <epic>` and confirm no two ticks in the same wave share a file or an un-isolable resource, and that a tick declaring a vocabulary (enum, schema, table) and a tick consuming it sit in different waves.
+5. **Readiness** — the same `tk graph` run lints every open atomic tick and reports misses under `readiness` (no verification command, unquantified adjective, unresolved placeholder, no files listed). It warns, never refuses; a planned epic should graph clean. Details in `references/tick-patterns.md` → *Definition of Ready*. Check by hand that each acceptance names the command the gate runs, with its flags.
+6. **The run** — if the done is a run, which tick performs it, and does the first tick wire the production entry point? (See *Epic definition of done*.)
+7. **Deletions, repairs, other repos** — a deletion tick lists every effect of the deleted path and its new owner; a repair of a shape defect names every implementation of the seam; a change to another repository is a tick filed there, not a child here. Rules in `references/tick-patterns.md` → *Planning rules*.
 
 This review is cheap and catches the partitioning mistakes that are expensive to unwind once agents are running.
 
@@ -419,8 +437,9 @@ You own all tick state; implementers only write code in their worktrees. Run wav
 ### Creating Ticks
 
 ```bash
-tk create "Title" -d "Description" --acceptance "Tests pass"  # Task
-tk create "Title" -t epic                                     # Epic
+tk create "Title" -d "Description" --acceptance "<command the gate runs> passes"  # Task
+tk create "A title longer than a few words" --gloss "short label"  # Gloss (≤40 chars) shown as id (gloss)
+tk create "Title" -t epic --acceptance "[A1] … [A2] …"        # Epic, done as [A<n>] items
 tk create "Title" --parent <epic-id>                          # Under epic
 tk create "Title" --blocked-by <task-id>                      # Blocked (hard dependency)
 tk create "Title" --after <task-id>                           # Soft ordering preference (never blocks)
@@ -430,7 +449,7 @@ tk create "Title" --parent <epic> --role review               # Epic's final-rev
 tk create "Title" --parent <epic> --role closeout             # Epic's close-out process tick
 ```
 
-> Epics take `--acceptance` too — use it for the epic's **definition of done** (strongly encouraged; see *Epic definition of done*). A goal-compatible done is what lets you hand the epic off and walk away.
+> Epics take `--acceptance` too — use it for the epic's **definition of done**, as `[A<n>]` lines (strongly encouraged; see *Epic definition of done*). A goal-compatible done is what lets you hand the epic off and walk away.
 
 > `tk` uses standard double-dash for long flags. `-acceptance`/`-parent`/`-blocked-by` (single dash) do **not** work — use `--acceptance`/`--parent`/`--blocked-by`. Single-letter shorthands like `-d`, `-t`, `-p`, `-l`, `-b` are fine.
 
@@ -456,6 +475,7 @@ tk graph <epic-id> --json    # JSON output; needs_planning:true means epic needs
 ```bash
 tk show <id>                                           # Show details
 tk close <id> --reason "Completed: <one-line summary>" # Close tick — always pass --reason
+tk update <id> --gloss "short label"                   # Set the label shown as id (gloss)
 tk note <id> "text"                                    # Add note
 tk decide <id> --question "…" --choice "…" --reason "…"  # Log a provisional decision (decide, don't ask — agent-runner.md)
 tk decisions <epic-id>                                 # The Decisions-taken table for reports

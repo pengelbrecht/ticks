@@ -69,6 +69,7 @@ var (
 	createParent         string
 	createDiscoveredFrom string
 	createAcceptance     string
+	createGloss          string
 	createDefer          string
 	createTargetDate     string
 	createExternalRef    string
@@ -90,6 +91,7 @@ func init() {
 	createCmd.Flags().StringVar(&createParent, "parent", "", "parent epic id")
 	createCmd.Flags().StringVar(&createDiscoveredFrom, "discovered-from", "", "source tick id")
 	createCmd.Flags().StringVar(&createAcceptance, "acceptance", "", "acceptance criteria")
+	createCmd.Flags().StringVar(&createGloss, "gloss", "", fmt.Sprintf("short human label shown as `id (gloss)`, at most %d characters", tick.GlossMaxRunes))
 	createCmd.Flags().StringVar(&createDefer, "defer", "", "defer until date (YYYY-MM-DD)")
 	createCmd.Flags().StringVar(&createTargetDate, "target-date", "", "target completion date (YYYY-MM-DD)")
 	createCmd.Flags().StringVar(&createExternalRef, "external-ref", "", "external reference (e.g. gh-42)")
@@ -131,6 +133,11 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	// Validate role flag if provided
+	gloss := strings.TrimSpace(createGloss)
+	if err := tick.ValidateGloss(gloss); err != nil {
+		return NewExitError(ExitUsage, "invalid --gloss: %v", err)
+	}
+
 	roleVal := strings.TrimSpace(createRole)
 	if roleVal != "" {
 		switch roleVal {
@@ -217,6 +224,7 @@ func runCreate(cmd *cobra.Command, args []string) error {
 	t := tick.Tick{
 		ID:                 id,
 		Title:              title,
+		Gloss:              gloss,
 		Description:        strings.TrimSpace(createDescription),
 		Status:             tick.StatusOpen,
 		Priority:           createPriority,

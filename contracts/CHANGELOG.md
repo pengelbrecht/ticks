@@ -45,6 +45,20 @@ precisely why it is the one the version exists to make loud.
 
 ---
 
+## 6.3.0
+
+MINOR. One optional field is added to `tk-json-manifest.json`; no field was
+removed and no type changed, so an unchanged consumer is still correct.
+
+- **`gloss` on a tick record, a `graph_task` and the `graph` epic.** An
+  optional short human label, at most 40 characters, shown beside an id as
+  `id (gloss)` (tick zs7). tk refuses a longer one on create, update and
+  Validate rather than truncating it. Absent is common and means none: a
+  reader that shows ticks to a person falls back to the title cut to 40
+  characters, never to a blank. `tracker-layout.json` is unchanged — the
+  control plane's writer does not set the field, and Go's Store accepts a
+  record without it.
+
 ## 6.2.0
 
 MINOR. No rule, statement, guard, sequence, threshold or vocabulary byte

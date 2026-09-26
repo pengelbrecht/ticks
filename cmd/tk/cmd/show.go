@@ -85,9 +85,13 @@ func runShow(cmd *cobra.Command, args []string) error {
 	// Build content
 	var lines []string
 
-	// Header line: ID  Priority  Type  Status  @owner
+	// Header line: ID (gloss)  Priority  Type  Status  @owner
+	idRef := styles.RenderID(t.ID)
+	if strings.TrimSpace(t.Gloss) != "" {
+		idRef += " (" + t.Gloss + ")"
+	}
 	header := fmt.Sprintf("%s  %s  %s  %s  %s",
-		styles.RenderID(t.ID),
+		idRef,
 		styles.RenderPriority(t.Priority),
 		styles.RenderType(t.Type),
 		styles.RenderTickStatusWithBlocked(t, isBlocked),

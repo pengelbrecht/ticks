@@ -56,6 +56,7 @@ var (
 	updateRemoveLabels string
 	updateAfter        string
 	updateAcceptance   string
+	updateGloss        string
 	updateDefer        string
 	updateTargetDate   string
 	updateExternalRef  string
@@ -82,6 +83,7 @@ var (
 	updateRemoveLabelsSet bool
 	updateAfterSet        bool
 	updateAcceptanceSet   bool
+	updateGlossSet        bool
 	updateDeferSet        bool
 	updateTargetDateSet   bool
 	updateExternalRefSet  bool
@@ -106,6 +108,7 @@ func init() {
 	updateCmd.Flags().StringVar(&updateRemoveLabels, "remove-labels", "", "labels to remove")
 	updateCmd.Flags().StringVar(&updateAfter, "after", "", "soft ordering: prefer after these ticks, but do not block on them")
 	updateCmd.Flags().StringVar(&updateAcceptance, "acceptance", "", "acceptance criteria")
+	updateCmd.Flags().StringVar(&updateGloss, "gloss", "", fmt.Sprintf("short human label shown as `id (gloss)`, at most %d characters (\"\" clears it)", tick.GlossMaxRunes))
 	updateCmd.Flags().StringVar(&updateDefer, "defer", "", "defer until date (YYYY-MM-DD)")
 	updateCmd.Flags().StringVar(&updateTargetDate, "target-date", "", "target completion date (YYYY-MM-DD, empty to clear)")
 	updateCmd.Flags().StringVar(&updateExternalRef, "external-ref", "", "external reference")
@@ -136,6 +139,7 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	updateRemoveLabelsSet = cmd.Flags().Changed("remove-labels")
 	updateAfterSet = cmd.Flags().Changed("after")
 	updateAcceptanceSet = cmd.Flags().Changed("acceptance")
+	updateGlossSet = cmd.Flags().Changed("gloss")
 	updateDeferSet = cmd.Flags().Changed("defer")
 	updateTargetDateSet = cmd.Flags().Changed("target-date")
 	updateExternalRefSet = cmd.Flags().Changed("external-ref")
@@ -240,6 +244,13 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 	if updateAcceptanceSet {
 		t.AcceptanceCriteria = updateAcceptance
+	}
+	if updateGlossSet {
+		gloss := strings.TrimSpace(updateGloss)
+		if err := tick.ValidateGloss(gloss); err != nil {
+			return NewExitError(ExitUsage, "invalid --gloss: %v", err)
+		}
+		t.Gloss = gloss
 	}
 	if updateDeferSet {
 		if updateDefer == "" {

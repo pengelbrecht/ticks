@@ -49,7 +49,9 @@ boundary stops for human sign-off (`--awaiting checkpoint` by default).
 
 Give the project a **designed goal** before planning its epics: a goal statement in its
 description and a fact sheet of testable `[A<n>]` outcome statements as its `--acceptance` —
-protocol in `goal-design.md`. The facts are what the checkpoint verifies against.
+protocol in `goal-design.md`. The facts are what the checkpoint verifies against. Its epics
+state their definitions of done in the same `[A<n>]` shape (SKILL.md → *Epic definition of
+done*); continue the numbering so no id repeats across the project and its epics.
 
 ### Rung 2 — + Dates
 

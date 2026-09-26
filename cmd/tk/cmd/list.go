@@ -280,7 +280,12 @@ func runList(cmd *cobra.Command, args []string) error {
 		}
 
 		statusIcon := styles.RenderTickStatusWithBlocked(t, isBlocked)
+		// A gloss, when the tick has one, stands in for the title: the list
+		// is for scanning, and `tk show` has the full title.
 		title := t.Title
+		if strings.TrimSpace(t.Gloss) != "" {
+			title = t.Gloss
+		}
 		// For in_progress ticks, append relative age if available.
 		if t.Status == tick.StatusInProgress {
 			if ts := lastActivity[t.ID]; ts != nil {

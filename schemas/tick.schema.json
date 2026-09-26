@@ -76,6 +76,11 @@
       "type": "string",
       "description": "ID of tick during which this tick was discovered"
     },
+    "gloss": {
+      "type": "string",
+      "maxLength": 40,
+      "description": "Optional short human label shown beside the id as `id (gloss)`"
+    },
     "acceptance_criteria": {
       "type": "string",
       "description": "Criteria that must be met for completion"

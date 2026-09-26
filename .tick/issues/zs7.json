@@ -1,0 +1,19 @@
+{
+  "id": "zs7",
+  "title": "Tick gloss: an optional short label shown next to every id",
+  "description": "Bare tick ids ('kdn', '2jn') are unreadable without a lookup, and titles here are sentences too long to repeat beside an id. Operators want every mention written as 'id (gloss)', e.g. 'kdn (add google oauth login)'. Agents can paraphrase a title, but each one does it differently, and machine surfaces (pane titles, alerts, status views) cannot paraphrase at all — they need a stored value.\n\nChange:\n- An optional 'gloss' field on a tick, a few words (cap around 40 chars; the cap is refused with a message, not silently truncated), set with 'tk create --gloss' and 'tk update --gloss'.\n- tk --json carries it, and the tk-json contract manifest in the bundle adds it (consumers such as ticfac pin that bundle).\n- Fallback when empty: the title, cut to the same cap, so existing ticks never show a blank.\n- tk list / tk show / tk graph print it next to the id.\n- Skill: 'Mention a tick as id (gloss), never a bare id — in chat, reports, notes and commit messages. Set --gloss when a title is longer than a few words.' Examples in SKILL.md follow the convention.",
+  "status": "closed",
+  "priority": 2,
+  "type": "feature",
+  "owner": "peter@engelbrecht.dk",
+  "labels": [
+    "skill",
+    "from-ticfac"
+  ],
+  "acceptance_criteria": "[A1] tk create/update accept --gloss, refuse one over the cap naming the limit, and tk --json emits it; a test covers set, update, over-cap refusal and the empty-gloss fallback. [A2] The tk-json contract manifest lists gloss as optional and the bundle's version is bumped. [A3] tk list and tk show print id (gloss), falling back to the cut title. [A4] SKILL.md states the id (gloss) rule and its tick-creation examples pass --gloss.",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-09-26T13:18:20.842985832Z",
+  "updated_at": "2026-09-26T13:28:11.057785027Z",
+  "closed_at": "2026-09-26T13:28:11.057785027Z",
+  "closed_reason": "gloss field: tk create/update --gloss (40-char cap, refused not truncated), Validate, list/show/graph, schema + codegen, tk-json manifest (bundle 6.3.0), skill rule id (gloss); tests in internal/tick and cmd/tk/cmd"
+}

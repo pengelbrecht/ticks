@@ -1,6 +1,6 @@
 {
   "$comment": "The versioned cross-language contract bundle. Read contracts/README.md for what the fixtures are and contracts/CHANGELOG.md for the rule that governs this file. `version` is pinned by exact value in cloud/factory/contracts.pin.json. Regenerate `files` and `digests` with `make contracts-bundle`; never regenerate them without bumping `version`. `version_digests` is the append-only ledger that makes that rule executable: each version records a sha256 over its own `version` + `digests`, written the first time it is cut and never rewritten, so a re-cut at an unchanged version contradicts it and both verifiers refuse. It begins at 2.1.1, the version that introduced it — 2.1.1 was cut on the epic integration branch and then superseded by 3.0.0 before either reached a release, and its entry stays because the ledger is append-only: it records what was cut, not what shipped.",
-  "version": "6.2.0",
+  "version": "6.3.0",
   "files": [
     "collect-vocabulary.json",
     "credential-ownership.json",
@@ -31,7 +31,7 @@
     "sweep-policy-cases.json": "7006ba3391618fdaf249084acf799f4fa67e49e3e89ac0baf89ba838b5641d0e",
     "sweep-selection-contract.json": "3d2eafd42b93b7d6e0b1bf45379c3e4008f3757bea5e03d70d58d5f8625f05ef",
     "ticfac-run-state.json": "a1cf745f00b4982c4b59a3aa7a6dac3766365e4b479ece03ef5d8f0280f15ca7",
-    "tk-json-manifest.json": "99b46c1b134c5f7452604582a351da4347fe4c00377a5008e7dbdce00940c45d",
+    "tk-json-manifest.json": "0f6cfb221727ce9fe4319557124165fbeb9302ae909fe2262a2d8df9a10f9686",
     "tracker-layout.json": "6d12f0f67854e4c6de50150485c7b91e6e9087187a315e6bc919a243263857ef",
     "worker-boot-contract.json": "7326ba972f6d8b16bd5f127d644586082da0cf2a8ff78281ff411c366df7ca27"
   },
@@ -46,6 +46,7 @@
     "5.2.0": "be3df815341ee66c8375c9b39fb23f1ecfc9f117c3065ba803aef58ca1b641df",
     "6.0.0": "3b4c996278eebda266ea00318ad6b60cccf414aff84a6cb9e5e9d55fcd486405",
     "6.1.0": "ced1ae3193fa7d758f799ffad447ce9327857b2fa77f53375889f7aaa00f7fef",
-    "6.2.0": "e403f71a98872dbce681ad63e49fc993d18bb69ea9d19cfafc3c67e680a9ac29"
+    "6.2.0": "e403f71a98872dbce681ad63e49fc993d18bb69ea9d19cfafc3c67e680a9ac29",
+    "6.3.0": "4964f3ac9ee4dfcf62d883338ed55fbde03c6c65966493ce3560d442e438efe9"
   }
 }
