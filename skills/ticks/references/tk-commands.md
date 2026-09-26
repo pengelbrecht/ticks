@@ -11,7 +11,8 @@ tk create "Title" [flags]
 | Flag | Description |
 |------|-------------|
 | `-d, --description` | Tick description |
-| `--acceptance` | Acceptance criteria (how to verify done) |
+| `--acceptance` | Acceptance criteria (how to verify done): the command the gate runs, with its flags. For an epic or project, one `[A<n>]`-marked line per item, each runnable (names its proving command) or marked not yet runnable |
+| `--gloss` | Optional short label, at most 40 characters, shown as `id (gloss)` by `tk list` / `tk show`; when empty, readers fall back to the title cut to 40 characters. Set it when the title is longer than a few words |
 | `-t, --type` | Type: `task` (default), `epic`, `bug`, `feature`, `chore` |
 | `-p, --priority` | Priority: 0=Critical, 1=High, 2=Medium, 3=Low, 4=Backlog |
 | `-l, --labels` | Comma-separated labels |
@@ -32,12 +33,14 @@ tk create "Title" [flags]
 tk create "Fix login bug" -d "Users can't login with special chars" -p 1
 
 # Task with acceptance criteria
-tk create "Add email validation" \
+tk create "Add email validation to the registration form" --gloss "signup email validation" \
   -d "Validate email format on registration form" \
-  --acceptance "All validation tests pass"
+  --acceptance "\`go test ./internal/validation/... -run TestEmail\` passes, under the gate's flags"
 
-# Epic
-tk create "Auth System" -t epic -d "Complete authentication implementation"
+# Epic, definition of done as [A<n>] items
+tk create "Auth System" -t epic -d "Complete authentication implementation" \
+  --acceptance "[A1] Sign-up, login and logout work end-to-end — \`make e2e\`.
+[A2] (not yet runnable — judged at final review) Session expiry matches the security policy."
 
 # Task with dependencies
 tk create "Add OAuth" --parent abc --blocked-by def,ghi
@@ -99,6 +102,8 @@ tk show <id> [--json]
 
 If the tick has soft-ordering preferences, `tk show` renders them on an `After:` line, separate from its hard blockers.
 
+A tick with a gloss is headed `id (gloss)` in `tk show`, and `tk list` shows the gloss in place of the title. `--json` carries `gloss` as its own field, omitted when unset; a program showing ticks to a person falls back to the title cut to 40 characters.
+
 ## Updating Ticks
 
 ```bash
@@ -108,6 +113,7 @@ tk update <id> [flags]
 | Flag | Description |
 |------|-------------|
 | `--title` | New title |
+| `--gloss` | New short label (at most 40 characters) shown as `id (gloss)` |
 | `--description` | New description |
 | `--priority` | New priority |
 | `--status` | New status: `open`, `in_progress`, `closed` |

@@ -82,6 +82,9 @@ type AddNoteResponse struct {
 	// Reference to external issue tracker (e.g., GitHub issue URL)
 	ExternalRef *string `json:"external_ref,omitempty,omitzero" yaml:"external_ref,omitempty" mapstructure:"external_ref,omitempty"`
 
+	// Optional short human label shown beside the id as `id (gloss)`
+	Gloss *string `json:"gloss,omitempty,omitzero" yaml:"gloss,omitempty" mapstructure:"gloss,omitempty"`
+
 	// Unique identifier for the tick
 	Id string `json:"id" yaml:"id" mapstructure:"id"`
 
@@ -184,6 +187,9 @@ type ApproveTickResponse struct {
 
 	// Reference to external issue tracker (e.g., GitHub issue URL)
 	ExternalRef *string `json:"external_ref,omitempty,omitzero" yaml:"external_ref,omitempty" mapstructure:"external_ref,omitempty"`
+
+	// Optional short human label shown beside the id as `id (gloss)`
+	Gloss *string `json:"gloss,omitempty,omitzero" yaml:"gloss,omitempty" mapstructure:"gloss,omitempty"`
 
 	// Unique identifier for the tick
 	Id string `json:"id" yaml:"id" mapstructure:"id"`
@@ -302,6 +308,9 @@ type CloseTickResponse struct {
 
 	// Reference to external issue tracker (e.g., GitHub issue URL)
 	ExternalRef *string `json:"external_ref,omitempty,omitzero" yaml:"external_ref,omitempty" mapstructure:"external_ref,omitempty"`
+
+	// Optional short human label shown beside the id as `id (gloss)`
+	Gloss *string `json:"gloss,omitempty,omitzero" yaml:"gloss,omitempty" mapstructure:"gloss,omitempty"`
 
 	// Unique identifier for the tick
 	Id string `json:"id" yaml:"id" mapstructure:"id"`
@@ -430,6 +439,9 @@ type CreateTickResponse struct {
 	// Reference to external issue tracker (e.g., GitHub issue URL)
 	ExternalRef *string `json:"external_ref,omitempty,omitzero" yaml:"external_ref,omitempty" mapstructure:"external_ref,omitempty"`
 
+	// Optional short human label shown beside the id as `id (gloss)`
+	Gloss *string `json:"gloss,omitempty,omitzero" yaml:"gloss,omitempty" mapstructure:"gloss,omitempty"`
+
 	// Unique identifier for the tick
 	Id string `json:"id" yaml:"id" mapstructure:"id"`
 
@@ -547,6 +559,9 @@ type GetTickResponse struct {
 
 	// Reference to external issue tracker (e.g., GitHub issue URL)
 	ExternalRef *string `json:"external_ref,omitempty,omitzero" yaml:"external_ref,omitempty" mapstructure:"external_ref,omitempty"`
+
+	// Optional short human label shown beside the id as `id (gloss)`
+	Gloss *string `json:"gloss,omitempty,omitzero" yaml:"gloss,omitempty" mapstructure:"gloss,omitempty"`
 
 	// Unique identifier for the tick
 	Id string `json:"id" yaml:"id" mapstructure:"id"`
@@ -710,6 +725,9 @@ type RejectTickResponse struct {
 
 	// Reference to external issue tracker (e.g., GitHub issue URL)
 	ExternalRef *string `json:"external_ref,omitempty,omitzero" yaml:"external_ref,omitempty" mapstructure:"external_ref,omitempty"`
+
+	// Optional short human label shown beside the id as `id (gloss)`
+	Gloss *string `json:"gloss,omitempty,omitzero" yaml:"gloss,omitempty" mapstructure:"gloss,omitempty"`
 
 	// Unique identifier for the tick
 	Id string `json:"id" yaml:"id" mapstructure:"id"`
@@ -1067,6 +1085,9 @@ type TickResponse struct {
 	// Reference to external issue tracker (e.g., GitHub issue URL)
 	ExternalRef *string `json:"external_ref,omitempty,omitzero" yaml:"external_ref,omitempty" mapstructure:"external_ref,omitempty"`
 
+	// Optional short human label shown beside the id as `id (gloss)`
+	Gloss *string `json:"gloss,omitempty,omitzero" yaml:"gloss,omitempty" mapstructure:"gloss,omitempty"`
+
 	// Unique identifier for the tick
 	Id string `json:"id" yaml:"id" mapstructure:"id"`
 
@@ -1166,6 +1187,9 @@ type TickSchema struct {
 	// Reference to external issue tracker (e.g., GitHub issue URL)
 	ExternalRef *string `json:"external_ref,omitempty,omitzero" yaml:"external_ref,omitempty" mapstructure:"external_ref,omitempty"`
 
+	// Optional short human label shown beside the id as `id (gloss)`
+	Gloss *string `json:"gloss,omitempty,omitzero" yaml:"gloss,omitempty" mapstructure:"gloss,omitempty"`
+
 	// Unique identifier for the tick
 	Id string `json:"id" yaml:"id" mapstructure:"id"`
 
@@ -1256,6 +1280,9 @@ type TickSchema_1 struct {
 
 	// Reference to external issue tracker (e.g., GitHub issue URL)
 	ExternalRef *string `json:"external_ref,omitempty,omitzero" yaml:"external_ref,omitempty" mapstructure:"external_ref,omitempty"`
+
+	// Optional short human label shown beside the id as `id (gloss)`
+	Gloss *string `json:"gloss,omitempty,omitzero" yaml:"gloss,omitempty" mapstructure:"gloss,omitempty"`
 
 	// Unique identifier for the tick
 	Id string `json:"id" yaml:"id" mapstructure:"id"`

@@ -103,6 +103,10 @@ export interface Tick {
    */
   discovered_from?: string;
   /**
+   * Optional short human label shown beside the id as `id (gloss)`
+   */
+  gloss?: string;
+  /**
    * Criteria that must be met for completion
    */
   acceptance_criteria?: string;

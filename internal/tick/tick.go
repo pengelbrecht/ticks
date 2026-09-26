@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/pengelbrecht/ticks/internal/trace"
 )
@@ -73,10 +74,52 @@ var (
 	ValidRoleValues     = []string{RoleReview, RoleCloseout}
 )
 
+// GlossMaxRunes caps Tick.Gloss. A gloss is a label, not a second title:
+// it has to fit beside an id in a pane title or a one-line alert.
+const GlossMaxRunes = 40
+
+// ValidateGloss refuses a gloss that is too long or spans lines. It refuses
+// rather than truncates: a label cut by the tool is a label nobody chose.
+func ValidateGloss(gloss string) error {
+	if strings.ContainsAny(gloss, "\r\n") {
+		return errors.New("gloss must be a single line")
+	}
+	if n := utf8.RuneCountInString(gloss); n > GlossMaxRunes {
+		return fmt.Errorf("gloss is %d characters; the limit is %d", n, GlossMaxRunes)
+	}
+	return nil
+}
+
+// Label is the tick's short human label: its gloss, or when it has none, its
+// title cut to GlossMaxRunes.
+func (t Tick) Label() string {
+	if g := strings.TrimSpace(t.Gloss); g != "" {
+		return g
+	}
+	title := strings.TrimSpace(t.Title)
+	if utf8.RuneCountInString(title) <= GlossMaxRunes {
+		return title
+	}
+	runes := []rune(title)
+	return strings.TrimSpace(string(runes[:GlossMaxRunes-1])) + "…"
+}
+
+// Ref is how a tick is mentioned to a person: "id (label)".
+func (t Tick) Ref() string {
+	return t.ID + " (" + t.Label() + ")"
+}
+
 // Tick represents a single work item on disk.
 type Tick struct {
-	ID          string   `json:"id"`
-	Title       string   `json:"title"`
+	ID    string `json:"id"`
+	Title string `json:"title"`
+	// Gloss is an optional short human label — a few words, at most
+	// GlossMaxRunes — shown beside the id wherever a tick is mentioned:
+	// "kdn (add google oauth login)". Titles are often sentences, too long
+	// to repeat next to every id, and a label each reader paraphrases on its
+	// own is a different label per reader. Empty is common; Label() falls
+	// back to the title cut to the same width.
+	Gloss       string   `json:"gloss,omitempty"`
 	Description string   `json:"description,omitempty"`
 	Notes       string   `json:"notes,omitempty"`
 	Status      string   `json:"status"`
@@ -141,6 +184,9 @@ func (t Tick) Validate() error {
 	}
 	if strings.TrimSpace(t.Title) == "" {
 		errs = append(errs, errors.New("title is required"))
+	}
+	if err := ValidateGloss(t.Gloss); err != nil {
+		errs = append(errs, err)
 	}
 	if strings.TrimSpace(t.Status) == "" {
 		errs = append(errs, errors.New("status is required"))

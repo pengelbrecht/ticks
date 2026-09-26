@@ -111,6 +111,7 @@ type graphDispatch struct {
 type graphEpic struct {
 	ID    string `json:"id"`
 	Title string `json:"title"`
+	Gloss string `json:"gloss,omitempty"`
 }
 
 type graphStats struct {
@@ -132,6 +133,7 @@ type graphWave struct {
 type graphTask struct {
 	ID                 string   `json:"id"`
 	Title              string   `json:"title"`
+	Gloss              string   `json:"gloss,omitempty"`
 	Description        string   `json:"description,omitempty"`
 	AcceptanceCriteria string   `json:"acceptance_criteria,omitempty"`
 	Priority           int      `json:"priority"`
@@ -457,6 +459,7 @@ func runGraph(cmd *cobra.Command, args []string) error {
 			Epic: graphEpic{
 				ID:    epic.ID,
 				Title: epic.Title,
+				Gloss: epic.Gloss,
 			},
 			NeedsPlanning:       false,
 			MissingProcessTicks: missingProcess,
@@ -490,6 +493,7 @@ func runGraph(cmd *cobra.Command, args []string) error {
 				gt := graphTask{
 					ID:                 t.ID,
 					Title:              t.Title,
+					Gloss:              t.Gloss,
 					Description:        t.Description,
 					AcceptanceCriteria: t.AcceptanceCriteria,
 					Priority:           t.Priority,
@@ -656,6 +660,7 @@ func handleChildlessEpic(epic tick.Tick, allTicks []tick.Tick) error {
 			Epic: graphEpic{
 				ID:    epic.ID,
 				Title: epic.Title,
+				Gloss: epic.Gloss,
 			},
 			NeedsPlanning:       isReadyToPlan,
 			MissingProcessTicks: missingProcess,

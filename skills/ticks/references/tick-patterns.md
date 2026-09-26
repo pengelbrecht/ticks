@@ -14,7 +14,7 @@ Run this before `tk create`. A fresh subagent sees *only this tick* — not the 
 
 - [ ] **One deliverable** — the title names a single capability and needs no "and" (see *Tick Sizing*)
 - [ ] **Acceptance fits in ≤3 bullets** — if it doesn't, the scope is too broad to verify cleanly; split it
-- [ ] **Verification is concrete** — a runnable test command or explicit check, never "works appropriately"
+- [ ] **Verification is concrete** — the exact command the gate runs, with its flags, or an explicit check; never "works appropriately" or "tests pass" (see *Acceptance names the gate's command*)
 - [ ] **Test cases spelled out** — actual inputs → expected outputs, including edge and error cases
 - [ ] **Regression surface named** — which existing tests or behaviours must *still* pass, by command or by path. "No regressions" is not a regression surface (see *Both halves of acceptance*)
 - [ ] **Self-contained** — no placeholders, and no reference to a type or function defined only in another tick (see *The Ideal Tick*)
@@ -147,6 +147,15 @@ The foundation-first procedure and vertical slicing work together: vertical slic
 - **Watch for lockfiles and generated files.** Two ticks that each add a dependency will both rewrite `pnpm-lock.yaml` / `go.sum` / `Cargo.lock` and conflict at merge even with perfectly disjoint source files. Same for generated code, migration indexes, and barrel/export files. Either serialize dependency-adding ticks with `--blocked-by`, or pull all dependency additions into one early tick the rest depend on. Count these files in "files likely touched" — a tick that runs `pnpm add` touches the lockfile.
 - This is why every tick records its **files likely touched** (below) — it's the input to this decision. Run `tk graph <epic>` to see the waves and check for collisions before launching.
 
+### Planning rules
+
+Four rules the partitioning procedure does not catch on its own:
+
+- **Declare and consume in different waves.** A tick that *declares* a vocabulary (an enum, a schema, a table, a set of event names) and a tick that *consumes* it go in different waves, the declarer first. *Why:* same-wave pairs both add the entries and die on add/add merge conflicts, or consume names that turn out spelled differently.
+- **A deletion tick lists what the deleted path did.** Before removing a path, list every effect it produced — events emitted, bounds enforced, logs written, schedules kept — and name each one's new owner or record it as deliberately dropped. That list is the tick's acceptance, not "tests still pass". *Why:* tests cover the path's purpose, not its side effects, so dropped effects surface one finding at a time.
+- **A repair for a shape defect repairs every site.** When a defect is a shape (a pattern repeated across the implementations of a seam) rather than one bad line, the repair tick names every implementation — grep across languages and executors, list the hits — leaves a guard test that fails on the shape, and proves the fix by reproducing the defect on the old code first. *Why:* a one-site repair fixes the reported instance and leaves its siblings to be found as fresh defects.
+- **A tick lives where its code is.** A change to another repository is a tick filed in that repository, never a child in this one; link it from here in a note or the description. *Why:* a runner dispatches a tick into its own repo's worktree, so a cross-repo child can never be implemented from here.
+
 ## The Ideal Tick
 
 A well-formed tick has:
@@ -226,6 +235,21 @@ Two rules keep this honest.
 
 The second half is also what makes per-tick review cheap: a reviewer checking spec compliance has something concrete to check *against* rather than re-deriving the blast radius from the diff.
 
+### Acceptance names the gate's command
+
+**Problem:** a per-tick or post-wave gate goes green while the tests the acceptance relies on never ran — skipped under `-short`, or in a suite (a second language's test runner, an e2e target) the gate never invokes. The tick merges with its evidence unrun.
+
+**Rule:** acceptance names the exact `[testing.commands]` entry — or the repo's wrapper for it, e.g. a Makefile target — and the flags the gate runs it with. Evidence runs under the gate's own flags, or the gap is named. A test the gate does not run is not evidence: add it to the gate (a `[testing.commands]` entry), or say in the acceptance that it runs outside the gate and how.
+
+```
+Bad:   --acceptance "Tests pass; the new integration test covers the retry path"
+       # which tests? the integration test skips under -short, which is how the gate runs
+
+Good:  --acceptance "\`make test\` (go test -short ./...) passes; \`make test-integration\`
+       (go test ./internal/queue/... -run TestRetry, no -short) passes — added to
+       [testing.commands] as integration by this tick so the gate runs it"
+```
+
 ### TDD Tick Pattern
 
 ```bash
@@ -238,7 +262,7 @@ tk create "Add [feature]" \
 
 Run: [test command]
 Must still pass: [command guarding the neighbouring behaviour]" \
-  --acceptance "All new tests pass; [named existing suite] still passes"
+  --acceptance "[test command, as the gate runs it] passes with the new cases; [command guarding the neighbours] still passes"
 ```
 
 ### TDD Feature Example
@@ -255,7 +279,7 @@ Test cases:
 
 Run: go test ./internal/auth/... -run TestPasswordStrength -v
 Must still pass: go test ./internal/auth/... (login and session flows already using this package)" \
-  --acceptance "All password tests pass; the rest of the auth suite still passes; validator integrated"
+  --acceptance "\`go test ./internal/auth/... -run TestPasswordStrength\` passes all four cases; \`go test ./internal/auth/...\` still passes; the register handler calls the validator"
 ```
 
 ### TDD Bug Fix Example
@@ -274,12 +298,12 @@ Expected: All plus addresses validate
 
 Run: npm test -- --grep \"email\"
 Must still pass: npm test -- --grep \"validation\" (the rejection cases this must not loosen)" \
-  --acceptance "New plus-address tests pass; the validation suite still passes"
+  --acceptance "\`npm test -- --grep email\` passes the three plus-address cases; \`npm test -- --grep validation\` still passes"
 ```
 
 ### Why TDD Matters
 
-1. **Clear completion signal** - "Tests pass" vs "looks right"
+1. **Clear completion signal** - "`go test ./internal/auth/... -run TestLogin` exits 0 under the gate's flags" vs "looks right"
 2. **Prevents scope creep** - Agent knows exactly what to implement
 3. **Catches regressions** - Agent verifies it didn't break other code
 4. **Self-documenting** - Tests show intended behavior
@@ -331,10 +355,49 @@ Target state: [desired architecture]
 Constraints:
 - Must maintain backward compatibility
 - No behavior changes
-- Tests must pass
 
-Verification: Existing tests pass, no new failures
+Verification: [the named commands covering the component, as the gate runs them] pass unchanged
 ```
+
+## Pattern: Verification Tick
+
+A tick whose deliverable is evidence — a measurement, a reproduction, a check that a behaviour holds — often changes no source. A runner collects an attempt by its branch commits and refuses one with none, so the evidence itself is the commit.
+
+```
+Title: Verify [behaviour] on [target]
+
+Description:
+What to check: [the claim, stated so it can come out false]
+How: [the exact command(s), with flags]
+Record: RESULT-<tick-id>.md (or the named artifact) — command, output, verdict
+
+Acceptance: RESULT-<tick-id>.md (or [named artifact]) is committed on the tick's branch
+and records the command, its output and a pass/fail verdict against the stated claim
+```
+
+## Pattern: Epic Whose Done Is a Run
+
+When an epic's definition of done is proven only by running the thing for real, the epic contains the run: the first tick wires the production path, a named tick performs the run, and only then the final review.
+
+```bash
+tk create "Nightly export job" -t epic -d "<scope>" \
+  --acceptance "[A1] One real nightly run exports yesterday's rows to the bucket — performed by the run tick, output in RESULT-<run-tick>.md.
+[A2] \`make test\` passes, including the entry-point test."
+
+# Wave 1 — thinnest end-to-end path through the PRODUCTION entry point
+tk create "Wire export job into the scheduler entry point, stub body" --gloss "wire export entry point" \
+  --parent <epic> --acceptance "\`go test ./cmd/scheduler/... -run TestExportRegistered\` passes — drives the real entry point, not a fake"
+# Waves 2..n — fill in the body behind the wired path
+tk create "Export rows as newline-delimited JSON" --parent <epic> --blocked-by <wire>
+# Last implementation wave — the run itself, inside the epic
+tk create "Run the export once against staging and record it" --gloss "staging export run" \
+  --parent <epic> --blocked-by <body-ticks> \
+  --acceptance "RESULT-<id>.md is committed with the command, row count and bucket object path"
+# EPIC-SKELETON — review blocks on the run tick
+tk create "Final review of Nightly export job diff" --parent <epic> --role review --blocked-by <run-tick>
+```
+
+If the run genuinely lives in another epic, the acceptance says which one, in words — never leave it implied.
 
 ## Pattern: Test Addition
 
@@ -359,13 +422,14 @@ Group related ticks under an epic — foundation first, then vertical slices tha
 ```bash
 # Create the epic with a definition of done
 tk create "Search Feature" -t epic -d "Full-text search for documents" \
-  --acceptance "User can search documents end-to-end; go test ./internal/search/... passes"
+  --acceptance "[A1] A user can search documents end-to-end — \`make e2e\` (go test ./e2e/... -run TestSearch).
+[A2] \`go test ./internal/search/...\` passes, run as the gate runs it."
 
 # Wave 0 — the one decision planning could not settle; no dependencies, so it
 # sits with the human while waves 1–2 run. Most questions should have been
 # answered during planning instead of appearing here at all.
-tk create "Decide search ranking: recency-weighted or pure BM25" --parent <epic> \
-  --awaiting input \
+tk create "Decide search ranking: recency-weighted or pure BM25" --gloss "decide search ranking" \
+  --parent <epic> --awaiting input \
   -d "BM25 is simpler and already in the library; recency-weighted needs a decay
       term and a nightly re-score job. Recommend BM25 unless stale results are
       a known complaint. Only the ranking tick depends on this."
@@ -380,7 +444,8 @@ tk create "Search endpoint + results UI" --parent <epic> --blocked-by <schema>
 # EPIC-SKELETON — final review, then close-out (templates in SKILL.md)
 tk create "Final review of Search Feature diff" --parent <epic> --role review \
   --blocked-by <slice-1> --blocked-by <slice-2>
-tk create "Close out Search Feature: retro + plan next epic" --parent <epic> --role closeout \
+tk create "Close out Search Feature: retro + plan next epic" --gloss "close out search" \
+  --parent <epic> --role closeout \
   --blocked-by <review-tick>
 ```
 

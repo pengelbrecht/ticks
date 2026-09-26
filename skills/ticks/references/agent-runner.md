@@ -693,13 +693,13 @@ Epic: <epic-title> (<epic-id>)
 4. Read the relevant existing code before changing anything.
 5. Implement the task test-first: write the failing test, then make it pass.
 6. Run the tests named in the acceptance criteria and confirm they pass.
-7. Commit your changes in this worktree: `git add -A && git commit -m "tick <tick-id>: <short summary>"`.
+7. Commit your changes in this worktree: `git add -A && git commit -m "tick <tick-id>: <short summary>"`. Evidence output the acceptance names (`RESULT-<tick-id>.md`, a measurement, a recorded run) is committed too — even when the tick changes no source. An attempt is collected by its branch commits, and one with no commits is refused.
 
 ## Boundaries (important)
 - Do NOT run any `tk` command and do NOT touch the `.tick/` directory — the orchestrator owns all tick state.
 - Do NOT edit, delete, skip or weaken an existing test to make acceptance pass, and do not alter the test runner or its reporting. Adding tests is expected; changing the ones that judge you is not. If a test named in the acceptance criteria cannot be satisfied as written, that is a finding, not an obstacle — report `STATUS: BLOCKED` with the contradiction named. A tick whose acceptance is impossible is worth more to the run than a tick that appears to pass.
 - Stay in scope: implement this tick only. Don't add features it didn't ask for.
-- Commit source and tests only — never build/run artifacts (`__pycache__`, `*.pyc`, coverage files, caches). If the repo's `.gitignore` doesn't cover the artifacts your test run produces, extend it as part of your change.
+- Commit source, tests and the evidence the acceptance names — never build/run artifacts (`__pycache__`, `*.pyc`, coverage files, caches). If the repo's `.gitignore` doesn't cover the artifacts your test run produces, extend it as part of your change.
 - If the task is ambiguous or you're missing something, stop and report it — don't guess.
 
 ## Report back, ending with one status line

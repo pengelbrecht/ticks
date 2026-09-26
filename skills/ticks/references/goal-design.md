@@ -18,7 +18,7 @@ This protocol closes the loop at the project level:
 
 | Loop stage | Epic (exists today) | Project (this protocol) |
 |---|---|---|
-| Goal | `--acceptance` definition of done | Goal statement + fact sheet |
+| Goal | `--acceptance` definition of done, as `[A<n>]` items | Goal statement + fact sheet |
 | Plan | planning → child ticks + EPIC-SKELETON | the child epics themselves |
 | Work | waves of ticks | epics running in sequence |
 | Verify | close-out walks acceptance item by item | checkpoint walks the facts item by item |
@@ -31,7 +31,7 @@ This protocol closes the loop at the project level:
 - **A single large epic** can use the same protocol; the fact sheet then *is* the epic's
   definition of done. The epic DoD guidance in SKILL.md is the degenerate single-container case.
 - **Skip it** for buckets (passive grouping of unrelated tasks — there is no shared outcome to
-  design) and for small epics where a two-line `--acceptance` already says everything.
+  design) and for small epics where a few `[A<n>]` acceptance lines already say everything.
 
 **What comes next.** Goal design settles what *done* means while the human is present. The
 companion pass settles the decisions the *work* depends on: `tick-patterns.md` →
@@ -51,6 +51,8 @@ Nothing new is invented; the protocol's outputs land in existing homes:
 | Auto-verifiable facts | Proposed `[evidence.acceptance]` mappings in `.tick/runners.toml` (human approves the edit) |
 | Human-judgment facts | Lines tagged `(human judgment)` in the same list — they become the checkpoint's review agenda |
 
+An epic's definition of done uses the same shape — `[A<n>]` lines, each runnable (names the
+command that proves it) or marked as not yet runnable — see SKILL.md → *Epic definition of done*.
 Keep `A<n>` IDs **unique across every container that carries an acceptance list** (the front
 epic and its project must not both use `A1`) — `[evidence.acceptance]` is a single namespace
 and a reused ID silently rebinds a fact to another container's command. Simplest scheme:

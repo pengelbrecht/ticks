@@ -29,6 +29,7 @@
       "properties": {
         "id": { "type": "string" },
         "title": { "type": "string" },
+        "gloss": { "type": "string", "description": "Optional short human label, shown as `id (gloss)`, at most 40 characters (tk refuses a longer one on write; the schema subset this manifest uses has no length keyword, so the cap is stated here). Absent means none: a reader falls back to the title cut to 40 characters, never to a blank." },
         "description": { "type": "string" },
         "notes": { "type": "string" },
         "status": { "type": "string", "enum": ["open", "in_progress", "closed"] },
@@ -84,6 +85,7 @@
       "properties": {
         "id": { "type": "string" },
         "title": { "type": "string" },
+        "gloss": { "type": "string" },
         "description": { "type": "string" },
         "acceptance_criteria": { "type": "string" },
         "priority": { "type": "integer" },
@@ -223,7 +225,7 @@
           "epic": {
             "type": "object",
             "required": ["id", "title"],
-            "properties": { "id": { "type": "string" }, "title": { "type": "string" } }
+            "properties": { "id": { "type": "string" }, "title": { "type": "string" }, "gloss": { "type": "string" } }
           },
           "needs_planning": { "type": "boolean" },
           "missing_process_ticks": { "type": ["array", "null"], "items": { "type": "string" } },
