@@ -2,7 +2,7 @@
   "id": "tw6",
   "title": "ticfac Phase 3: role jobs, retire Markdown as lifecycle implementation",
   "description": "SPEC §12 Phase 3. review-epic and closeout-epic run as role jobs with validated results and evidence records on both executors. Delete (not extract) the lifecycle loop from extensions/ticks-runner/runner.ts, merge.ts, boundary.ts and agent-runner.md. Keep authoring policy (good-tick, super-tick, DoR, roadmap, role, EPIC-SKELETON) and a concise tracker-facing runner contract in ticks; move role prompts, executor procedures and operator guidance to ticfac. Conformance tests prove every executor obeys the same lifecycle and boundary.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "epic",
   "owner": "peter@engelbrecht.dk",
@@ -13,5 +13,7 @@
   "acceptance_criteria": "Gate: an epic's review and closeout run as role jobs with evidence records and no person reading runner Markdown; the ticks skill no longer contains a lifecycle; both executors pass the conformance suite.",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-02T11:28:24.504559Z",
-  "updated_at": "2026-09-02T11:28:24.504559Z"
+  "updated_at": "2026-09-26T14:56:29.80499114Z",
+  "closed_at": "2026-09-26T14:56:29.80499114Z",
+  "closed_reason": "Superseded: the ticks-runner lifecycle loop and agent-runner.md were deleted outright in chz (not extracted); role jobs on both executors are ticfac's (its role profiles), tracked there"
 }
