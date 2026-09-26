@@ -1,0 +1,18 @@
+{
+  "id": "1yq",
+  "title": "Close out the ticks tracker-only cut: retro, close hzm/tw6/w1z as satisfied or re-scoped",
+  "gloss": "close out tracker-only cut",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "blocked_by": [
+    "l5p"
+  ],
+  "parent": "chz",
+  "role": "closeout",
+  "acceptance_criteria": "Retro noted on the epic; hzm, tw6, w1z and nm8 closed or re-scoped with reasons",
+  "created_by": "peter@engelbrecht.dk",
+  "created_at": "2026-09-26T14:04:26.256154074Z",
+  "updated_at": "2026-09-26T14:04:26.256154074Z"
+}
