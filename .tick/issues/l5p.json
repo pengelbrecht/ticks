@@ -3,7 +3,7 @@
   "title": "Rewrite CHANGELOG 0.32.0 and cut v0.32.0",
   "gloss": "release v0.32.0",
   "description": "The 0.32.0 section describes code since deleted and carries the hold note. Rewrite it to what ships (gloss, tk --json contract, decide/decisions, graph lint, the removals as Removed), date it, tag v0.32.0 after the PR merges, confirm the release workflow and homebrew update, reinstall tk locally.",
-  "status": "open",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "peter@engelbrecht.dk",
@@ -20,5 +20,7 @@
   "acceptance_criteria": "[A7] of the epic; the GitHub release v0.32.0 exists with binaries; tk version reports 0.32.0 locally.",
   "created_by": "peter@engelbrecht.dk",
   "created_at": "2026-09-26T14:04:26.090008561Z",
-  "updated_at": "2026-09-26T14:04:26.235227605Z"
+  "updated_at": "2026-09-26T14:56:29.624905023Z",
+  "closed_at": "2026-09-26T14:56:29.624905023Z",
+  "closed_reason": "CHANGELOG 0.32.0 rewritten in #99; v0.32.0 tagged at 7b6c0b2f; release workflow green (build-ui, GoReleaser 7 assets, homebrew); installed locally, tk version 0.32.0"
 }
