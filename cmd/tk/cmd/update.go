@@ -108,7 +108,7 @@ func init() {
 	updateCmd.Flags().StringVar(&updateRemoveLabels, "remove-labels", "", "labels to remove")
 	updateCmd.Flags().StringVar(&updateAfter, "after", "", "soft ordering: prefer after these ticks, but do not block on them")
 	updateCmd.Flags().StringVar(&updateAcceptance, "acceptance", "", "acceptance criteria")
-	updateCmd.Flags().StringVar(&updateGloss, "gloss", "", fmt.Sprintf("short human label shown as `id (gloss)`, at most %d characters (\"\" clears it)", tick.GlossMaxRunes))
+	updateCmd.Flags().StringVar(&updateGloss, "gloss", "", fmt.Sprintf("short human label shown as id (gloss), at most %d characters (\"\" clears it)", tick.GlossMaxRunes))
 	updateCmd.Flags().StringVar(&updateDefer, "defer", "", "defer until date (YYYY-MM-DD)")
 	updateCmd.Flags().StringVar(&updateTargetDate, "target-date", "", "target completion date (YYYY-MM-DD, empty to clear)")
 	updateCmd.Flags().StringVar(&updateExternalRef, "external-ref", "", "external reference")

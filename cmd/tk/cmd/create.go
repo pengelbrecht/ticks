@@ -91,7 +91,7 @@ func init() {
 	createCmd.Flags().StringVar(&createParent, "parent", "", "parent epic id")
 	createCmd.Flags().StringVar(&createDiscoveredFrom, "discovered-from", "", "source tick id")
 	createCmd.Flags().StringVar(&createAcceptance, "acceptance", "", "acceptance criteria")
-	createCmd.Flags().StringVar(&createGloss, "gloss", "", fmt.Sprintf("short human label shown as `id (gloss)`, at most %d characters", tick.GlossMaxRunes))
+	createCmd.Flags().StringVar(&createGloss, "gloss", "", fmt.Sprintf("short human label shown as id (gloss), at most %d characters", tick.GlossMaxRunes))
 	createCmd.Flags().StringVar(&createDefer, "defer", "", "defer until date (YYYY-MM-DD)")
 	createCmd.Flags().StringVar(&createTargetDate, "target-date", "", "target completion date (YYYY-MM-DD)")
 	createCmd.Flags().StringVar(&createExternalRef, "external-ref", "", "external reference (e.g. gh-42)")
