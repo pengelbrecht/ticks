@@ -1,0 +1,14 @@
+{
+  "id": "jlm",
+  "title": "The ticks skill teaches the ticfac verbs 2jn shipped (ticfac run, not ticfac run-epic)",
+  "gloss": "skill names ticfac run",
+  "description": "From ticfac epic-2jn finding a009316a (tick xbp): the ticks skill says 'Start a run with ticfac run-epic \u003cepic\u003e'; ticfac's skill teaches 'ticfac run \u003cepic\u003e' since ticfac 2jn (9sz). Say only that execution is ticfac's and point at the ticfac skill for verbs, so the two cannot drift again.",
+  "status": "open",
+  "priority": 3,
+  "type": "task",
+  "owner": "noreply@anthropic.com",
+  "acceptance_criteria": "The ticks skill carries no instruction to start a run with run-epic; it defers run verbs to the ticfac skill",
+  "created_by": "noreply@anthropic.com",
+  "created_at": "2026-09-27T20:50:53.558056Z",
+  "updated_at": "2026-09-27T20:50:53.558056Z"
+}
