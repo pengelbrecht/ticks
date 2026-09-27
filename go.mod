@@ -1,6 +1,6 @@
 module github.com/pengelbrecht/ticks
 
-go 1.24.11
+go 1.26.0
 
 require (
 	github.com/charmbracelet/bubbles v0.21.0
@@ -14,7 +14,8 @@ require (
 	github.com/muesli/termenv v0.16.0
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.9
-	golang.org/x/sys v0.40.0
+	golang.org/x/sys v0.44.0
+	hegel.dev/go/hegel v0.9.9
 )
 
 require (
@@ -29,10 +30,11 @@ require (
 	github.com/charmbracelet/x/exp/golden v0.0.0-20241011142426-46044092ad91 // indirect
 	github.com/charmbracelet/x/term v0.2.1 // indirect
 	github.com/davidmz/go-pageant v1.0.2 // indirect
+	github.com/ebitengine/purego v0.11.0-alpha.6.0.20260707033313-5f49e7c49322 // indirect
 	github.com/erikgeiser/coninput v0.0.0-20211004153227-1c3628e74d0f // indirect
 	github.com/go-fed/httpsig v1.1.0 // indirect
 	github.com/google/go-github/v74 v74.0.0 // indirect
-	github.com/google/go-querystring v1.1.0 // indirect
+	github.com/google/go-querystring v1.2.0 // indirect
 	github.com/hashicorp/go-cleanhttp v0.5.2 // indirect
 	github.com/hashicorp/go-retryablehttp v0.7.8 // indirect
 	github.com/hashicorp/go-version v1.8.0 // indirect
@@ -49,7 +51,7 @@ require (
 	gitlab.com/gitlab-org/api/client-go v1.9.1 // indirect
 	golang.org/x/crypto v0.47.0 // indirect
 	golang.org/x/oauth2 v0.34.0 // indirect
-	golang.org/x/sync v0.19.0 // indirect
+	golang.org/x/sync v0.20.0 // indirect
 	golang.org/x/text v0.33.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect

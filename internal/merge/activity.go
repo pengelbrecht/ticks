@@ -2,6 +2,7 @@ package merge
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"io"
 	"sort"
@@ -30,7 +31,21 @@ func activityKey(m map[string]json.RawMessage) string {
 	action := getString("action")
 	actor := getString("actor")
 
-	return ts + "|" + tickID + "|" + action + "|" + actor
+	// The payload is part of the identity (tick jd5): two different notes by
+	// one actor on one tick in the same timestamp are two events, and a key
+	// without the data collapsed them, so the merge silently dropped one. The
+	// raw bytes are compacted so whitespace alone never makes a duplicate.
+	data := ""
+	if raw, ok := m["data"]; ok {
+		var compact bytes.Buffer
+		if err := json.Compact(&compact, raw); err == nil {
+			data = compact.String()
+		} else {
+			data = string(raw)
+		}
+	}
+
+	return ts + "|" + tickID + "|" + action + "|" + actor + "|" + data
 }
 
 // isConflictMarkerLine reports whether a line is a git conflict marker.
