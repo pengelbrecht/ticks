@@ -13,7 +13,7 @@ import (
 //
 // These tests run the real commands, which read the real process environment.
 // An agent run exports TK_ACTOR=<runner>:orchestrator — the form
-// `references/agent-runner.md` mandates and `cloud/sandbox/entrypoint.sh` sets
+// ticfac's runners use and its sandbox image (`image/entrypoint.sh`) sets
 // — so `go test ./...` typed in an orchestrator's shell handed every verdict
 // path a runner-shaped actor, and the guard in verdictguard.go refused it
 // exactly as designed. Tests that never chose that actor went red.

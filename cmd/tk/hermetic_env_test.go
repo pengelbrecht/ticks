@@ -17,11 +17,11 @@ import (
 //
 // These tests drive the real CLI, which reads the real process environment, so
 // a shell carrying TK_ACTOR=<runner>:orchestrator — what every agent run and
-// `cloud/sandbox/entrypoint.sh` export — turned TestApproveCommand,
-// TestRejectCommand and TestUpdateVerdictFlag red with `expected approve exit
-// 0, got 2`. That is the verdict guard doing its job on an actor the test never
-// chose. TestMain scrubs the namespace; this asserts it did. See
-// internal/tickenv.
+// ticfac's sandbox image (`image/entrypoint.sh`) export — turned
+// TestApproveCommand, TestRejectCommand and TestUpdateVerdictFlag red with
+// `expected approve exit 0, got 2`. That is the verdict guard doing its job on
+// an actor the test never chose. TestMain scrubs the namespace; this asserts
+// it did. See internal/tickenv.
 func TestAmbientTickEnvDoesNotReachTheseTests(t *testing.T) {
 	if leaked := tickenv.Names(); len(leaked) > 0 {
 		t.Fatalf("ambient tk environment reached the tests: %s\n"+
