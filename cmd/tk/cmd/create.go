@@ -269,6 +269,10 @@ func runCreate(cmd *cobra.Command, args []string) error {
 
 	fmt.Printf("%s\n", t.ID)
 
+	if w := tick.MissingGlossWarning(t.Title, t.Gloss); w != "" {
+		fmt.Fprintln(os.Stderr, w)
+	}
+
 	// Warn if .tick/ is gitignored (ticks should be tracked by git)
 	if IsTickDirGitignored(root) {
 		fmt.Fprintln(os.Stderr, "warning: .tick/ is gitignored - ticks won't sync via git")
