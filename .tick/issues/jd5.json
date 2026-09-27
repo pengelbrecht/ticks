@@ -3,12 +3,15 @@
   "title": "Property-test tk's merge drivers with Hegel",
   "gloss": "hegel tests for merge drivers",
   "description": "Operator, 2026-09-27: trial property-based testing (Hegel, https://hegel.dev, Go library hegel.dev/go/hegel, beta; loads the Rust libhegel at run time, no cgo) on tk's merge drivers, which had a real data-loss bug (ticfac 8lg: merge-file wrote the result to the wrong path).\n\ntk merge-file (three-way merge of a tick JSON), properties over generated base/ours/theirs ticks:\n- a field changed on one side only survives the merge\n- merging with an unchanged side returns the other side exactly\n- merge(base, x, x) == x\n- no key is lost, including keys this tk does not model (n26 - write that property even if it fails today, and mark it)\n- the result is written to %A (git's contract)\ntk merge-activity (union merge of JSONL): no line is dropped or duplicated; order is deterministic.\n\nWire libhegel into CI (git-lfs vendored copy or HEGEL_LIBHEGEL_PATH). Report whether the tests found anything: that decides whether PBT spreads further.",
-  "status": "open",
+  "notes": "2026-09-27 10:18 - Done in #102. Property tests found 4 data-loss bugs, all fixed: (1) last-writer-wins across different fields; (2) one-sided de-prioritise/reopen/label-removal undone by the rank/union rules; (3) activity dedup ignored the payload; (4) merge-file dropped unknown keys (n26's merge-file path; other writers remain n26's). Verdict: PBT earns its keep here.",
+  "status": "closed",
   "priority": 2,
   "type": "task",
   "owner": "noreply@anthropic.com",
   "acceptance_criteria": "Hegel property tests for merge-file and merge-activity run in go test and in CI; any property that fails today is either fixed or recorded against its tick (e.g. n26) with the minimal counterexample; the report says what PBT found",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-27T07:39:02.837402Z",
-  "updated_at": "2026-09-27T07:39:02.837402Z"
+  "updated_at": "2026-09-27T08:18:26.367887Z",
+  "closed_at": "2026-09-27T08:18:26.367887Z",
+  "closed_reason": "#102"
 }

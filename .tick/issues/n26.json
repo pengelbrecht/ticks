@@ -3,6 +3,7 @@
   "title": "An older tk preserves fields it does not know when it rewrites a tick",
   "gloss": "older tk keeps unknown fields",
   "description": "Found 2026-09-27: a tk built before the gloss field (ticks #97) reads a tick carrying 'gloss' fine, but any update it makes (claim, close, priority...) rewrites the JSON and DROPS the gloss. With two tk versions touching one tracker (a laptop on an older tk, another host or CI on a newer one), every newer field is silently erased by the older writer. Round-trip unknown keys: keep them in the record on read and write them back, so a field added later survives an older writer.",
+  "notes": "2026-09-27 10:18 - merge-file now carries unknown keys three-way (#102). Remaining: every other writer (create/update/claim/close) still decodes into tick.Tick and drops them.",
   "status": "open",
   "priority": 2,
   "type": "task",
@@ -10,5 +11,5 @@
   "acceptance_criteria": "A tick carrying a key this tk does not model keeps it through create/update/claim/close/merge-file; a test round-trips an unknown key through each write path",
   "created_by": "noreply@anthropic.com",
   "created_at": "2026-09-27T06:25:51.754257Z",
-  "updated_at": "2026-09-27T06:30:05.957733Z"
+  "updated_at": "2026-09-27T08:18:26.75585Z"
 }
