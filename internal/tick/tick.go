@@ -78,6 +78,24 @@ var (
 // it has to fit beside an id in a pane title or a one-line alert.
 const GlossMaxRunes = 40
 
+// GlossWantedAboveRunes is the title length past which a tick should carry a
+// gloss: a longer title gets cut when it stands in for the label, so tk create
+// and tk update warn (without refusing) when such a title has no gloss.
+const GlossWantedAboveRunes = 50
+
+// MissingGlossWarning returns the one-line warning for a title longer than
+// GlossWantedAboveRunes with no gloss, or "" when the tick needs none.
+func MissingGlossWarning(title, gloss string) string {
+	if strings.TrimSpace(gloss) != "" {
+		return ""
+	}
+	n := utf8.RuneCountInString(strings.TrimSpace(title))
+	if n <= GlossWantedAboveRunes {
+		return ""
+	}
+	return fmt.Sprintf("warning: title is %d characters and has no gloss; add --gloss \"<short label>\" so it reads as `id (gloss)` in panes, status and chat", n)
+}
+
 // ValidateGloss refuses a gloss that is too long or spans lines. It refuses
 // rather than truncates: a label cut by the tool is a label nobody chose.
 func ValidateGloss(gloss string) error {

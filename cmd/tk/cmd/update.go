@@ -374,6 +374,12 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	if updateTitleSet || updateGlossSet {
+		if w := tick.MissingGlossWarning(t.Title, t.Gloss); w != "" {
+			fmt.Fprintln(os.Stderr, w)
+		}
+	}
+
 	return nil
 }
 

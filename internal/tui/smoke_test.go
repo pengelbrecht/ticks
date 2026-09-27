@@ -32,9 +32,10 @@ func smokeTicks() []tick.Tick {
 var ansiPattern = regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*\x07`)
 
 // cursorUpPattern matches the renderer's "move cursor up N lines" sequence that
-// bubbletea emits at the start of every repaint. Splitting on it isolates the
+// bubbletea emits at the start of every repaint (N is omitted when it is 1, as
+// after the two-line "Loading..." frame). Splitting on it isolates the
 // individual frames so we can golden just the last one.
-var cursorUpPattern = regexp.MustCompile(`\x1b\[\d+A`)
+var cursorUpPattern = regexp.MustCompile(`\x1b\[\d*A`)
 
 // lastFrame extracts the final rendered frame from the teatest output stream:
 // frames are delimited by the renderer's cursor-up repaint sequence, so the
