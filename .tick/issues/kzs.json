@@ -1,0 +1,13 @@
+{
+  "id": "kzs",
+  "title": "tk sandbox worker-prompt's template still lacks the headless and no-amend lines tick 060 added to the cloud role prompts",
+  "description": "The shared worker template behind `tk sandbox worker-prompt` (ticks' internal/herd/spawn BuildPrompt) carries neither the \"ending your turn ends the job / never wait on a background task\" line nor the \"do not amend, rebase or reset commits you have already made\" line. ticfac's cloud role prompts now carry both, so factory-dispatched workers (TICKS_ROLE_PROMPT, which wins verbatim) get them — but a cloud worker booted by hand, or dispatched by a factory that predates the role-prompt field, falls back to the checkout-rendered prompt and still runs without them.\n\nFiled by ticfac run epic-6in of pengelbrecht/ticfac from the finding feef02ff40620e82d3e719d7f1ef61b9b2818dd11d24bf34eac8eb7f48f08d01 (upstream-tick, severity low), reported by run-epic-6in/tick-060/attempt-1. The finding was routed to this repository; the run that found it cannot fix another repository, so it filed it here rather than hold its own epic on it.",
+  "status": "open",
+  "priority": 2,
+  "type": "task",
+  "owner": "peter@engelbrecht.dk",
+  "external_ref": "ticfac-worker:feef02ff40620e82d3e719d7f1ef61b9b2818dd11d24bf34eac8eb7f48f08d01",
+  "created_by": "ticfac run epic-6in",
+  "created_at": "2026-09-28T05:31:49Z",
+  "updated_at": "2026-09-28T05:31:49Z"
+}
