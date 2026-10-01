@@ -21,6 +21,7 @@ Run this before `tk create`. A fresh subagent sees *only this tick* — not the 
 - [ ] **Files (and shared resources) likely touched listed** — the input to wave / parallel-safety planning (see *Partitioning an Epic into Ticks*)
 - [ ] **Human gate decided** — if the tick needs a person (a decision, a secret, a review), create it with the right `--awaiting`/`--requires` flag rather than letting an agent guess
 - [ ] **No unresolved decisions** — every question this tick depends on has an answer *in the tick*, not a plan to ask later (see *Human-in-the-loop ticks*)
+- [ ] **Visible work says how it will be seen** — if the tick changes something a person looks at (a terminal UI, a web page, a rendered document), acceptance names how the result is captured and judged, not only which tests pass (see *Pattern: Work Someone Will See*)
 
 The sections below are the detailed backing for each line; this checklist is just the fast gate.
 
@@ -374,6 +375,36 @@ Record: RESULT-<tick-id>.md (or the named artifact) — command, output, verdict
 Acceptance: RESULT-<tick-id>.md (or [named artifact]) is committed on the tick's branch
 and records the command, its output and a pass/fail verdict against the stated claim
 ```
+
+## Pattern: Work Someone Will See
+
+A UI can pass every test and still be wrong to look at: lines that drift right in a real terminal, a column squeezed to nothing at 80 wide, the one thing that needs attention buried below the fold. Tests check what the code computes; nobody checked what a person sees. An implementer who sees only the tick will not look unless the tick asks them to — so the author designs the looking, the same way they design the test cases.
+
+The method is yours to choose per tick, and it should get better as agents do. What the tick must say is **what is captured, at which sizes and states, judged against what, and where the evidence ends up.** Two complementary views:
+
+- **As text — deterministic, cheap, belongs in the gate.** Render the real output and assert on what lands on screen, not on the strings the code meant to print. A terminal UI: run it in a pseudo-terminal behind a terminal emulator library and assert on the screen grid (every line starts at column 0, every frame fits the width, the key-driven views render). A web page: assert on the rendered DOM or accessibility tree in a real browser, not on the template.
+- **As an image — judged, belongs in the report.** Script the session (a `vhs` tape for a terminal, a Playwright or browser-automation script for a page), capture screenshots of each state at a few sizes, and have a vision-capable model judge each frame against a rubric the tick states: the target layout, nothing truncated or misaligned, the most important thing first. The model's findings feed one more round of fixes, bounded; the screenshots go with the report so the reviewer and the person see what was built.
+
+The text view catches what can be asserted; the image view catches what can only be seen. Use the first whenever you can and add the second when the look is part of the deliverable.
+
+```
+Title: Dashboard shows needs-you first and fits an 80x24 terminal
+
+Description:
+Target layout: [the spec's sketch, pasted — the implementer sees only this tick]
+Views: dashboard, a tick opened with enter, the feed opened with e
+Sizes: 80x24, 120x40
+
+Acceptance:
+- `go test ./internal/watch/... -run TestFrame` (as the gate runs it) passes: at both sizes,
+  in every view, every line starts at column 0 and fits the width; the needs-you line is row 1
+- screenshots of each view at both sizes are captured by `vhs testdata/watch.tape` and
+  linked from the report, with a vision-model verdict against the rubric above;
+  every defect it names is fixed or answered in the report
+- Must still pass: `go test ./internal/watch/...`
+```
+
+Where the screenshots live is the runner's business — committed beside the report, uploaded as run artifacts, attached to the PR. Say what the tick produces; let the runner carry it.
 
 ## Pattern: Epic Whose Done Is a Run
 
